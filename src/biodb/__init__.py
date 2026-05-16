@@ -1,6 +1,6 @@
 """biodb: phenotype-knowledge-graph helpers, ported from ``AoU.phenome``.
 
-Three modules carry the public surface:
+Four modules carry the public surface:
 
 * :mod:`biodb.opentargets` -- Open Targets Platform downloaders and
   parsers (disease/drug/PGx/expression/essentiality/pathways), markdown
@@ -10,13 +10,15 @@ Three modules carry the public surface:
 * :mod:`biodb.ontology` -- OBO / OWL / Mondo loaders, N-hop keyword
   set expansion, hierarchical keyword set generation, attention
   analysis, gene-phenotype matrix construction.
+* :mod:`biodb.clinvar` -- ClinVar VCF download + parsing, CLNSIG
+  long-tail → 6-class simplification, BED / sites format converters.
 
 Shared utilities live in :mod:`biodb.utils` (random seeding,
 similarity helpers, token counting, ``create_gene_association_matrix``,
 ``filter_adaptive``).
 """
 
-from biodb import monarch, ontology, opentargets, utils
+from biodb import clinvar, monarch, ontology, opentargets, utils
 
 # A small slice of high-frequency public symbols is re-exported at the
 # top level for convenience. The full APIs live on the submodules.
@@ -68,6 +70,7 @@ __all__ = [
     "get_targets",
     "l2_normalize",
     "list_datasets",
+    "clinvar",
     "monarch",
     "monarch_get_gene_associations",
     "ontology",

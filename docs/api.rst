@@ -10,4 +10,5 @@ API Reference
    opentargets
    monarch
    ontology
+   clinvar
    utils

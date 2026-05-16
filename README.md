@@ -1,7 +1,7 @@
 # biodb
 
 Phenotype-knowledge-graph helpers — Open Targets, Monarch Initiative,
-and OBO ontologies.
+OBO ontologies, and ClinVar.
 
 [![CI](https://github.com/bschilder/bioDB/actions/workflows/ci.yml/badge.svg)](https://github.com/bschilder/bioDB/actions/workflows/ci.yml)
 [![Docs](https://github.com/bschilder/bioDB/actions/workflows/docs.yml/badge.svg)](https://bschilder.github.io/biodb/)
@@ -25,10 +25,14 @@ and OBO ontologies.
   (Mondo by default), N-hop neighbour expansion, hierarchical keyword
   set generation, attention-weight analysis, gene-phenotype matrix
   construction, ontological similarity.
+* **`clinvar`** — fetch the latest ClinVar VCF (via `pooch`), parse it
+  with `genoray` into a Polars DataFrame with simplified review-status
+  scores, collapse the long-tail `CLNSIG` strings into 6 / 4-class
+  buckets, and write out BED / sites for downstream pipelines.
 
-Each module was extracted from `AoU.phenome.{opentargets,monarch,
-ontology}` so sibling projects can depend on a narrow phenotype-KG
-library without pulling the full All-of-Us pipeline.
+The opentargets / monarch / ontology trio was extracted from
+`AoU.phenome.{opentargets,monarch,ontology}`; the clinvar module is
+adapted from `bschilder/VEP_protein`.
 
 ## Install
 
@@ -41,7 +45,7 @@ pip install git+https://github.com/bschilder/bioDB
 For the optional extras:
 
 ```bash
-pip install "biodb[ontology,viz,tokens,gget]"
+pip install "biodb[ontology,viz,tokens,gget,clinvar]"
 ```
 
 Local development:
@@ -78,6 +82,13 @@ expanded = expand_keyword_sets_from_ontology(
     n_hops=2,
 )
 ```
+
+## Tutorials
+
+Rendered Jupyter notebooks live under [`tutorials/`](tutorials/) — each
+one runs offline against synthetic data and ships with executed
+outputs so you can preview behavior without installing the package.
+See [`tutorials/README.md`](tutorials/README.md) for the index.
 
 ## License
 

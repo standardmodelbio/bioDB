@@ -7,6 +7,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+* `clinvar` module — ClinVar VCF download (via `pooch`), parsing
+  (via `genoray`), CLNSIG long-tail → 6-class simplification, BED /
+  sites format converters. Adapted from `bschilder/VEP_protein`.
+* Optional `[clinvar]` extra: `pip install biodb[clinvar]` pulls in
+  `genoray` + `pooch`.
+
+### Fixed
+
+* `filter_adaptive` lost the `source_id_col` on pandas 2.2+ where
+  `groupby(..., group_keys=False).apply` stops auto-prepending the
+  group key. Replaced with a sort + cumcount + rank-threshold filter
+  that's version-agnostic.
+
 ### Removed
 
 * `gene_weighting` module — moved to the `timeline_dataset` package
