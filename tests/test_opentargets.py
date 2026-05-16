@@ -12,8 +12,6 @@ from __future__ import annotations
 
 import inspect
 
-import pandas as pd
-
 from biodb import opentargets
 
 

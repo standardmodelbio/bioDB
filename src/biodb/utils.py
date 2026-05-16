@@ -18,7 +18,7 @@ from __future__ import annotations
 
 import pickle  # noqa: S403 -- verbatim port; needed for AoU-compat .pkl cache files
 from pathlib import Path
-from typing import Any, Dict, Optional, Tuple, Union
+from typing import Any
 
 import numpy as np
 import pandas as pd
@@ -161,9 +161,9 @@ def _report_sparsity(df, source_id_col, target_id_col, step_name, verbose=True):
     print(f"\n{step_name} Sparsity:")
     print(f"  Traits: {n_trait:,}, Genes: {n_gene:,}")
     print(f"  Nonzero associations: {n_nz:,}")
-    print(f"  Theoretical full matrix shape: {n_trait:,} x {n_gene:,} = {n_trait*n_gene:,}")
-    print(f"  Fraction nonzero: {fraction_nonzero:.6f} ({fraction_nonzero*100:.4f}%)")
-    print(f"  Sparsity (fraction zero): {sparsity:.6f} ({sparsity*100:.4f}%)")
+    print(f"  Theoretical full matrix shape: {n_trait:,} x {n_gene:,} = {n_trait * n_gene:,}")
+    print(f"  Fraction nonzero: {fraction_nonzero:.6f} ({fraction_nonzero * 100:.4f}%)")
+    print(f"  Sparsity (fraction zero): {sparsity:.6f} ({sparsity * 100:.4f}%)")
 
 
 def filter_adaptive(
@@ -171,15 +171,15 @@ def filter_adaptive(
     source_id_col: str = "sourceId",
     target_id_col: str = "targetId",
     percentile: float = 0.95,
-    pval_threshold: Optional[float] = None,
-    fdr_threshold: Optional[float] = None,
+    pval_threshold: float | None = None,
+    fdr_threshold: float | None = None,
     pval_col: str = "pval",
     fdr_col: str = "fdr",
     score_col: str = "score",
     sort_by: str = "score",
     verbose: bool = True,
-    min_genes: Optional[int] = None,
-    max_genes: Optional[int] = None,
+    min_genes: int | None = None,
+    max_genes: int | None = None,
 ) -> pd.DataFrame:
     """Apply adaptive filtering: optional pvalue/FDR filter + per-sample top-percentile keep.
 
@@ -233,20 +233,21 @@ def filter_adaptive(
             raise ValueError(f"sort_by='{sort_by}' but column '{sort_by}' not found in DataFrame")
         df = df.sort_values([source_id_col, sort_by], ascending=[True, True])
 
-    def keep_top_percentile(group):
-        n_keep = max(1, int(len(group) * (1 - percentile)))
-        if min_genes is not None:
-            n_keep = max(n_keep, min_genes)
-        if max_genes is not None:
-            n_keep = min(n_keep, max_genes)
-        n_keep = min(n_keep, len(group))
-        return group.head(n_keep)
+    # Pandas 2.2+ drops the groupby key from `apply` output when
+    # ``group_keys=False`` (see pandas#54895), which silently strips
+    # source_id_col from the result. Use a manual sort + cumcount filter
+    # to keep behavior identical across pandas versions.
+    group_sizes = df.groupby(source_id_col, sort=False).size()
+    n_keeps = (group_sizes * (1 - percentile)).astype(int).clip(lower=1)
+    if min_genes is not None:
+        n_keeps = n_keeps.clip(lower=min_genes)
+    if max_genes is not None:
+        n_keeps = n_keeps.clip(upper=max_genes)
+    n_keeps = n_keeps.clip(upper=group_sizes)
 
-    filtered = (
-        df.groupby(source_id_col, group_keys=False)
-        .apply(keep_top_percentile)
-        .reset_index(drop=True)
-    )
+    within_group_rank = df.groupby(source_id_col, sort=False).cumcount()
+    rank_threshold = df[source_id_col].map(n_keeps).to_numpy()
+    filtered = df.loc[within_group_rank.to_numpy() < rank_threshold].reset_index(drop=True)
 
     if target_id_col != "targetId" and "targetId" not in filtered.columns:
         filtered["targetId"] = filtered[target_id_col]
@@ -258,7 +259,7 @@ def filter_adaptive(
         genes_per_sample = filtered.groupby(source_id_col)[target_id_col].nunique()
 
         print(
-            f"\nAfter percentile filtering (top {100*(1-percentile):.1f}%): "
+            f"\nAfter percentile filtering (top {100 * (1 - percentile):.1f}%): "
             f"{final_count:,} rows, {final_samples:,} samples, {final_genes:,} genes"
         )
         print(
@@ -266,8 +267,8 @@ def filter_adaptive(
             f"max={genes_per_sample.max()}, mean={genes_per_sample.mean():.1f}"
         )
         print(
-            f"  Retained: {final_count/initial_count*100:.1f}% of rows, "
-            f"{final_samples/initial_samples*100:.1f}% of samples"
+            f"  Retained: {final_count / initial_count * 100:.1f}% of rows, "
+            f"{final_samples / initial_samples * 100:.1f}% of samples"
         )
         _report_sparsity(
             filtered, source_id_col, target_id_col, "After percentile filtering", verbose
@@ -277,21 +278,21 @@ def filter_adaptive(
 
 
 def create_gene_association_matrix(
-    associations: Optional[pd.DataFrame] = None,
+    associations: pd.DataFrame | None = None,
     source_id_col: str = "sourceId",
     target_id_col: str = "HGNC",
     score_col: str = "score",
-    group_col: Optional[str] = "group",
-    label_col: Optional[str] = "label",
+    group_col: str | None = "group",
+    label_col: str | None = "label",
     chunk_size: int = 5_000_000,
     convert_to_dense: bool = True,
     max_dense_elements: int = 1_000_000_000,
     verbose: bool = True,
-    save_path: Optional[str] = None,
+    save_path: str | None = None,
     force: bool = False,
-    fillna: Optional[Union[float, str]] = None,
+    fillna: float | str | None = None,
     aggregation_method: str = "mean",
-) -> Tuple[Union[np.ndarray, spmatrix], Dict[str, Any]]:
+) -> tuple[np.ndarray | spmatrix, dict[str, Any]]:
     """Create a gene-association matrix from a long DataFrame of (sample, gene, score).
 
     Verbatim port of ``AoU.utils.create_gene_association_matrix``. See the
@@ -330,9 +331,7 @@ def create_gene_association_matrix(
                 if "obs" not in loaded_metadata or "var" not in loaded_metadata:
                     if verbose:
                         print("  Converting old metadata format to new format...")
-                    unique_data_ids = loaded_metadata.get(
-                        "unique_data_ids", np.arange(X.shape[0])
-                    )
+                    unique_data_ids = loaded_metadata.get("unique_data_ids", np.arange(X.shape[0]))
                     unique_target_ids = loaded_metadata.get(
                         "unique_target_ids", np.arange(X.shape[1])
                     )
@@ -462,7 +461,7 @@ def create_gene_association_matrix(
         group_df = associations[[source_id_col, group_col]].drop_duplicates(
             subset=[source_id_col], keep="first"
         )
-        group_mapping = dict(zip(group_df[source_id_col], group_df[group_col]))
+        group_mapping = dict(zip(group_df[source_id_col], group_df[group_col], strict=False))
         if verbose:
             unique_groups = group_df[group_col].unique()
             print(
@@ -475,7 +474,9 @@ def create_gene_association_matrix(
         database_df = associations[[source_id_col, "database"]].drop_duplicates(
             subset=[source_id_col], keep="first"
         )
-        database_mapping = dict(zip(database_df[source_id_col], database_df["database"]))
+        database_mapping = dict(
+            zip(database_df[source_id_col], database_df["database"], strict=False)
+        )
         if verbose:
             unique_databases = database_df["database"].unique()
             print(
@@ -486,7 +487,7 @@ def create_gene_association_matrix(
         dataset_df = associations[[source_id_col, "dataset"]].drop_duplicates(
             subset=[source_id_col], keep="first"
         )
-        dataset_mapping = dict(zip(dataset_df[source_id_col], dataset_df["dataset"]))
+        dataset_mapping = dict(zip(dataset_df[source_id_col], dataset_df["dataset"], strict=False))
         if verbose:
             unique_datasets = dataset_df["dataset"].unique()
             print(
@@ -498,13 +499,22 @@ def create_gene_association_matrix(
         label_df = associations[[source_id_col, label_col]].drop_duplicates(
             subset=[source_id_col], keep="first"
         )
-        label_mapping = dict(zip(label_df[source_id_col], label_df[label_col]))
+        label_mapping = dict(zip(label_df[source_id_col], label_df[label_col], strict=False))
         if verbose:
             unique_labels = label_df[label_col].unique()
             print(f"Found '{label_col}' column with {len(unique_labels)} unique values")
 
     valid_methods = [
-        "mean", "max", "min", "sum", "median", "first", "last", "std", "var", "count",
+        "mean",
+        "max",
+        "min",
+        "sum",
+        "median",
+        "first",
+        "last",
+        "std",
+        "var",
+        "count",
     ]
     if aggregation_method not in valid_methods:
         try:
@@ -535,9 +545,9 @@ def create_gene_association_matrix(
             chunk = associations.iloc[start:end]
             chunk_filtered = chunk.dropna(subset=[score_col])
             if len(chunk_filtered) > 0:
-                grouped = chunk_filtered.groupby(
-                    [source_id_col, target_id_col], sort=False
-                )[score_col]
+                grouped = chunk_filtered.groupby([source_id_col, target_id_col], sort=False)[
+                    score_col
+                ]
                 chunk_agg = getattr(grouped, aggregation_method)().reset_index()
                 aggregated_chunks.append(chunk_agg)
 
@@ -548,9 +558,7 @@ def create_gene_association_matrix(
             del aggregated_chunks
             aggregated = aggregated.dropna(subset=[score_col])
             if len(aggregated) > 0:
-                grouped = aggregated.groupby(
-                    [source_id_col, target_id_col], sort=False
-                )[score_col]
+                grouped = aggregated.groupby([source_id_col, target_id_col], sort=False)[score_col]
                 aggregated = getattr(grouped, aggregation_method)().reset_index()
             else:
                 aggregated = pd.DataFrame(columns=[source_id_col, target_id_col, score_col])
@@ -563,9 +571,9 @@ def create_gene_association_matrix(
             )
         associations_filtered = associations.dropna(subset=[score_col])
         if len(associations_filtered) > 0:
-            grouped = associations_filtered.groupby(
-                [source_id_col, target_id_col], sort=False
-            )[score_col]
+            grouped = associations_filtered.groupby([source_id_col, target_id_col], sort=False)[
+                score_col
+            ]
             aggregated = getattr(grouped, aggregation_method)().reset_index()
         else:
             aggregated = pd.DataFrame(columns=[source_id_col, target_id_col, score_col])
@@ -573,9 +581,7 @@ def create_gene_association_matrix(
     if len(aggregated) > 0:
         aggregated_source_ids = np.array(aggregated[source_id_col].unique())
         unique_target_ids = np.array(aggregated[target_id_col].unique())
-        unique_data_ids = np.unique(
-            np.concatenate([all_unique_source_ids, aggregated_source_ids])
-        )
+        unique_data_ids = np.unique(np.concatenate([all_unique_source_ids, aggregated_source_ids]))
     else:
         unique_data_ids = all_unique_source_ids
         unique_target_ids = np.array([], dtype=object)
@@ -636,7 +642,7 @@ def create_gene_association_matrix(
 
     if verbose:
         print(f"Matrix shape: {X_sparse.shape}")
-        print(f"Sparsity: {sparsity:.2%} ({(1-sparsity)*100:.2f}% non-zero)")
+        print(f"Sparsity: {sparsity:.2%} ({(1 - sparsity) * 100:.2f}% non-zero)")
 
     if fillna is not None:
         nan_mask = np.isnan(X_sparse.data)
@@ -715,25 +721,25 @@ def create_gene_association_matrix(
     }
     if database_mapping is not None:
         databases = np.array(
-            [database_mapping.get(data_id, None) for data_id in unique_data_ids],
+            [database_mapping.get(data_id) for data_id in unique_data_ids],
             dtype=object,
         )
         obs_data["database"] = databases
     if dataset_mapping is not None:
         datasets = np.array(
-            [dataset_mapping.get(data_id, None) for data_id in unique_data_ids],
+            [dataset_mapping.get(data_id) for data_id in unique_data_ids],
             dtype=object,
         )
         obs_data["dataset"] = datasets
     if group_mapping is not None:
         groups = np.array(
-            [group_mapping.get(data_id, None) for data_id in unique_data_ids],
+            [group_mapping.get(data_id) for data_id in unique_data_ids],
             dtype=object,
         )
         obs_data[group_col] = groups
     if label_mapping is not None:
         labels = np.array(
-            [label_mapping.get(data_id, None) for data_id in unique_data_ids],
+            [label_mapping.get(data_id) for data_id in unique_data_ids],
             dtype=object,
         )
         obs_data[label_col] = labels
