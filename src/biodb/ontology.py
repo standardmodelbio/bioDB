@@ -82,12 +82,20 @@ except ImportError:
     SCIPY_AVAILABLE = False
     sparse = None
     csgraph = None
+try:
+    import torch
+    import torch.nn.functional as F
+    TORCH_AVAILABLE = True
+except ImportError:
+    TORCH_AVAILABLE = False
+    torch = None
+    F = None
 from collections import deque, Counter
 
 
 def expand_keyword_sets_from_ontology(
     seed_keywords: Dict[str, List[str]],
-    ontology_graph: Optional[nx.DiGraph] = None,
+    ontology_graph: "Optional[nx.DiGraph]" = None,
     ontology_dict: Optional[Dict[str, List[str]]] = None,
     n_hops: int = 2,
     max_keywords_per_set: Optional[int] = None,
@@ -258,7 +266,7 @@ def expand_keyword_sets_from_ontology(
 
 def create_hierarchical_keyword_sets(
     seed_keywords: Dict[str, List[str]],
-    ontology_graph: Optional[nx.DiGraph] = None,
+    ontology_graph: "Optional[nx.DiGraph]" = None,
     ontology_dict: Optional[Dict[str, List[str]]] = None,
     hop_levels: List[int] = [1, 2, 3],
     max_keywords_per_level: Optional[int] = None,
@@ -374,7 +382,7 @@ def flatten_hierarchical_sets(
 
 
 def random_seed_keyword_sets(
-    ontology_graph: Optional[nx.DiGraph] = None,
+    ontology_graph: "Optional[nx.DiGraph]" = None,
     ontology_dict: Optional[Dict[str, List[str]]] = None,
     n_seeds: int = 10,
     n_keywords_per_seed: int = 1,
@@ -677,7 +685,7 @@ def format_relationship_as_text(
 
 def generate_keyword_sets_from_ontology(
     ontology_owl: Optional[Any] = None,
-    ontology_graph: Optional[nx.DiGraph] = None,
+    ontology_graph: "Optional[nx.DiGraph]" = None,
     ontology_dict: Optional[Dict[str, List[str]]] = None,
     n_seeds: int = 20,
     n_hops: Union[int, List[int]] = 2,
@@ -1773,7 +1781,7 @@ def count_ontology_relationship_types(
 
 
 def get_ontology_terms(
-    ontology_graph: Optional[nx.DiGraph] = None,
+    ontology_graph: "Optional[nx.DiGraph]" = None,
     ontology_owl: Optional[Any] = None,
     ontology_dict: Optional[Dict[str, List[str]]] = None,
 ) -> List[str]:
@@ -3466,10 +3474,12 @@ def compute_event_concept_similarity_matrix(
     return similarity_matrix
 
 
-import torch
-import torch.nn.functional as F
-import numpy as np
-from scipy import sparse
+# Note: ``torch``, ``F``, ``np``, ``sparse`` are imported at the top of
+# the module with guarded ``try/except ImportError`` blocks so that
+# ``import biodb`` doesn't require torch / scipy / numpy installed.
+# The function below checks ``TORCH_AVAILABLE`` and raises a clear
+# error if torch isn't present at call time.
+
 
 def get_event_concept_attention_weights(
     event_embeddings,  # (n_events, embedding_dim) - all event embeddings
@@ -3528,8 +3538,19 @@ def get_event_concept_attention_weights(
         - If top_k provided: returns top-k indices per event, shape (n_events, top_k)
         - Otherwise: None
     """
+    if not TORCH_AVAILABLE:
+        raise ImportError(
+            "get_event_concept_attention_weights requires torch. "
+            "Install with: pip install torch"
+        )
+    if not NUMPY_AVAILABLE:
+        raise ImportError(
+            "get_event_concept_attention_weights requires numpy. "
+            "Install with: pip install numpy"
+        )
+
     from tqdm.auto import tqdm
-    
+
     # Handle concept_indices parameter
     if concept_indices is not None:
         # Convert to numpy array and validate
@@ -4137,7 +4158,7 @@ def get_attention_weight_for_concept(
 
 def ontology_to_gene_phenotype_matrix(
     ontology_owl: Optional[Any] = None,
-    ontology_graph: Optional[nx.DiGraph] = None,
+    ontology_graph: "Optional[nx.DiGraph]" = None,
     ontology_dict: Optional[Dict[str, List[str]]] = None,
     gene_annotation_property: Optional[str] = None,
     phenotype_label_property: str = "label",
@@ -4581,7 +4602,7 @@ def ontology_to_gene_phenotype_matrix(
 
 def get_ontology_id_label_mapping(
     ontology_owl: Optional[Any] = None,
-    ontology_graph: Optional[nx.DiGraph] = None,
+    ontology_graph: "Optional[nx.DiGraph]" = None,
 ) -> Dict[str, str]:
     """
     Create a bidirectional mapping between ontology IDs and labels.
@@ -4689,7 +4710,7 @@ def get_ontology_id_label_mapping(
 
 def compute_pairwise_ontological_similarity(
     ontology_owl: Optional[Any] = None,
-    ontology_graph: Optional[nx.DiGraph] = None,
+    ontology_graph: "Optional[nx.DiGraph]" = None,
     term_ids: Optional[List[str]] = None,
     similarity_method: str = "path_based",
     relationship_types: Optional[List[str]] = None,
