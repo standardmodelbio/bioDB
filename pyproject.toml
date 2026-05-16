@@ -166,10 +166,6 @@ extend-exclude = [
     "src/biodb/monarch.py",
     "src/biodb/ontology.py",
     "src/biodb/clinvar.py",
-    # Tutorials are jupytext-percent mirrors of executed notebooks;
-    # display-only "df" expressions render in the rendered .ipynb and
-    # don't need to be variable-assigned.
-    "tutorials/",
 ]
 
 [tool.ruff.lint]
