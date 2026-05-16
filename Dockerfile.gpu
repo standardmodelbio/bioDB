@@ -34,7 +34,7 @@ RUN python -c "import biodb, torch; \
 WORKDIR /workspace
 
 LABEL org.opencontainers.image.source="https://github.com/bschilder/bioDB"
-LABEL org.opencontainers.image.description="biodb — phenotype knowledge-graph helpers (CUDA 12.4 + cuDNN 9 base)"
+LABEL org.opencontainers.image.description="biodb — biomedical knowledge graph helpers (CUDA 12.4 + cuDNN 9 base)"
 LABEL org.opencontainers.image.licenses="PolyForm-Noncommercial-1.0.0"
 
 CMD ["python", "-c", "import biodb, torch; print('biodb', biodb.__version__, '| torch', torch.__version__, '| cuda', torch.cuda.is_available())"]

@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "biodb"
 version = "0.1.0"
-description = "Phenotype-knowledge-graph helpers — Open Targets / Monarch / OBO ontologies"
+description = "Biomedical knowledge graph helpers — Open Targets / Monarch / OBO ontologies"
 readme = "README.md"
 license = { text = "PolyForm-Noncommercial-1.0.0" }
 requires-python = ">=3.10"
@@ -39,6 +39,7 @@ dependencies = [
     "pandas>=2.0",
     "polars>=0.20",
     "requests>=2.28",
+    "httpx>=0.24",
     "tqdm>=4.65",
     "scipy>=1.10",
 ]
@@ -75,6 +76,11 @@ tokens = [
 gget = [
     "gget>=0.28",
 ]
+# UniProt REST client (biodb.uniprot). Biopython's SeqIO.uniprot-xml
+# parser is the canonical XML reader for UniProt records.
+protein = [
+    "biopython>=1.83",
+]
 docs = [
     "sphinx>=7.2",
     "sphinx-rtd-theme>=2.0",
@@ -88,7 +94,7 @@ test = [
     "ruff>=0.5",
     "coverage-badge>=1.1",
 ]
-dev = ["biodb[ontology,viz,tokens,gget,clinvar,docs,test]"]
+dev = ["biodb[ontology,viz,tokens,gget,protein,clinvar,docs,test]"]
 
 [project.urls]
 Homepage = "https://github.com/bschilder/bioDB"

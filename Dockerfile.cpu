@@ -45,7 +45,7 @@ WORKDIR /workspace
 RUN python -c "import biodb; print(f'biodb {biodb.__version__} ready')"
 
 LABEL org.opencontainers.image.source="https://github.com/bschilder/bioDB"
-LABEL org.opencontainers.image.description="biodb — phenotype knowledge-graph helpers (OpenTargets / Monarch / OBO / gene weighting)"
+LABEL org.opencontainers.image.description="biodb — biomedical knowledge graph helpers (OpenTargets / Monarch / OBO / gene weighting)"
 LABEL org.opencontainers.image.licenses="PolyForm-Noncommercial-1.0.0"
 
 CMD ["python", "-c", "import biodb; print(biodb.__doc__)"]

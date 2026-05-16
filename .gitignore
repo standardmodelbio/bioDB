@@ -26,6 +26,10 @@ htmlcov/
 # Jupyter checkpoints
 .ipynb_checkpoints/
 
+# Sphinx build artifacts (generated during docs build)
+docs/_build/
+docs/_generated/
+
 # Local scratch
 *.pkl
 *.pt
