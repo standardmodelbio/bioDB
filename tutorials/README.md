@@ -1,16 +1,12 @@
 # bioDB tutorials
 
-Each tutorial is shipped in two forms:
+Rendered `.ipynb` notebooks (with executed outputs — open on
+GitHub / nbviewer / Colab).
 
-- A `.ipynb` rendered with outputs (open on GitHub / nbviewer / Colab).
-- A `.py` percent-format mirror (clean diffs, easy to re-execute with
-  [`jupytext`](https://jupytext.readthedocs.io)).
-
-To regenerate the rendered notebooks after editing the `.py` source:
+To re-execute against the current `biodb` install:
 
 ```bash
-pip install "biodb[clinvar,test]" jupytext nbconvert ipykernel
-jupytext --to ipynb tutorials/*.py
+pip install "biodb[clinvar,test]" nbconvert ipykernel
 jupyter nbconvert --to notebook --execute --inplace tutorials/*.ipynb
 ```
 
