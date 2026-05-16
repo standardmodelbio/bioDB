@@ -272,7 +272,7 @@ def get_dataset(
     limit_files: int | None = None,
     force: bool = False,
     output_format: str = "pandas",
-    parse: bool = True,
+    parse: bool = False,
     verbose: int = 1,
     limit: int | None = None,
 ) -> pd.DataFrame | pl.DataFrame:
