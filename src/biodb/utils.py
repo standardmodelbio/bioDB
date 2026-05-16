@@ -18,7 +18,7 @@ from __future__ import annotations
 
 import pickle  # noqa: S403 -- verbatim port; needed for AoU-compat .pkl cache files
 from pathlib import Path
-from typing import Any, Dict, Optional, Tuple, Union
+from typing import Any
 
 import numpy as np
 import pandas as pd
@@ -171,15 +171,15 @@ def filter_adaptive(
     source_id_col: str = "sourceId",
     target_id_col: str = "targetId",
     percentile: float = 0.95,
-    pval_threshold: Optional[float] = None,
-    fdr_threshold: Optional[float] = None,
+    pval_threshold: float | None = None,
+    fdr_threshold: float | None = None,
     pval_col: str = "pval",
     fdr_col: str = "fdr",
     score_col: str = "score",
     sort_by: str = "score",
     verbose: bool = True,
-    min_genes: Optional[int] = None,
-    max_genes: Optional[int] = None,
+    min_genes: int | None = None,
+    max_genes: int | None = None,
 ) -> pd.DataFrame:
     """Apply adaptive filtering: optional pvalue/FDR filter + per-sample top-percentile keep.
 
@@ -242,8 +242,11 @@ def filter_adaptive(
         n_keep = min(n_keep, len(group))
         return group.head(n_keep)
 
+    # pandas 2.2+ drops the grouping column from `apply` output by default;
+    # explicit column selection brings it back so downstream callers can still
+    # `df[source_id_col]`.
     filtered = (
-        df.groupby(source_id_col, group_keys=False)
+        df.groupby(source_id_col, group_keys=False)[df.columns.tolist()]
         .apply(keep_top_percentile)
         .reset_index(drop=True)
     )
@@ -277,21 +280,21 @@ def filter_adaptive(
 
 
 def create_gene_association_matrix(
-    associations: Optional[pd.DataFrame] = None,
+    associations: pd.DataFrame | None = None,
     source_id_col: str = "sourceId",
     target_id_col: str = "HGNC",
     score_col: str = "score",
-    group_col: Optional[str] = "group",
-    label_col: Optional[str] = "label",
+    group_col: str | None = "group",
+    label_col: str | None = "label",
     chunk_size: int = 5_000_000,
     convert_to_dense: bool = True,
     max_dense_elements: int = 1_000_000_000,
     verbose: bool = True,
-    save_path: Optional[str] = None,
+    save_path: str | None = None,
     force: bool = False,
-    fillna: Optional[Union[float, str]] = None,
+    fillna: float | str | None = None,
     aggregation_method: str = "mean",
-) -> Tuple[Union[np.ndarray, spmatrix], Dict[str, Any]]:
+) -> tuple[np.ndarray | spmatrix, dict[str, Any]]:
     """Create a gene-association matrix from a long DataFrame of (sample, gene, score).
 
     Verbatim port of ``AoU.utils.create_gene_association_matrix``. See the
@@ -460,7 +463,7 @@ def create_gene_association_matrix(
         group_df = associations[[source_id_col, group_col]].drop_duplicates(
             subset=[source_id_col], keep="first"
         )
-        group_mapping = dict(zip(group_df[source_id_col], group_df[group_col]))
+        group_mapping = dict(zip(group_df[source_id_col], group_df[group_col], strict=True))
         if verbose:
             unique_groups = group_df[group_col].unique()
             print(
@@ -473,7 +476,9 @@ def create_gene_association_matrix(
         database_df = associations[[source_id_col, "database"]].drop_duplicates(
             subset=[source_id_col], keep="first"
         )
-        database_mapping = dict(zip(database_df[source_id_col], database_df["database"]))
+        database_mapping = dict(
+            zip(database_df[source_id_col], database_df["database"], strict=True)
+        )
         if verbose:
             unique_databases = database_df["database"].unique()
             print(
@@ -484,7 +489,7 @@ def create_gene_association_matrix(
         dataset_df = associations[[source_id_col, "dataset"]].drop_duplicates(
             subset=[source_id_col], keep="first"
         )
-        dataset_mapping = dict(zip(dataset_df[source_id_col], dataset_df["dataset"]))
+        dataset_mapping = dict(zip(dataset_df[source_id_col], dataset_df["dataset"], strict=True))
         if verbose:
             unique_datasets = dataset_df["dataset"].unique()
             print(
@@ -496,7 +501,7 @@ def create_gene_association_matrix(
         label_df = associations[[source_id_col, label_col]].drop_duplicates(
             subset=[source_id_col], keep="first"
         )
-        label_mapping = dict(zip(label_df[source_id_col], label_df[label_col]))
+        label_mapping = dict(zip(label_df[source_id_col], label_df[label_col], strict=True))
         if verbose:
             unique_labels = label_df[label_col].unique()
             print(f"Found '{label_col}' column with {len(unique_labels)} unique values")
@@ -718,25 +723,25 @@ def create_gene_association_matrix(
     }
     if database_mapping is not None:
         databases = np.array(
-            [database_mapping.get(data_id, None) for data_id in unique_data_ids],
+            [database_mapping.get(data_id) for data_id in unique_data_ids],
             dtype=object,
         )
         obs_data["database"] = databases
     if dataset_mapping is not None:
         datasets = np.array(
-            [dataset_mapping.get(data_id, None) for data_id in unique_data_ids],
+            [dataset_mapping.get(data_id) for data_id in unique_data_ids],
             dtype=object,
         )
         obs_data["dataset"] = datasets
     if group_mapping is not None:
         groups = np.array(
-            [group_mapping.get(data_id, None) for data_id in unique_data_ids],
+            [group_mapping.get(data_id) for data_id in unique_data_ids],
             dtype=object,
         )
         obs_data[group_col] = groups
     if label_mapping is not None:
         labels = np.array(
-            [label_mapping.get(data_id, None) for data_id in unique_data_ids],
+            [label_mapping.get(data_id) for data_id in unique_data_ids],
             dtype=object,
         )
         obs_data[label_col] = labels
