@@ -30,7 +30,6 @@ import gzip
 import json
 import logging
 import os
-import re
 import zlib
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from fnmatch import fnmatch
@@ -45,6 +44,14 @@ from urllib.request import urlopen
 import pandas as pd
 import requests
 from tqdm.auto import tqdm
+
+from biodb.utils import (
+    _is_skippable_gene,  # noqa: F401  -- back-compat alias for tests
+    _looks_like_gene_set_name,  # noqa: F401  -- back-compat alias for tests
+    _parse_gmt_line,  # noqa: F401  -- back-compat alias for tests
+    _reverse_excel_date,  # noqa: F401  -- back-compat alias for tests
+    read_gmt,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -274,155 +281,12 @@ def get_dataset_metadata(dataset_name: str, verbose: int = 0) -> dict[str, str]:
     }
 
 
-# ─── GMT reader (inlined from AoU.utils.read_gmt) ───────────────────────────
+# ─── GMT reader (delegated to biodb.utils.read_gmt) ─────────────────────────
+# The GMT-parse helpers moved to :mod:`biodb.utils` so MSigDB / gProfiler /
+# Enrichr can reuse them. ``_read_gmt`` here is a back-compat alias for
+# anything that still patches it by its old in-module name.
 
-
-_CLONE_ID_RE = re.compile(r"^\d{3}[A-Z]\d{2}(?:_|$)")
-_MONTH_TO_GENE_PREFIX = {
-    "MAR": "MARCH",
-    "SEP": "SEPT",
-    "DEC": "DEC",
-    "JAN": "JAN",
-    "FEB": "FEB",
-    "APR": "APR",
-    "MAY": "MAY",
-    "JUN": "JUN",
-    "JUL": "JUL",
-    "AUG": "AUG",
-    "OCT": "OCT",
-    "NOV": "NOV",
-}
-
-
-def _looks_like_gene_set_name(field: str) -> bool:
-    """True if ``field`` looks like a gene-set name (not a gene symbol)."""
-    if not isinstance(field, str) or not field.strip():
-        return False
-    field = field.strip()
-    if field.startswith(("*", "--", "__")):
-        return True
-    return bool(_CLONE_ID_RE.match(field))
-
-
-def _reverse_excel_date(gene_name: str) -> str:
-    """Reverse Excel's gene→date coercion (e.g. ``"1-MAR"`` → ``"MARCH1"``)."""
-    if not isinstance(gene_name, str):
-        return gene_name
-    parts = gene_name.split("-")
-    if len(parts) != 2:
-        return gene_name
-    number_part, month_part = parts[0].strip(), parts[1].strip().upper()
-    if number_part.isdigit() and month_part in _MONTH_TO_GENE_PREFIX:
-        return f"{_MONTH_TO_GENE_PREFIX[month_part]}{number_part}"
-    return gene_name
-
-
-def _is_skippable_gene(g: str) -> bool:
-    """True if ``g`` is a malformed/non-gene token to drop during GMT parse."""
-    if g.startswith(("*", "--", "__")):
-        return True
-    if _CLONE_ID_RE.match(g):
-        return True
-    if " " in g and len(g) > 30:
-        return True
-    return "(" in g and ")" in g and ("_" in g or g.count(" ") > 1)
-
-
-def _parse_gmt_line(
-    fields: list[str],
-    gene_sets_dict: dict[tuple[str, str], list[str]],
-) -> None:
-    """Parse one GMT line into ``gene_sets_dict``.
-
-    Handles the common "missing newline glued two gene sets together" case
-    by splitting at the first field that looks like a gene-set name.
-    """
-    gene_set_name = fields[0].strip()
-    if not gene_set_name or _looks_like_gene_set_name(gene_set_name):
-        return
-
-    description = fields[1].strip() if len(fields) > 1 else ""
-    genes: list[str] = []
-    i = 2
-    while i < len(fields):
-        g = fields[i].strip()
-        if not g:
-            i += 1
-            continue
-        if _looks_like_gene_set_name(g):
-            # Missing-newline split: flush the current set, then re-enter
-            # this function with the remaining fields starting at ``g``.
-            if gene_set_name and genes:
-                gene_sets_dict[(gene_set_name, description)] = genes
-            _parse_gmt_line(fields[i:], gene_sets_dict)
-            return
-        if _is_skippable_gene(g):
-            i += 1
-            continue
-        genes.append(_reverse_excel_date(g))
-        i += 1
-    if gene_set_name and genes:
-        gene_sets_dict[(gene_set_name, description)] = genes
-
-
-def _read_gmt(
-    filepath: str | Path,
-    return_format: str = "pandas",
-    show_progress: bool = False,
-    suppress_stats: bool = False,
-) -> dict[tuple[str, str], list[str]] | pd.DataFrame:
-    """Read a GMT (Gene Matrix Transpose) file robustly.
-
-    Tries UTF-8 first (with BOM stripping), falls back to latin-1.
-    Detects and recovers from the common "missing newline" corruption that
-    glues two gene sets onto one line.
-    """
-    filepath = os.path.expanduser(str(filepath))
-    gene_sets: dict[tuple[str, str], list[str]] = {}
-
-    def _read(encoding: str) -> None:
-        with open(filepath, encoding=encoding) as f:
-            iterator = tqdm(f, desc="Reading GMT file") if show_progress else f
-            for line in iterator:
-                line = line.rstrip("\n\r")
-                if not line:
-                    continue
-                fields = line.split("\t")
-                if len(fields) < 2:
-                    continue
-                _parse_gmt_line(fields, gene_sets)
-
-    try:
-        _read("utf-8-sig")
-    except UnicodeDecodeError:
-        gene_sets.clear()
-        _read("latin-1")
-
-    if return_format == "dict":
-        return gene_sets
-    if return_format == "pandas":
-        ids, labels, genes_list = [], [], []
-        items = gene_sets.items()
-        if show_progress:
-            items = tqdm(items, desc="Converting to DataFrame")
-        for (name, desc), genes in items:
-            if not genes:
-                continue
-            ids.extend([name] * len(genes))
-            labels.extend([desc] * len(genes))
-            genes_list.extend(genes)
-        df = pd.DataFrame({"id": ids, "label": labels, "gene": genes_list})
-        if not suppress_stats:
-            logger.info(
-                "Loaded %d rows; %d unique gene sets, %d labels, %d genes",
-                len(df),
-                df["id"].nunique(),
-                df["label"].nunique(),
-                df["gene"].nunique(),
-            )
-        return df
-    raise ValueError(f"return_format must be 'dict' or 'pandas', got {return_format!r}")
-
+_read_gmt = read_gmt
 
 # ─── get_gmt: parallel download + read + merge ──────────────────────────────
 

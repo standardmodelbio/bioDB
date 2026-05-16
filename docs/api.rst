@@ -11,8 +11,12 @@ API Reference
    opentargets_graphql
    monarch
    ontology
-   ontology_owl
    uniprot
    harmonizome
    clinvar
+   gwas_atlas
+   gprofiler
+   msigdb
+   mapping
+   transform
    utils

@@ -29,10 +29,19 @@ Each source module aims to provide **both** modes, so you can prototype against 
 |---|---|---|---|
 | **[Open Targets Platform](https://platform-docs.opentargets.org/)** — gene-disease-drug associations, evidence, expression, essentiality, pharmacogenomics, pathways | [`biodb.opentargets`](src/biodb/opentargets.py) | ✅ GraphQL (`query_target`, `query_disease`, `query_drug`, `query_variant`, …) | ✅ FTP Parquet (`list_datasets`, `get_dataset`, `ensure_cached_shards`, versioned cache) |
 | **[Monarch Initiative](https://monarchinitiative.org/)** — causal gene-to-disease, phenotype-to-disease | [`biodb.monarch`](src/biodb/monarch.py) | 🚧 [bioDB#TBD](https://github.com/bschilder/bioDB/issues) — Monarch BioLink API stub | ✅ TSV knowledge graphs (`get_gene_associations`, `read_causal_gene_to_disease_association`) |
-| **OBO / OWL ontologies** ([Mondo](https://mondo.monarchinitiative.org/), HPO, EFO, SO, GO, …) | [`biodb.ontology`](src/biodb/ontology.py) + [`biodb.ontology_owl`](src/biodb/ontology_owl.py) | ✅ Generic owlready2 loader + entity walk (`get_ontology`, `get_descendants`, `get_ancestors`, `get_mrca`) | ✅ OBO / OWL download + parse, N-hop expansion, hierarchical keyword sets, attention-weight analysis, gene-phenotype matrix, ontological similarity |
+| **OBO / OWL ontologies** ([Mondo](https://mondo.monarchinitiative.org/), HPO, EFO, SO, GO, …) | [`biodb.ontology`](src/biodb/ontology.py) | ✅ Generic owlready2 loader + entity walk (`get_ontology`, `get_descendants`, `get_ancestors`, `get_mrca`) | ✅ OBO / OWL download + parse, N-hop expansion, hierarchical keyword sets, attention-weight analysis, gene-phenotype matrix, ontological similarity |
 | **[UniProt](https://www.uniprot.org/)** — protein sequences, features, cross-references | [`biodb.uniprot`](src/biodb/uniprot.py) | ✅ REST (`query_protein`, `get_sequences`, `get_features`, `get_dbxrefs`) | 🚧 [bioDB#TBD](https://github.com/bschilder/bioDB/issues) — bulk Swiss-Prot/TrEMBL FASTA reader |
 | **[Harmonizome](https://maayanlab.cloud/Harmonizome/)** — ~114 curated gene-attribute datasets (CCLE, GTEx, ENCODE, HPA, KEGG, Reactome, …) | [`biodb.harmonizome`](src/biodb/harmonizome.py) | ✅ REST (`list_datasets`, `get_dataset_metadata`) | ✅ Bulk TSV/GMT (`download_datasets`, `get_gmt`, `load_gene_attribute_matrix`) |
 | **[ClinVar](https://www.ncbi.nlm.nih.gov/clinvar/)** — clinical significance + review status for human variants | [`biodb.clinvar`](src/biodb/clinvar.py) | 🚧 [bioDB#TBD](https://github.com/bschilder/bioDB/issues) — per-variant lookup helper | ✅ VCF download (`download_vcf`, `vcf_to_df`, `simplify_annotations`, `df_to_bed`, `df_to_sites`) |
+| **[GWAS Atlas](https://atlas.ctglab.nl/)** — Watanabe et al. per-study gene-level MAGMA p-values across ~4k GWAS summary stats | [`biodb.gwas_atlas`](src/biodb/gwas_atlas.py) | 🚧 [bioDB#TBD](https://github.com/bschilder/bioDB/issues) — per-trait API | ✅ Bulk download (`download_magma_p`, `load_magma_p`, `load_metadata`, `melt_magma_p`) |
+| **[gProfiler](https://biit.cs.ut.ee/gprofiler/)** — University of Tartu gene-set library + functional enrichment | [`biodb.gprofiler`](src/biodb/gprofiler.py) | ✅ REST (`gost`) | ✅ Bulk GMT (`download_gmt`, `load_gmt`) |
+| **[MSigDB](https://www.gsea-msigdb.org/gsea/msigdb/)** — Broad Institute Molecular Signatures DB (Hallmark + C1–C8) | [`biodb.msigdb`](src/biodb/msigdb.py) | 🚧 [bioDB#TBD](https://github.com/bschilder/bioDB/issues) — per-set REST | ✅ Bulk GMT (`download_gmt`, `load_gmt` for any collection/version) |
+
+### Cross-cutting helpers
+
+* [`biodb.mapping`](src/biodb/mapping.py) — `map_gene_ids` — gProfiler-backed cross-namespace gene-ID conversion (Ensembl ↔ HGNC ↔ Entrez ↔ UniProt …)
+* [`biodb.transform`](src/biodb/transform.py) — `create_gene_association_matrix` — pivot a long `(sourceId, targetId, score)` DataFrame into a sparse/dense (samples × genes) matrix with AnnData-shaped metadata
+* [`biodb.utils`](src/biodb/utils.py) — `read_gmt` (GMT format reader used by MSigDB / Harmonizome / gProfiler), `filter_adaptive` (per-sample top-percentile keep), similarity helpers
 
 ## Install
 
