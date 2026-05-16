@@ -1,11 +1,11 @@
-# phenoref
+# biodb
 
 Phenotype-knowledge-graph helpers — Open Targets, Monarch Initiative, OBO
 ontologies, and gene-weighting attention for clinical embeddings.
 
-[![CI](https://github.com/bschilder/phenoref/actions/workflows/ci.yml/badge.svg)](https://github.com/bschilder/phenoref/actions/workflows/ci.yml)
-[![Docs](https://github.com/bschilder/phenoref/actions/workflows/docs.yml/badge.svg)](https://bschilder.github.io/phenoref/)
-[![Docker](https://github.com/bschilder/phenoref/actions/workflows/docker.yml/badge.svg)](https://github.com/bschilder/phenoref/pkgs/container/phenoref)
+[![CI](https://github.com/bschilder/bioDB/actions/workflows/ci.yml/badge.svg)](https://github.com/bschilder/bioDB/actions/workflows/ci.yml)
+[![Docs](https://github.com/bschilder/bioDB/actions/workflows/docs.yml/badge.svg)](https://bschilder.github.io/biodb/)
+[![Docker](https://github.com/bschilder/bioDB/actions/workflows/docker.yml/badge.svg)](https://github.com/bschilder/bioDB/pkgs/container/biodb)
 ![coverage](docs/_static/coverage.svg)
 ![docker](docs/_static/docker.svg)
 [![Python 3.10+](https://img.shields.io/badge/python-3.10%20%7C%203.11%20%7C%203.12-blue.svg)](https://www.python.org/downloads/)
@@ -38,38 +38,38 @@ phenotype-KG library without pulling the full All-of-Us pipeline.
 Until released to PyPI, install from git:
 
 ```bash
-pip install git+https://github.com/bschilder/phenoref
+pip install git+https://github.com/bschilder/bioDB
 ```
 
 For the optional extras:
 
 ```bash
-pip install "phenoref[ontology,viz,tokens,gget]"
+pip install "biodb[ontology,viz,tokens,gget]"
 ```
 
 Local development:
 
 ```bash
-git clone https://github.com/bschilder/phenoref
-cd phenoref
+git clone https://github.com/bschilder/bioDB
+cd biodb
 pip install -e ".[dev]"
 ```
 
 ## Quickstart
 
 ```python
-import phenoref
+import biodb
 
 # Open Targets — list available parquet datasets
-from phenoref.opentargets import list_datasets
+from biodb.opentargets import list_datasets
 print(list_datasets())
 
 # Monarch — read causal gene-to-disease associations
-from phenoref.monarch import read_causal_gene_to_disease_association
+from biodb.monarch import read_causal_gene_to_disease_association
 df = read_causal_gene_to_disease_association()
 
 # Ontology — expand seeds into N-hop neighbourhoods
-from phenoref.ontology import expand_keyword_sets_from_ontology
+from biodb.ontology import expand_keyword_sets_from_ontology
 ontology = {
     "dementia": ["alzheimer's disease", "vascular dementia"],
     "alzheimer's disease": ["early onset alzheimer's"],
@@ -82,7 +82,7 @@ expanded = expand_keyword_sets_from_ontology(
 )
 
 # Gene weighting — score gene relevance against event embeddings
-from phenoref.gene_weighting import GeneWeightingConfig, compute_gene_weights_fast
+from biodb.gene_weighting import GeneWeightingConfig, compute_gene_weights_fast
 cfg = GeneWeightingConfig(top_k=50, temperature=0.1)
 ```
 

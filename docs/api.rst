@@ -1,7 +1,7 @@
 API Reference
 =============
 
-.. currentmodule:: phenoref
+.. currentmodule:: biodb
 
 .. autosummary::
    :toctree: _generated

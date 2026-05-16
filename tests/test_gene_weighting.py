@@ -1,4 +1,4 @@
-"""Smoke tests for ``phenoref.gene_weighting`` -- config, fast scoring, cache."""
+"""Smoke tests for ``biodb.gene_weighting`` -- config, fast scoring, cache."""
 
 from __future__ import annotations
 
@@ -8,11 +8,11 @@ import pytest
 
 torch = pytest.importorskip("torch")
 
-from phenoref import gene_weighting  # noqa: E402
+from biodb import gene_weighting  # noqa: E402
 
 
 def test_module_imports() -> None:
-    assert gene_weighting.__name__ == "phenoref.gene_weighting"
+    assert gene_weighting.__name__ == "biodb.gene_weighting"
 
 
 def test_gene_weighting_config_defaults() -> None:

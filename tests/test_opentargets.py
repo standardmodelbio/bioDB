@@ -1,4 +1,4 @@
-"""Smoke tests for ``phenoref.opentargets``.
+"""Smoke tests for ``biodb.opentargets``.
 
 The full module wraps gget + Open Targets parquet downloads; live calls
 are skipped here. Tests focus on:
@@ -14,12 +14,12 @@ import inspect
 
 import pandas as pd
 
-from phenoref import opentargets
+from biodb import opentargets
 
 
 def test_module_imports() -> None:
     """Bare import of the module must not pull live network deps."""
-    assert opentargets.__name__ == "phenoref.opentargets"
+    assert opentargets.__name__ == "biodb.opentargets"
 
 
 def test_constants_present() -> None:

@@ -62,7 +62,7 @@ def list_datasets(
     
     Examples
     --------
-    >>> import phenoref.opentargets as opentargets
+    >>> import biodb.opentargets as opentargets
     >>> 
     >>> # List all datasets
     >>> datasets = opentargets.list_datasets()
@@ -255,7 +255,7 @@ def get_dataset(
     
     Examples
     --------
-    >>> import phenoref.opentargets as opentargets
+    >>> import biodb.opentargets as opentargets
     >>> 
     >>> # Download and concatenate association data using dataset name
     >>> associations_df = opentargets.get_dataset(dataset="association_overall_direct")
@@ -781,7 +781,7 @@ def df_to_markdown(
     
     Examples
     --------
-    >>> import phenoref.opentargets as opentargets
+    >>> import biodb.opentargets as opentargets
     >>> target_df = opentargets.get_dataset(dataset="target")
     >>> # Get markdown for first gene with all sections
     >>> markdown = opentargets.target_to_markdown(target_df.iloc[0])
@@ -2380,7 +2380,7 @@ def get_targets(
     
     Examples
     --------
-    >>> import phenoref.opentargets as ot
+    >>> import biodb.opentargets as ot
     >>> 
     >>> # Get targets without markdown
     >>> targets = ot.get_targets(add_markdown=False)
@@ -2762,7 +2762,7 @@ def diseases_to_markdown(
     
     Examples
     --------
-    >>> import phenoref.opentargets as opentargets
+    >>> import biodb.opentargets as opentargets
     >>> diseases_df = gene2disease.loc[gene2disease["targetId"]==row["id"]]
     >>> markdown = opentargets.diseases_to_markdown(diseases_df)
     >>> print(markdown)
@@ -2978,7 +2978,7 @@ def drugs_to_markdown(
     
     Examples
     --------
-    >>> import phenoref.opentargets as opentargets
+    >>> import biodb.opentargets as opentargets
     >>> drugs_df = known_drug.loc[known_drug["targetId"]==row["id"]]
     >>> markdown = opentargets.drugs_to_markdown(drugs_df)
     >>> print(markdown)
@@ -3212,7 +3212,7 @@ def pharmacogenomics_to_markdown(
     
     Examples
     --------
-    >>> import phenoref.opentargets as opentargets
+    >>> import biodb.opentargets as opentargets
     >>> pgx_df = gene_to_pgx.loc[gene_to_pgx["targetFromSourceId"]==row["id"]]
     >>> markdown = opentargets.pharmacogenomics_to_markdown(pgx_df)
     >>> print(markdown)
@@ -3943,7 +3943,7 @@ def get_gene_associations(
     
     Examples
     --------
-    >>> import phenoref.opentargets as opentargets
+    >>> import biodb.opentargets as opentargets
     >>> 
     >>> # Use all datasets (default)
     >>> associations = opentargets.get_gene_associations()
@@ -3954,7 +3954,7 @@ def get_gene_associations(
     ... )
     >>> 
     >>> # Use with create_gene_association_matrix
-    >>> import phenoref.utils as utils
+    >>> import biodb.utils as utils
     >>> associations = opentargets.get_gene_associations()
     >>> X, metadata = utils.create_gene_association_matrix(associations)
     """
@@ -4946,7 +4946,7 @@ def parse_expression(df):
 
 #     Examples
 #     --------
-#     >>> import phenoref.opentargets as opentargets
+#     >>> import biodb.opentargets as opentargets
 #     >>> 
 #     >>> # Get gene info with phenotypes using Ensembl ID (single gene)
 #     >>> gene_info = opentargets.get_gene_info("ENSG00000157764", include_phenotypes=True)
@@ -6721,7 +6721,7 @@ def parse_expression(df):
     
 #     Examples
 #     --------
-#     >>> import phenoref.opentargets as opentargets
+#     >>> import biodb.opentargets as opentargets
 #     >>> 
 #     >>> # List all cached files
 #     >>> all_files = opentargets.list_cache()
@@ -6897,7 +6897,7 @@ def get_pathways(targets: pd.DataFrame, gene_symbol_col: str = "approvedSymbol",
     
     Examples
     --------
-    >>> import phenoref.opentargets as ot
+    >>> import biodb.opentargets as ot
     >>> targets = ot.get_targets(limit=100)
     >>> pathways_df = ot.get_pathways(targets)
     >>> # Get pathways with most genes

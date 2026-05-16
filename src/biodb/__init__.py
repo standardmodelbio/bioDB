@@ -1,28 +1,28 @@
-"""phenoref: phenotype-knowledge-graph helpers, ported from ``AoU.phenome``.
+"""biodb: phenotype-knowledge-graph helpers, ported from ``AoU.phenome``.
 
 Four modules carry the public surface:
 
-* :mod:`phenoref.opentargets` -- Open Targets Platform downloaders and
+* :mod:`biodb.opentargets` -- Open Targets Platform downloaders and
   parsers (disease/drug/PGx/expression/essentiality/pathways), markdown
   summary generators, and gene-association matrix builders.
-* :mod:`phenoref.monarch` -- Monarch Initiative association readers
+* :mod:`biodb.monarch` -- Monarch Initiative association readers
   (causal gene-to-disease and friends).
-* :mod:`phenoref.ontology` -- OBO / OWL / Mondo loaders, N-hop keyword
+* :mod:`biodb.ontology` -- OBO / OWL / Mondo loaders, N-hop keyword
   set expansion, hierarchical keyword set generation, attention
   analysis, gene-phenotype matrix construction.
-* :mod:`phenoref.gene_weighting` -- fast two-stage gene attention,
+* :mod:`biodb.gene_weighting` -- fast two-stage gene attention,
   :class:`GeneEmbeddingCache`, temporal / multi-condition weighting.
 
-Shared utilities live in :mod:`phenoref.utils` (random seeding,
+Shared utilities live in :mod:`biodb.utils` (random seeding,
 similarity helpers, token counting, ``create_gene_association_matrix``,
 ``filter_adaptive``).
 """
 
-from phenoref import gene_weighting, monarch, ontology, opentargets, utils
+from biodb import gene_weighting, monarch, ontology, opentargets, utils
 
 # A small slice of high-frequency public symbols is re-exported at the
 # top level for convenience. The full APIs live on the submodules.
-from phenoref.gene_weighting import (
+from biodb.gene_weighting import (
     GeneEmbeddingCache,
     GeneWeightingConfig,
     compute_gene_weights_fast,
@@ -30,13 +30,13 @@ from phenoref.gene_weighting import (
     multi_condition_gene_weighting,
     temporal_gene_weighting,
 )
-from phenoref.monarch import (
+from biodb.monarch import (
     get_gene_associations as monarch_get_gene_associations,
 )
-from phenoref.monarch import (
+from biodb.monarch import (
     read_causal_gene_to_disease_association,
 )
-from phenoref.opentargets import (
+from biodb.opentargets import (
     df_to_markdown,
     diseases_to_markdown,
     drugs_to_markdown,
@@ -47,7 +47,7 @@ from phenoref.opentargets import (
     list_datasets,
     pharmacogenomics_to_markdown,
 )
-from phenoref.utils import (
+from biodb.utils import (
     RANDOM_SEED,
     cosine_similarity,
     count_tokens,

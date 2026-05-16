@@ -2,7 +2,7 @@ name: CI
 
 # Lint + multi-version pytest + self-hosted coverage badge.
 #
-# phenoref is a standalone package with no private cross-repo
+# biodb is a standalone package with no private cross-repo
 # dependencies, so no PAT / CROSS_REPO_TOKEN plumbing is needed —
 # the default GITHUB_TOKEN is enough.
 #
@@ -62,7 +62,7 @@ jobs:
           pip install --index-url https://download.pytorch.org/whl/cpu torch
           pip install -e ".[test]"
       - name: Run tests
-        run: pytest --cov=phenoref --cov-report=xml --cov-report=term
+        run: pytest --cov=biodb --cov-report=xml --cov-report=term
 
       - name: Generate coverage badge
         if: ${{ matrix.python == '3.11' && github.event_name == 'push' && github.ref == 'refs/heads/main' }}

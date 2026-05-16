@@ -1,15 +1,15 @@
-"""Sphinx configuration for the phenoref docs site."""
+"""Sphinx configuration for the biodb docs site."""
 
 from __future__ import annotations
 
 from importlib.metadata import version as _pkg_version
 
-project = "phenoref"
+project = "biodb"
 author = "Brian Schilder"
 copyright = "2026, Brian Schilder"
 
 try:
-    release = _pkg_version("phenoref")
+    release = _pkg_version("biodb")
 except Exception:
     release = "0.1.0"
 version = ".".join(release.split(".")[:2])
@@ -52,7 +52,7 @@ html_theme = "sphinx_rtd_theme"
 html_static_path = ["_static"]
 html_title = f"{project} {release}"
 html_show_sourcelink = False
-html_baseurl = "https://bschilder.github.io/phenoref/"
+html_baseurl = "https://bschilder.github.io/biodb/"
 html_theme_options = {
     "logo_only": False,
     "navigation_depth": 4,
@@ -64,7 +64,7 @@ html_theme_options = {
 html_context = {
     "display_github": True,
     "github_user": "bschilder",
-    "github_repo": "phenoref",
+    "github_repo": "biodb",
     "github_version": "main",
     "conf_py_path": "/docs/",
 }

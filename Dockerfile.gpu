@@ -1,7 +1,7 @@
 # syntax=docker/dockerfile:1.7
-# GPU-enabled phenoref image.
+# GPU-enabled biodb image.
 #
-# phenoref has no private cross-repo deps, so the pip install runs
+# biodb has no private cross-repo deps, so the pip install runs
 # without any buildx secrets.
 
 FROM pytorch/pytorch:2.4.1-cuda12.4-cudnn9-runtime
@@ -28,13 +28,13 @@ RUN set -euo pipefail \
     && pip install --upgrade pip \
     && pip install "."
 
-RUN python -c "import phenoref, torch; \
-    print(f'phenoref {phenoref.__version__}  torch {torch.__version__}  cuda={torch.cuda.is_available()}')"
+RUN python -c "import biodb, torch; \
+    print(f'biodb {biodb.__version__}  torch {torch.__version__}  cuda={torch.cuda.is_available()}')"
 
 WORKDIR /workspace
 
-LABEL org.opencontainers.image.source="https://github.com/bschilder/phenoref"
-LABEL org.opencontainers.image.description="phenoref — phenotype knowledge-graph helpers (CUDA 12.4 + cuDNN 9 base)"
+LABEL org.opencontainers.image.source="https://github.com/bschilder/bioDB"
+LABEL org.opencontainers.image.description="biodb — phenotype knowledge-graph helpers (CUDA 12.4 + cuDNN 9 base)"
 LABEL org.opencontainers.image.licenses="PolyForm-Noncommercial-1.0.0"
 
-CMD ["python", "-c", "import phenoref, torch; print('phenoref', phenoref.__version__, '| torch', torch.__version__, '| cuda', torch.cuda.is_available())"]
+CMD ["python", "-c", "import biodb, torch; print('biodb', biodb.__version__, '| torch', torch.__version__, '| cuda', torch.cuda.is_available())"]

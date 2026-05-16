@@ -57,7 +57,7 @@ def list_datasets(
     
     Examples
     --------
-    >>> import phenoref.monarch as monarch
+    >>> import biodb.monarch as monarch
     >>> 
     >>> # List all datasets
     >>> datasets = monarch.list_datasets()
@@ -239,7 +239,7 @@ def get_dataset(
     
     Examples
     --------
-    >>> import phenoref.monarch as monarch
+    >>> import biodb.monarch as monarch
     >>> 
     >>> # Get a dataset by name
     >>> df = monarch.get_dataset(dataset="causal_gene_to_disease_association")
@@ -441,7 +441,7 @@ def read_causal_gene_to_disease_association(
     
     Examples
     --------
-    >>> import phenoref.monarch as monarch
+    >>> import biodb.monarch as monarch
     >>> 
     >>> # Read the default causal gene-to-disease associations
     >>> df = monarch.read_causal_gene_to_disease_association()
@@ -644,7 +644,7 @@ def get_gene_associations(
     
     Examples
     --------
-    >>> import phenoref.monarch as monarch
+    >>> import biodb.monarch as monarch
     >>> 
     >>> # Use default datasets and species
     >>> associations = monarch.prepare_gene_association_matrix()
@@ -662,7 +662,7 @@ def get_gene_associations(
     ... )
     >>> 
     >>> # Use with create_gene_association_matrix
-    >>> import phenoref.utils as utils
+    >>> import biodb.utils as utils
     >>> associations = monarch.prepare_gene_association_matrix()
     >>> X, metadata = utils.create_gene_association_matrix(associations)
     """

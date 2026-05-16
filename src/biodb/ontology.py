@@ -12,7 +12,7 @@ The key idea:
 - Relationships not in ontology can still be learned from data
 
 Example:
-    >>> from phenoref.ontology import expand_keyword_sets_from_ontology
+    >>> from biodb.ontology import expand_keyword_sets_from_ontology
     >>> 
     >>> # Define ontology (or load from SNOMED/UMLS)
     >>> ontology = {
@@ -37,7 +37,7 @@ from typing import Dict, List, Set, Optional, Tuple, Union, Any, Callable
 import random
 import os
 import functools
-# Heavy/optional plotting deps -- import lazily so a bare ``import phenoref``
+# Heavy/optional plotting deps -- import lazily so a bare ``import biodb``
 # (or any non-plotting code path) does not require them.
 try:
     import matplotlib.pyplot as plt

@@ -1,4 +1,4 @@
-"""Smoke tests for ``phenoref.utils`` -- random seeding, similarity helpers,
+"""Smoke tests for ``biodb.utils`` -- random seeding, similarity helpers,
 ``filter_adaptive`` and ``create_gene_association_matrix``."""
 
 from __future__ import annotations
@@ -6,7 +6,7 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from phenoref import utils
+from biodb import utils
 
 
 def test_random_seed_constant() -> None:

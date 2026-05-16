@@ -1,8 +1,8 @@
 """Shared helpers — verbatim ports from ``AoU.utils``. Re-vendored here so
-``phenoref`` has no AoU dependency at runtime.
+``biodb`` has no AoU dependency at runtime.
 
 Public surface (mirrors the slice of ``AoU.utils`` actually called by the
-four phenoref modules):
+four biodb modules):
 
 * :data:`RANDOM_SEED`, :func:`set_random_seed`
 * :func:`count_tokens` -- tiktoken token counter (used by

@@ -1,4 +1,4 @@
-"""Smoke tests for ``phenoref.ontology``.
+"""Smoke tests for ``biodb.ontology``.
 
 Covers the pure-Python helpers (keyword expansion, flatten/hierarchical
 helpers) on a tiny synthetic ontology. Heavy paths (Mondo OWL loading,
@@ -11,11 +11,11 @@ import inspect
 
 import pytest
 
-from phenoref import ontology
+from biodb import ontology
 
 
 def test_module_imports() -> None:
-    assert ontology.__name__ == "phenoref.ontology"
+    assert ontology.__name__ == "biodb.ontology"
 
 
 def test_lazy_optional_deps_have_flags() -> None:

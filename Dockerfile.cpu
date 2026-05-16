@@ -1,10 +1,10 @@
 # syntax=docker/dockerfile:1.7
-# Two-stage build for the phenoref package.
+# Two-stage build for the biodb package.
 #
-# phenoref has no private cross-repo deps, so the pip install runs
+# biodb has no private cross-repo deps, so the pip install runs
 # without any buildx secrets.
 # Built and pushed by .github/workflows/docker.yml to
-# ghcr.io/bschilder/phenoref.
+# ghcr.io/bschilder/bioDB.
 
 # ─── Stage 1: build ─────────────────────────────────────────────────
 FROM python:3.11-slim AS builder
@@ -42,10 +42,10 @@ COPY --from=builder /usr/local/bin /usr/local/bin
 
 WORKDIR /workspace
 
-RUN python -c "import phenoref; print(f'phenoref {phenoref.__version__} ready')"
+RUN python -c "import biodb; print(f'biodb {biodb.__version__} ready')"
 
-LABEL org.opencontainers.image.source="https://github.com/bschilder/phenoref"
-LABEL org.opencontainers.image.description="phenoref — phenotype knowledge-graph helpers (OpenTargets / Monarch / OBO / gene weighting)"
+LABEL org.opencontainers.image.source="https://github.com/bschilder/bioDB"
+LABEL org.opencontainers.image.description="biodb — phenotype knowledge-graph helpers (OpenTargets / Monarch / OBO / gene weighting)"
 LABEL org.opencontainers.image.licenses="PolyForm-Noncommercial-1.0.0"
 
-CMD ["python", "-c", "import phenoref; print(phenoref.__doc__)"]
+CMD ["python", "-c", "import biodb; print(biodb.__doc__)"]

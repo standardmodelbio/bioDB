@@ -3,20 +3,20 @@
 ## Install
 
 ```bash
-pip install git+https://github.com/bschilder/phenoref
+pip install git+https://github.com/bschilder/bioDB
 ```
 
 For the optional extras (ontology readers, plotting, tiktoken,
 gget-based Open Targets queries):
 
 ```bash
-pip install "phenoref[ontology,viz,tokens,gget]"
+pip install "biodb[ontology,viz,tokens,gget]"
 ```
 
 ## Open Targets
 
 ```python
-from phenoref.opentargets import list_datasets, get_dataset, df_to_markdown
+from biodb.opentargets import list_datasets, get_dataset, df_to_markdown
 
 # What parquet dumps are available?
 print(list_datasets())
@@ -34,7 +34,7 @@ print(df_to_markdown(row))
 ## Monarch Initiative
 
 ```python
-from phenoref.monarch import read_causal_gene_to_disease_association
+from biodb.monarch import read_causal_gene_to_disease_association
 
 df = read_causal_gene_to_disease_association()
 print(df.head())
@@ -43,7 +43,7 @@ print(df.head())
 ## Ontology expansion
 
 ```python
-from phenoref.ontology import expand_keyword_sets_from_ontology
+from biodb.ontology import expand_keyword_sets_from_ontology
 
 ontology = {
     "dementia": ["alzheimer's disease", "vascular dementia"],
@@ -63,7 +63,7 @@ print(expanded["dementia"])
 
 ```python
 import torch
-from phenoref.gene_weighting import GeneWeightingConfig, compute_gene_weights_fast
+from biodb.gene_weighting import GeneWeightingConfig, compute_gene_weights_fast
 
 cfg = GeneWeightingConfig(top_k=50, temperature=0.1)
 event_emb = torch.randn(4, 10, 64)        # (batch, n_events, embed_dim)
@@ -79,7 +79,7 @@ scores = compute_gene_weights_fast(
 
 ```python
 import pandas as pd
-from phenoref.utils import create_gene_association_matrix
+from biodb.utils import create_gene_association_matrix
 
 assoc = pd.DataFrame({
     "sourceId": ["DIS:1", "DIS:1", "DIS:2"],

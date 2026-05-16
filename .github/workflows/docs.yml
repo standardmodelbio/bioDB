@@ -3,7 +3,7 @@ name: Docs
 # Builds the Sphinx docs site on every push to main and deploys to
 # GitHub Pages.
 #
-# phenoref has no private cross-repo deps — a plain pip install is
+# biodb has no private cross-repo deps — a plain pip install is
 # sufficient.
 #
 # One-time setup: Settings → Pages → Source → "GitHub Actions".

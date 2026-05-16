@@ -1,14 +1,14 @@
-"""Smoke tests for ``phenoref.monarch`` -- import + public-API stability."""
+"""Smoke tests for ``biodb.monarch`` -- import + public-API stability."""
 
 from __future__ import annotations
 
 import inspect
 
-from phenoref import monarch
+from biodb import monarch
 
 
 def test_module_imports() -> None:
-    assert monarch.__name__ == "phenoref.monarch"
+    assert monarch.__name__ == "biodb.monarch"
 
 
 def test_constants_present() -> None:

@@ -3,7 +3,7 @@ requires = ["setuptools>=68", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "phenoref"
+name = "biodb"
 version = "0.1.0"
 description = "Phenotype-knowledge-graph helpers — Open Targets / Monarch / OBO ontologies / gene weighting"
 readme = "README.md"
@@ -84,18 +84,18 @@ test = [
     "ruff>=0.5",
     "coverage-badge>=1.1",
 ]
-dev = ["phenoref[ontology,viz,tokens,gget,docs,test]"]
+dev = ["biodb[ontology,viz,tokens,gget,docs,test]"]
 
 [project.urls]
-Homepage = "https://github.com/bschilder/phenoref"
-Repository = "https://github.com/bschilder/phenoref"
-Issues = "https://github.com/bschilder/phenoref/issues"
+Homepage = "https://github.com/bschilder/bioDB"
+Repository = "https://github.com/bschilder/bioDB"
+Issues = "https://github.com/bschilder/bioDB/issues"
 
 [tool.setuptools.packages.find]
 where = ["src"]
 
 [tool.setuptools.package-data]
-"phenoref" = ["py.typed"]
+"biodb" = ["py.typed"]
 
 [tool.pytest.ini_options]
 minversion = "8.0"
@@ -103,7 +103,7 @@ addopts = [
     "-q",
     "--strict-markers",
     "--strict-config",
-    "--cov=phenoref",
+    "--cov=biodb",
     "--cov-report=term-missing:skip-covered",
     "--cov-report=xml",
 ]
@@ -115,17 +115,17 @@ markers = [
 
 [tool.coverage.run]
 branch = true
-source = ["phenoref"]
+source = ["biodb"]
 omit = [
     # The four vendored AoU modules are huge surface-area ports. Each
     # has many branches (Open Targets API shapes, gget fallbacks, OBO
     # readers, mondo loaders, GPU code paths) that are unreachable
     # without live network access or optional heavy deps. The CPU/no-
     # net CI exercises the import surface + signature shape only.
-    "src/phenoref/opentargets.py",
-    "src/phenoref/monarch.py",
-    "src/phenoref/ontology.py",
-    "src/phenoref/gene_weighting.py",
+    "src/biodb/opentargets.py",
+    "src/biodb/monarch.py",
+    "src/biodb/ontology.py",
+    "src/biodb/gene_weighting.py",
 ]
 
 [tool.coverage.report]
@@ -146,10 +146,10 @@ src = ["src", "tests"]
 extend-exclude = [
     # Vendored ports of AoU.phenome.{opentargets,monarch,ontology,gene_weighting}.
     # Treat as third-party — style fixes belong upstream in AoU, not here.
-    "src/phenoref/opentargets.py",
-    "src/phenoref/monarch.py",
-    "src/phenoref/ontology.py",
-    "src/phenoref/gene_weighting.py",
+    "src/biodb/opentargets.py",
+    "src/biodb/monarch.py",
+    "src/biodb/ontology.py",
+    "src/biodb/gene_weighting.py",
 ]
 
 [tool.ruff.lint]

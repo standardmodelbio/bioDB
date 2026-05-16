@@ -1,6 +1,6 @@
-# phenoref
+# biodb
 
-`phenoref` is a small standalone library of phenotype-knowledge-graph
+`biodb` is a small standalone library of phenotype-knowledge-graph
 helpers — Open Targets Platform, Monarch Initiative, OBO / OWL
 ontologies, and gene-weighting attention for clinical event embeddings.
 Ported out of `AoU.phenome` so sibling projects can depend on a narrow
@@ -23,8 +23,8 @@ phenotype-KG library without pulling the full All-of-Us pipeline.
 ## Quickstart
 
 ```python
-from phenoref.opentargets import list_datasets
-from phenoref.ontology import expand_keyword_sets_from_ontology
+from biodb.opentargets import list_datasets
+from biodb.ontology import expand_keyword_sets_from_ontology
 
 print(list_datasets())  # list available Open Targets parquet datasets
 
