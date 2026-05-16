@@ -1,0 +1,40 @@
+# syntax=docker/dockerfile:1.7
+# GPU-enabled phenoref image.
+#
+# phenoref has no private cross-repo deps, so the pip install runs
+# without any buildx secrets.
+
+FROM pytorch/pytorch:2.4.1-cuda12.4-cudnn9-runtime
+
+ENV PIP_DISABLE_PIP_VERSION_CHECK=1 \
+    PIP_NO_CACHE_DIR=1 \
+    PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1
+
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends git libgomp1 \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /app
+
+COPY pyproject.toml README.md LICENSE ./
+COPY src/ ./src/
+
+# Use bash explicitly: ``set -o pipefail`` is a bash builtin and fails
+# under dash (``/bin/sh`` on Debian-based images).
+SHELL ["/bin/bash", "-c"]
+
+RUN set -euo pipefail \
+    && pip install --upgrade pip \
+    && pip install "."
+
+RUN python -c "import phenoref, torch; \
+    print(f'phenoref {phenoref.__version__}  torch {torch.__version__}  cuda={torch.cuda.is_available()}')"
+
+WORKDIR /workspace
+
+LABEL org.opencontainers.image.source="https://github.com/bschilder/phenoref"
+LABEL org.opencontainers.image.description="phenoref — phenotype knowledge-graph helpers (CUDA 12.4 + cuDNN 9 base)"
+LABEL org.opencontainers.image.licenses="PolyForm-Noncommercial-1.0.0"
+
+CMD ["python", "-c", "import phenoref, torch; print('phenoref', phenoref.__version__, '| torch', torch.__version__, '| cuda', torch.cuda.is_available())"]

@@ -1,0 +1,51 @@
+# syntax=docker/dockerfile:1.7
+# Two-stage build for the phenoref package.
+#
+# phenoref has no private cross-repo deps, so the pip install runs
+# without any buildx secrets.
+# Built and pushed by .github/workflows/docker.yml to
+# ghcr.io/bschilder/phenoref.
+
+# ─── Stage 1: build ─────────────────────────────────────────────────
+FROM python:3.11-slim AS builder
+
+ENV PIP_DISABLE_PIP_VERSION_CHECK=1 \
+    PIP_NO_CACHE_DIR=1 \
+    PYTHONDONTWRITEBYTECODE=1
+
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends build-essential git \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /build
+COPY pyproject.toml README.md LICENSE ./
+COPY src/ ./src/
+
+# CPU torch first so the resolver doesn't pull the ~2GB CUDA wheel.
+RUN set -eux \
+    && pip install --upgrade pip \
+    && pip install --index-url https://download.pytorch.org/whl/cpu torch \
+    && pip install "."
+
+# ─── Stage 2: runtime ───────────────────────────────────────────────
+FROM python:3.11-slim AS runtime
+
+ENV PYTHONUNBUFFERED=1 \
+    PYTHONDONTWRITEBYTECODE=1
+
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends libgomp1 \
+    && rm -rf /var/lib/apt/lists/*
+
+COPY --from=builder /usr/local/lib/python3.11/site-packages /usr/local/lib/python3.11/site-packages
+COPY --from=builder /usr/local/bin /usr/local/bin
+
+WORKDIR /workspace
+
+RUN python -c "import phenoref; print(f'phenoref {phenoref.__version__} ready')"
+
+LABEL org.opencontainers.image.source="https://github.com/bschilder/phenoref"
+LABEL org.opencontainers.image.description="phenoref — phenotype knowledge-graph helpers (OpenTargets / Monarch / OBO / gene weighting)"
+LABEL org.opencontainers.image.licenses="PolyForm-Noncommercial-1.0.0"
+
+CMD ["python", "-c", "import phenoref; print(phenoref.__doc__)"]

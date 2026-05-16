@@ -1,0 +1,162 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "phenoref"
+version = "0.1.0"
+description = "Phenotype-knowledge-graph helpers — Open Targets / Monarch / OBO ontologies / gene weighting"
+readme = "README.md"
+license = { text = "PolyForm-Noncommercial-1.0.0" }
+requires-python = ">=3.10"
+authors = [{ name = "Brian Schilder", email = "brian@standardmodel.bio" }]
+keywords = [
+    "open-targets",
+    "monarch-initiative",
+    "ontology",
+    "mondo",
+    "phenotype",
+    "knowledge-graph",
+    "gene-disease",
+    "drug-target",
+    "bioinformatics",
+]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Science/Research",
+    "License :: Other/Proprietary License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Scientific/Engineering :: Bio-Informatics",
+]
+# Core dependencies — every module imports at least numpy + pandas.
+# torch is required by gene_weighting.py; matplotlib + datashader are
+# used by ontology.py's plotting helpers but are lazy-imported only when
+# the plotting paths are invoked.
+dependencies = [
+    "numpy>=1.24",
+    "pandas>=2.0",
+    "polars>=0.20",
+    "requests>=2.28",
+    "tqdm>=4.65",
+    "scipy>=1.10",
+    "torch>=2.0",
+]
+
+[project.optional-dependencies]
+# Optional ontology + KG dependencies. gget pulls many heavy deps so it
+# is opt-in. networkx + obonet + pronto + pyobo are used by various
+# branches of ontology.py and opentargets.py but each is import-guarded.
+ontology = [
+    "networkx>=3.0",
+    "obonet>=1.0",
+    "pronto>=2.5",
+    "pyobo>=0.10",
+    "owlready2>=0.45",
+]
+viz = [
+    "matplotlib>=3.7",
+    "datashader>=0.16",
+    "colorcet>=3.0",
+    "pyvis>=0.3",
+]
+# Tokenizer used by count_tokens() in utils.
+tokens = [
+    "tiktoken>=0.6",
+]
+# Open Targets GraphQL / VEP / etc helpers. gget is the upstream
+# backend used by opentargets.py.
+gget = [
+    "gget>=0.28",
+]
+docs = [
+    "sphinx>=7.2",
+    "sphinx-rtd-theme>=2.0",
+    "myst-parser>=2.0",
+    "sphinx-autodoc-typehints>=2.0",
+    "sphinx-copybutton>=0.5",
+]
+test = [
+    "pytest>=8.0",
+    "pytest-cov>=5.0",
+    "ruff>=0.5",
+    "coverage-badge>=1.1",
+]
+dev = ["phenoref[ontology,viz,tokens,gget,docs,test]"]
+
+[project.urls]
+Homepage = "https://github.com/bschilder/phenoref"
+Repository = "https://github.com/bschilder/phenoref"
+Issues = "https://github.com/bschilder/phenoref/issues"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+"phenoref" = ["py.typed"]
+
+[tool.pytest.ini_options]
+minversion = "8.0"
+addopts = [
+    "-q",
+    "--strict-markers",
+    "--strict-config",
+    "--cov=phenoref",
+    "--cov-report=term-missing:skip-covered",
+    "--cov-report=xml",
+]
+testpaths = ["tests"]
+markers = [
+    "slow: tests > ~5s",
+    "network: tests that hit a live remote API (skipped in CI)",
+]
+
+[tool.coverage.run]
+branch = true
+source = ["phenoref"]
+omit = [
+    # The four vendored AoU modules are huge surface-area ports. Each
+    # has many branches (Open Targets API shapes, gget fallbacks, OBO
+    # readers, mondo loaders, GPU code paths) that are unreachable
+    # without live network access or optional heavy deps. The CPU/no-
+    # net CI exercises the import surface + signature shape only.
+    "src/phenoref/opentargets.py",
+    "src/phenoref/monarch.py",
+    "src/phenoref/ontology.py",
+    "src/phenoref/gene_weighting.py",
+]
+
+[tool.coverage.report]
+exclude_also = [
+    "raise NotImplementedError",
+    "if TYPE_CHECKING:",
+    "if __name__ == .__main__.:",
+    "except ImportError",
+    "except Exception as e:",
+    "raise ImportError",
+    "raise FileNotFoundError",
+]
+
+[tool.ruff]
+line-length = 100
+target-version = "py310"
+src = ["src", "tests"]
+extend-exclude = [
+    # Vendored ports of AoU.phenome.{opentargets,monarch,ontology,gene_weighting}.
+    # Treat as third-party — style fixes belong upstream in AoU, not here.
+    "src/phenoref/opentargets.py",
+    "src/phenoref/monarch.py",
+    "src/phenoref/ontology.py",
+    "src/phenoref/gene_weighting.py",
+]
+
+[tool.ruff.lint]
+select = [
+    "E", "W", "F", "I", "B", "UP", "SIM",
+]
+ignore = [
+    "E501", # line-too-long — formatter handles
+    "B008", # function-call-in-default-argument — common idiom
+]
