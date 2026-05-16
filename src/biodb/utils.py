@@ -161,9 +161,9 @@ def _report_sparsity(df, source_id_col, target_id_col, step_name, verbose=True):
     print(f"\n{step_name} Sparsity:")
     print(f"  Traits: {n_trait:,}, Genes: {n_gene:,}")
     print(f"  Nonzero associations: {n_nz:,}")
-    print(f"  Theoretical full matrix shape: {n_trait:,} x {n_gene:,} = {n_trait*n_gene:,}")
-    print(f"  Fraction nonzero: {fraction_nonzero:.6f} ({fraction_nonzero*100:.4f}%)")
-    print(f"  Sparsity (fraction zero): {sparsity:.6f} ({sparsity*100:.4f}%)")
+    print(f"  Theoretical full matrix shape: {n_trait:,} x {n_gene:,} = {n_trait * n_gene:,}")
+    print(f"  Fraction nonzero: {fraction_nonzero:.6f} ({fraction_nonzero * 100:.4f}%)")
+    print(f"  Sparsity (fraction zero): {sparsity:.6f} ({sparsity * 100:.4f}%)")
 
 
 def filter_adaptive(
@@ -258,7 +258,7 @@ def filter_adaptive(
         genes_per_sample = filtered.groupby(source_id_col)[target_id_col].nunique()
 
         print(
-            f"\nAfter percentile filtering (top {100*(1-percentile):.1f}%): "
+            f"\nAfter percentile filtering (top {100 * (1 - percentile):.1f}%): "
             f"{final_count:,} rows, {final_samples:,} samples, {final_genes:,} genes"
         )
         print(
@@ -266,8 +266,8 @@ def filter_adaptive(
             f"max={genes_per_sample.max()}, mean={genes_per_sample.mean():.1f}"
         )
         print(
-            f"  Retained: {final_count/initial_count*100:.1f}% of rows, "
-            f"{final_samples/initial_samples*100:.1f}% of samples"
+            f"  Retained: {final_count / initial_count * 100:.1f}% of rows, "
+            f"{final_samples / initial_samples * 100:.1f}% of samples"
         )
         _report_sparsity(
             filtered, source_id_col, target_id_col, "After percentile filtering", verbose
@@ -330,9 +330,7 @@ def create_gene_association_matrix(
                 if "obs" not in loaded_metadata or "var" not in loaded_metadata:
                     if verbose:
                         print("  Converting old metadata format to new format...")
-                    unique_data_ids = loaded_metadata.get(
-                        "unique_data_ids", np.arange(X.shape[0])
-                    )
+                    unique_data_ids = loaded_metadata.get("unique_data_ids", np.arange(X.shape[0]))
                     unique_target_ids = loaded_metadata.get(
                         "unique_target_ids", np.arange(X.shape[1])
                     )
@@ -504,7 +502,16 @@ def create_gene_association_matrix(
             print(f"Found '{label_col}' column with {len(unique_labels)} unique values")
 
     valid_methods = [
-        "mean", "max", "min", "sum", "median", "first", "last", "std", "var", "count",
+        "mean",
+        "max",
+        "min",
+        "sum",
+        "median",
+        "first",
+        "last",
+        "std",
+        "var",
+        "count",
     ]
     if aggregation_method not in valid_methods:
         try:
@@ -535,9 +542,9 @@ def create_gene_association_matrix(
             chunk = associations.iloc[start:end]
             chunk_filtered = chunk.dropna(subset=[score_col])
             if len(chunk_filtered) > 0:
-                grouped = chunk_filtered.groupby(
-                    [source_id_col, target_id_col], sort=False
-                )[score_col]
+                grouped = chunk_filtered.groupby([source_id_col, target_id_col], sort=False)[
+                    score_col
+                ]
                 chunk_agg = getattr(grouped, aggregation_method)().reset_index()
                 aggregated_chunks.append(chunk_agg)
 
@@ -548,9 +555,7 @@ def create_gene_association_matrix(
             del aggregated_chunks
             aggregated = aggregated.dropna(subset=[score_col])
             if len(aggregated) > 0:
-                grouped = aggregated.groupby(
-                    [source_id_col, target_id_col], sort=False
-                )[score_col]
+                grouped = aggregated.groupby([source_id_col, target_id_col], sort=False)[score_col]
                 aggregated = getattr(grouped, aggregation_method)().reset_index()
             else:
                 aggregated = pd.DataFrame(columns=[source_id_col, target_id_col, score_col])
@@ -563,9 +568,9 @@ def create_gene_association_matrix(
             )
         associations_filtered = associations.dropna(subset=[score_col])
         if len(associations_filtered) > 0:
-            grouped = associations_filtered.groupby(
-                [source_id_col, target_id_col], sort=False
-            )[score_col]
+            grouped = associations_filtered.groupby([source_id_col, target_id_col], sort=False)[
+                score_col
+            ]
             aggregated = getattr(grouped, aggregation_method)().reset_index()
         else:
             aggregated = pd.DataFrame(columns=[source_id_col, target_id_col, score_col])
@@ -573,9 +578,7 @@ def create_gene_association_matrix(
     if len(aggregated) > 0:
         aggregated_source_ids = np.array(aggregated[source_id_col].unique())
         unique_target_ids = np.array(aggregated[target_id_col].unique())
-        unique_data_ids = np.unique(
-            np.concatenate([all_unique_source_ids, aggregated_source_ids])
-        )
+        unique_data_ids = np.unique(np.concatenate([all_unique_source_ids, aggregated_source_ids]))
     else:
         unique_data_ids = all_unique_source_ids
         unique_target_ids = np.array([], dtype=object)
@@ -636,7 +639,7 @@ def create_gene_association_matrix(
 
     if verbose:
         print(f"Matrix shape: {X_sparse.shape}")
-        print(f"Sparsity: {sparsity:.2%} ({(1-sparsity)*100:.2f}% non-zero)")
+        print(f"Sparsity: {sparsity:.2%} ({(1 - sparsity) * 100:.2f}% non-zero)")
 
     if fillna is not None:
         nan_mask = np.isnan(X_sparse.data)

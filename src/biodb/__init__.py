@@ -16,7 +16,7 @@ similarity helpers, token counting, ``create_gene_association_matrix``,
 ``filter_adaptive``).
 """
 
-from biodb import monarch, ontology, opentargets, utils
+from biodb import monarch, ontology, opentargets, opentargets_graphql, utils
 
 # A small slice of high-frequency public symbols is re-exported at the
 # top level for convenience. The full APIs live on the submodules.
@@ -27,15 +27,19 @@ from biodb.monarch import (
     read_causal_gene_to_disease_association,
 )
 from biodb.opentargets import (
-    df_to_markdown,
-    diseases_to_markdown,
-    drugs_to_markdown,
+    ensure_cached_shards,
     get_dataset,
     get_gene_associations,
     get_pathways,
     get_targets,
+    list_available_versions,
     list_datasets,
-    pharmacogenomics_to_markdown,
+)
+from biodb.opentargets_graphql import (
+    query_disease,
+    query_drug,
+    query_target,
+    query_variant,
 )
 from biodb.utils import (
     RANDOM_SEED,
@@ -56,10 +60,8 @@ __all__ = [
     "cosine_similarity",
     "count_tokens",
     "create_gene_association_matrix",
-    "df_to_markdown",
-    "diseases_to_markdown",
     "dot_product_similarity",
-    "drugs_to_markdown",
+    "ensure_cached_shards",
     "euclidean_similarity",
     "filter_adaptive",
     "get_dataset",
@@ -67,12 +69,17 @@ __all__ = [
     "get_pathways",
     "get_targets",
     "l2_normalize",
+    "list_available_versions",
     "list_datasets",
     "monarch",
     "monarch_get_gene_associations",
     "ontology",
     "opentargets",
-    "pharmacogenomics_to_markdown",
+    "opentargets_graphql",
+    "query_disease",
+    "query_drug",
+    "query_target",
+    "query_variant",
     "read_causal_gene_to_disease_association",
     "set_random_seed",
     "utils",

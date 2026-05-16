@@ -29,40 +29,33 @@ def test_constants_present() -> None:
 
 
 def test_public_api_signatures_stable() -> None:
-    """Pin the public entrypoints so a future refactor of the source has
-    to consciously update this test if it renames or removes a function."""
+    """Pin the public entrypoints. The ``df_to_markdown`` family was removed
+    in the GeneDocs split — rendering now lives in
+    `GeneDocs <https://github.com/bschilder/GeneDocs>`_'s
+    ``gene_docs.docs.templates``. bioDB now exposes the bulk-download API
+    plus the targeted-query GraphQL helpers in ``biodb.opentargets_graphql``.
+    """
     expected = {
         "list_datasets",
         "get_dataset",
         "get_targets",
         "get_gene_associations",
         "get_pathways",
-        "diseases_to_markdown",
-        "drugs_to_markdown",
-        "pharmacogenomics_to_markdown",
-        "df_to_markdown",
-        "df_to_markdown_batch",
+        "ensure_cached_shards",
+        "list_available_versions",
+        "read_for_target",
     }
     missing = [name for name in expected if not hasattr(opentargets, name)]
     assert not missing, f"missing public symbols: {missing}"
 
 
-def test_df_to_markdown_renders_string() -> None:
-    """``df_to_markdown`` takes a single target row (Series/dict) and renders
-    a non-empty markdown string. We exercise the dict path with a minimal
-    OpenTargets-shaped row."""
-    row = {
-        "approvedSymbol": "BRCA1",
-        "approvedName": "BRCA1 DNA repair associated",
-        "id": "ENSG00000012048",
-        "biotype": "protein_coding",
-    }
-    out = opentargets.df_to_markdown(row)
-    assert isinstance(out, str)
-    assert "BRCA1" in out
-    sig = inspect.signature(opentargets.df_to_markdown)
-    # First positional must be the target row -- this is a stable contract.
-    assert list(sig.parameters)[0] == "target_row"
+def test_graphql_module_exposes_targeted_queries() -> None:
+    """The dual-mode API: bulk downloads in :mod:`biodb.opentargets`, targeted
+    GraphQL lookups in :mod:`biodb.opentargets_graphql`."""
+    from biodb import opentargets_graphql as gql
+
+    for name in ["query_target", "query_disease", "query_drug", "query_variant"]:
+        assert hasattr(gql, name), f"missing GraphQL helper: {name}"
 
 
 def test_list_datasets_signature() -> None:
