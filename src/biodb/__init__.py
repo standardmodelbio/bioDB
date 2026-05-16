@@ -21,6 +21,8 @@ Module map:
 * :mod:`biodb.harmonizome` -- Maayan-Lab Harmonizome client (~114
   curated gene-attribute datasets; ``list_datasets``, ``download_datasets``,
   ``get_gmt``, ``load_gene_attribute_matrix``, ``get_dataset_metadata``).
+* :mod:`biodb.clinvar` -- ClinVar VCF download + parsing, CLNSIG
+  long-tail → 6-class simplification, BED / sites format converters.
 
 Shared utilities live in :mod:`biodb.utils` (random seeding,
 similarity helpers, token counting, ``create_gene_association_matrix``,
@@ -28,6 +30,7 @@ similarity helpers, token counting, ``create_gene_association_matrix``,
 """
 
 from biodb import (
+    clinvar,
     harmonizome,
     monarch,
     ontology,
@@ -36,6 +39,17 @@ from biodb import (
     opentargets_graphql,
     uniprot,
     utils,
+)
+
+# A small slice of high-frequency public symbols is re-exported at the
+# top level for convenience. The full APIs live on the submodules.
+from biodb.clinvar import (
+    bed_to_sites,
+    df_to_bed,
+    df_to_sites,
+    download_vcf,
+    simplify_annotations,
+    vcf_to_df,
 )
 from biodb.harmonizome import (
     download_datasets as harmonizome_download_datasets,
@@ -50,9 +64,6 @@ from biodb.harmonizome import (
 from biodb.harmonizome import (
     list_datasets as harmonizome_list_datasets,
 )
-
-# A small slice of high-frequency public symbols is re-exported at the
-# top level for convenience. The full APIs live on the submodules.
 from biodb.monarch import (
     get_gene_associations as monarch_get_gene_associations,
 )
@@ -102,10 +113,15 @@ __version__ = "0.1.0"
 
 __all__ = [
     "RANDOM_SEED",
+    "bed_to_sites",
+    "clinvar",
     "cosine_similarity",
     "count_tokens",
     "create_gene_association_matrix",
+    "df_to_bed",
+    "df_to_sites",
     "dot_product_similarity",
+    "download_vcf",
     "ensure_cached_shards",
     "euclidean_similarity",
     "filter_adaptive",
@@ -142,6 +158,8 @@ __all__ = [
     "query_variant",
     "read_causal_gene_to_disease_association",
     "set_random_seed",
+    "simplify_annotations",
     "uniprot",
     "utils",
+    "vcf_to_df",
 ]

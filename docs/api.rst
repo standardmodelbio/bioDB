@@ -14,4 +14,5 @@ API Reference
    ontology_owl
    uniprot
    harmonizome
+   clinvar
    utils

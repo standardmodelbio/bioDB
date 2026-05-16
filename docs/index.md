@@ -1,10 +1,11 @@
 # biodb
 
 `biodb` is a small standalone library of biomedical knowledge graph
-helpers — Open Targets Platform, Monarch Initiative, and OBO / OWL
-ontologies. Ported out of `AoU.phenome` so sibling projects can
-depend on a narrow biomedical-KG library without pulling the full
-All-of-Us pipeline.
+helpers — Open Targets Platform, Monarch Initiative, OBO / OWL
+ontologies, UniProt, Harmonizome, and ClinVar. Ported out of
+`AoU.phenome` (plus helpers adapted from `VEP_protein`) so sibling
+projects can depend on a narrow biomedical-KG library without pulling
+the full All-of-Us pipeline.
 
 ## Why use it
 
@@ -16,6 +17,8 @@ All-of-Us pipeline.
 - **`ontology`** — N-hop keyword set expansion, Mondo / OWL loaders,
   hierarchical keyword set generation, attention analysis, gene-
   phenotype matrices, ontological similarity.
+- **`clinvar`** — ClinVar VCF download / parse, CLNSIG long-tail to
+  6-class simplification, BED + sites format converters.
 
 ## Quickstart
 

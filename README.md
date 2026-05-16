@@ -1,6 +1,6 @@
 # bioDB
 
-Biomedical knowledge graph helpers — Open Targets, Monarch Initiative, and OBO ontologies.
+Biomedical knowledge graph helpers — Open Targets, Monarch Initiative, OBO ontologies, UniProt, Harmonizome, and ClinVar.
 
 [![CI](https://github.com/bschilder/bioDB/actions/workflows/ci.yml/badge.svg)](https://github.com/bschilder/bioDB/actions/workflows/ci.yml)
 [![Docs](https://github.com/bschilder/bioDB/actions/workflows/docs.yml/badge.svg)](https://bschilder.github.io/biodb/)
@@ -32,6 +32,7 @@ Each source module aims to provide **both** modes, so you can prototype against 
 | **OBO / OWL ontologies** ([Mondo](https://mondo.monarchinitiative.org/), HPO, EFO, SO, GO, …) | [`biodb.ontology`](src/biodb/ontology.py) + [`biodb.ontology_owl`](src/biodb/ontology_owl.py) | ✅ Generic owlready2 loader + entity walk (`get_ontology`, `get_descendants`, `get_ancestors`, `get_mrca`) | ✅ OBO / OWL download + parse, N-hop expansion, hierarchical keyword sets, attention-weight analysis, gene-phenotype matrix, ontological similarity |
 | **[UniProt](https://www.uniprot.org/)** — protein sequences, features, cross-references | [`biodb.uniprot`](src/biodb/uniprot.py) | ✅ REST (`query_protein`, `get_sequences`, `get_features`, `get_dbxrefs`) | 🚧 [bioDB#TBD](https://github.com/bschilder/bioDB/issues) — bulk Swiss-Prot/TrEMBL FASTA reader |
 | **[Harmonizome](https://maayanlab.cloud/Harmonizome/)** — ~114 curated gene-attribute datasets (CCLE, GTEx, ENCODE, HPA, KEGG, Reactome, …) | [`biodb.harmonizome`](src/biodb/harmonizome.py) | ✅ REST (`list_datasets`, `get_dataset_metadata`) | ✅ Bulk TSV/GMT (`download_datasets`, `get_gmt`, `load_gene_attribute_matrix`) |
+| **[ClinVar](https://www.ncbi.nlm.nih.gov/clinvar/)** — clinical significance + review status for human variants | [`biodb.clinvar`](src/biodb/clinvar.py) | 🚧 [bioDB#TBD](https://github.com/bschilder/bioDB/issues) — per-variant lookup helper | ✅ VCF download (`download_vcf`, `vcf_to_df`, `simplify_annotations`, `df_to_bed`, `df_to_sites`) |
 
 ## Install
 
@@ -44,7 +45,7 @@ pip install git+https://github.com/bschilder/bioDB
 For the optional extras:
 
 ```bash
-pip install "biodb[ontology,viz,tokens,gget,protein]"
+pip install "biodb[ontology,viz,tokens,gget,protein,clinvar]"
 ```
 
 Local development:
@@ -125,9 +126,17 @@ expanded = expand_keyword_sets_from_ontology(
 )
 ```
 
+## Tutorials
+
+Rendered Jupyter notebooks live under [`tutorials/`](tutorials/) — each
+one runs offline against synthetic data and ships with executed
+outputs so you can preview behavior without installing the package.
+See [`tutorials/README.md`](tutorials/README.md) for the index.
+
 ## Used by
 
 - [`GeneDocs`](https://github.com/bschilder/GeneDocs) — biomedical gene knowledge base; uses `biodb.opentargets.get_dataset` to pull the OT release into a precomputed, queryable artifact + uses `biodb.opentargets.query_target` for live per-gene lookups.
+- [`seqlab`](https://github.com/standardmodelbio/seqlab) — variant analysis pipeline; uses `biodb.opentargets` for gene/variant queries and `biodb.clinvar` for clinical significance annotation.
 
 ## License
 

@@ -55,6 +55,12 @@ ontology = [
     "pyobo>=0.10",
     "owlready2>=0.45",
 ]
+# clinvar.py VCF ingestion path. genoray reads the ClinVar VCF and
+# pooch fetches the upstream file from NCBI's FTP.
+clinvar = [
+    "genoray>=0.1",
+    "pooch>=1.8",
+]
 viz = [
     "matplotlib>=3.7",
     "datashader>=0.16",
@@ -88,7 +94,7 @@ test = [
     "ruff>=0.5",
     "coverage-badge>=1.1",
 ]
-dev = ["biodb[ontology,viz,tokens,gget,protein,docs,test]"]
+dev = ["biodb[ontology,viz,tokens,gget,protein,clinvar,docs,test]"]
 
 [project.urls]
 Homepage = "https://github.com/bschilder/bioDB"
@@ -121,14 +127,16 @@ markers = [
 branch = true
 source = ["biodb"]
 omit = [
-    # The three vendored AoU modules are huge surface-area ports. Each
-    # has many branches (Open Targets API shapes, gget fallbacks, OBO
-    # readers, mondo loaders) that are unreachable without live network
-    # access or optional heavy deps. The CPU/no-net CI exercises the
-    # import surface + signature shape only.
+    # The four vendored modules are huge surface-area ports. Each has
+    # many branches (Open Targets API shapes, gget fallbacks, OBO
+    # readers, mondo loaders, ClinVar VCF parsing, pooch downloads)
+    # that are unreachable without live network access or optional
+    # heavy deps. The CPU/no-net CI exercises the import surface +
+    # signature shape only.
     "src/biodb/opentargets.py",
     "src/biodb/monarch.py",
     "src/biodb/ontology.py",
+    "src/biodb/clinvar.py",
 ]
 
 [tool.coverage.report]
@@ -147,11 +155,17 @@ line-length = 100
 target-version = "py310"
 src = ["src", "tests"]
 extend-exclude = [
-    # Vendored ports of AoU.phenome.{opentargets,monarch,ontology}.
-    # Treat as third-party — style fixes belong upstream in AoU, not here.
+    # Vendored ports of AoU.phenome.{opentargets,monarch,ontology} +
+    # VEP_protein.clinvar — treat as third-party (style fixes belong
+    # upstream, not here).
     "src/biodb/opentargets.py",
     "src/biodb/monarch.py",
     "src/biodb/ontology.py",
+    "src/biodb/clinvar.py",
+    # Tutorials are jupytext-percent mirrors of executed notebooks;
+    # display-only "df" expressions render in the rendered .ipynb and
+    # don't need to be variable-assigned.
+    "tutorials/",
 ]
 
 [tool.ruff.lint]

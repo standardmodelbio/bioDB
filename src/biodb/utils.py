@@ -233,23 +233,21 @@ def filter_adaptive(
             raise ValueError(f"sort_by='{sort_by}' but column '{sort_by}' not found in DataFrame")
         df = df.sort_values([source_id_col, sort_by], ascending=[True, True])
 
-    def keep_top_percentile(group):
-        n_keep = max(1, int(len(group) * (1 - percentile)))
-        if min_genes is not None:
-            n_keep = max(n_keep, min_genes)
-        if max_genes is not None:
-            n_keep = min(n_keep, max_genes)
-        n_keep = min(n_keep, len(group))
-        return group.head(n_keep)
+    # Pandas 2.2+ drops the groupby key from `apply` output when
+    # ``group_keys=False`` (see pandas#54895), which silently strips
+    # source_id_col from the result. Use a manual sort + cumcount filter
+    # to keep behavior identical across pandas versions.
+    group_sizes = df.groupby(source_id_col, sort=False).size()
+    n_keeps = (group_sizes * (1 - percentile)).astype(int).clip(lower=1)
+    if min_genes is not None:
+        n_keeps = n_keeps.clip(lower=min_genes)
+    if max_genes is not None:
+        n_keeps = n_keeps.clip(upper=max_genes)
+    n_keeps = n_keeps.clip(upper=group_sizes)
 
-    # pandas 2.2+ drops the grouping column from `apply` output by default;
-    # explicit column selection brings it back so downstream callers can still
-    # `df[source_id_col]`.
-    filtered = (
-        df.groupby(source_id_col, group_keys=False)[df.columns.tolist()]
-        .apply(keep_top_percentile)
-        .reset_index(drop=True)
-    )
+    within_group_rank = df.groupby(source_id_col, sort=False).cumcount()
+    rank_threshold = df[source_id_col].map(n_keeps).to_numpy()
+    filtered = df.loc[within_group_rank.to_numpy() < rank_threshold].reset_index(drop=True)
 
     if target_id_col != "targetId" and "targetId" not in filtered.columns:
         filtered["targetId"] = filtered[target_id_col]
@@ -463,7 +461,7 @@ def create_gene_association_matrix(
         group_df = associations[[source_id_col, group_col]].drop_duplicates(
             subset=[source_id_col], keep="first"
         )
-        group_mapping = dict(zip(group_df[source_id_col], group_df[group_col], strict=True))
+        group_mapping = dict(zip(group_df[source_id_col], group_df[group_col], strict=False))
         if verbose:
             unique_groups = group_df[group_col].unique()
             print(
@@ -477,7 +475,7 @@ def create_gene_association_matrix(
             subset=[source_id_col], keep="first"
         )
         database_mapping = dict(
-            zip(database_df[source_id_col], database_df["database"], strict=True)
+            zip(database_df[source_id_col], database_df["database"], strict=False)
         )
         if verbose:
             unique_databases = database_df["database"].unique()
@@ -489,7 +487,7 @@ def create_gene_association_matrix(
         dataset_df = associations[[source_id_col, "dataset"]].drop_duplicates(
             subset=[source_id_col], keep="first"
         )
-        dataset_mapping = dict(zip(dataset_df[source_id_col], dataset_df["dataset"], strict=True))
+        dataset_mapping = dict(zip(dataset_df[source_id_col], dataset_df["dataset"], strict=False))
         if verbose:
             unique_datasets = dataset_df["dataset"].unique()
             print(
@@ -501,7 +499,7 @@ def create_gene_association_matrix(
         label_df = associations[[source_id_col, label_col]].drop_duplicates(
             subset=[source_id_col], keep="first"
         )
-        label_mapping = dict(zip(label_df[source_id_col], label_df[label_col], strict=True))
+        label_mapping = dict(zip(label_df[source_id_col], label_df[label_col], strict=False))
         if verbose:
             unique_labels = label_df[label_col].unique()
             print(f"Found '{label_col}' column with {len(unique_labels)} unique values")
