@@ -1,6 +1,6 @@
 # bioDB
 
-Phenotype-knowledge-graph helpers — Open Targets, Monarch Initiative, and OBO ontologies.
+Biomedical knowledge graph helpers — Open Targets, Monarch Initiative, and OBO ontologies.
 
 [![CI](https://github.com/bschilder/bioDB/actions/workflows/ci.yml/badge.svg)](https://github.com/bschilder/bioDB/actions/workflows/ci.yml)
 [![Docs](https://github.com/bschilder/bioDB/actions/workflows/docs.yml/badge.svg)](https://bschilder.github.io/biodb/)
@@ -29,7 +29,9 @@ Each source module aims to provide **both** modes, so you can prototype against 
 |---|---|---|---|
 | **[Open Targets Platform](https://platform-docs.opentargets.org/)** — gene-disease-drug associations, evidence, expression, essentiality, pharmacogenomics, pathways | [`biodb.opentargets`](src/biodb/opentargets.py) | ✅ GraphQL (`query_target`, `query_disease`, `query_drug`, `query_variant`, …) | ✅ FTP Parquet (`list_datasets`, `get_dataset`, `ensure_cached_shards`, versioned cache) |
 | **[Monarch Initiative](https://monarchinitiative.org/)** — causal gene-to-disease, phenotype-to-disease | [`biodb.monarch`](src/biodb/monarch.py) | 🚧 [bioDB#TBD](https://github.com/bschilder/bioDB/issues) — Monarch BioLink API stub | ✅ TSV knowledge graphs (`get_gene_associations`, `read_causal_gene_to_disease_association`) |
-| **OBO / OWL ontologies** ([Mondo](https://mondo.monarchinitiative.org/), HPO, EFO, …) | [`biodb.ontology`](src/biodb/ontology.py) | 🚧 [bioDB#TBD](https://github.com/bschilder/bioDB/issues) — per-term lookup helper | ✅ OBO / OWL download + parse, N-hop expansion, hierarchical keyword sets, attention-weight analysis, gene-phenotype matrix, ontological similarity |
+| **OBO / OWL ontologies** ([Mondo](https://mondo.monarchinitiative.org/), HPO, EFO, SO, GO, …) | [`biodb.ontology`](src/biodb/ontology.py) + [`biodb.ontology_owl`](src/biodb/ontology_owl.py) | ✅ Generic owlready2 loader + entity walk (`get_ontology`, `get_descendants`, `get_ancestors`, `get_mrca`) | ✅ OBO / OWL download + parse, N-hop expansion, hierarchical keyword sets, attention-weight analysis, gene-phenotype matrix, ontological similarity |
+| **[UniProt](https://www.uniprot.org/)** — protein sequences, features, cross-references | [`biodb.uniprot`](src/biodb/uniprot.py) | ✅ REST (`query_protein`, `get_sequences`, `get_features`, `get_dbxrefs`) | 🚧 [bioDB#TBD](https://github.com/bschilder/bioDB/issues) — bulk Swiss-Prot/TrEMBL FASTA reader |
+| **[Harmonizome](https://maayanlab.cloud/Harmonizome/)** — ~114 curated gene-attribute datasets (CCLE, GTEx, ENCODE, HPA, KEGG, Reactome, …) | [`biodb.harmonizome`](src/biodb/harmonizome.py) | ✅ REST (`list_datasets`, `get_dataset_metadata`) | ✅ Bulk TSV/GMT (`download_datasets`, `get_gmt`, `load_gene_attribute_matrix`) |
 
 ## Install
 
@@ -42,7 +44,7 @@ pip install git+https://github.com/bschilder/bioDB
 For the optional extras:
 
 ```bash
-pip install "biodb[ontology,viz,tokens,gget]"
+pip install "biodb[ontology,viz,tokens,gget,protein]"
 ```
 
 Local development:
@@ -81,6 +83,26 @@ datasets = list_datasets()  # {'target': '.../target', 'association_overall_dire
 # and concatenates into a pandas DataFrame on subsequent calls.
 associations = get_dataset("association_overall_direct")
 targets = get_dataset("target")
+```
+
+### UniProt protein lookups
+
+```python
+from biodb.uniprot import query_protein, get_features, get_dbxrefs
+
+records = query_protein("P12345")           # list[Bio.SeqRecord]
+features = get_features("P12345")           # DataFrame of protein features
+xrefs = get_dbxrefs("P12345")               # DataFrame of cross-references
+```
+
+### Generic OWL ontology walks
+
+```python
+from biodb.ontology_owl import get_ontology, get_descendants, get_mrca, HPO_URL
+
+hpo = get_ontology(HPO_URL)
+kids = get_descendants("HP:0001250", ont=hpo, return_as="id|label")  # all descendants of "Seizure"
+mrca = get_mrca(hpo, "HP:0001250", "HP:0002353")                      # most recent common ancestor
 ```
 
 ### Monarch + ontology

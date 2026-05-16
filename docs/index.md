@@ -1,9 +1,9 @@
 # biodb
 
-`biodb` is a small standalone library of phenotype-knowledge-graph
+`biodb` is a small standalone library of biomedical knowledge graph
 helpers — Open Targets Platform, Monarch Initiative, and OBO / OWL
 ontologies. Ported out of `AoU.phenome` so sibling projects can
-depend on a narrow phenotype-KG library without pulling the full
+depend on a narrow biomedical-KG library without pulling the full
 All-of-Us pipeline.
 
 ## Why use it
@@ -41,5 +41,5 @@ See the [quickstart guide](quickstart.md) for usage patterns and the
 
 quickstart
 api
-../CHANGELOG.md
+changelog
 ```

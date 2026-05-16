@@ -8,6 +8,10 @@ API Reference
    :recursive:
 
    opentargets
+   opentargets_graphql
    monarch
    ontology
+   ontology_owl
+   uniprot
+   harmonizome
    utils
