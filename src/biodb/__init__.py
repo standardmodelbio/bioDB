@@ -31,12 +31,17 @@ similarity helpers, token counting, ``create_gene_association_matrix``,
 
 from biodb import (
     clinvar,
+    gprofiler,
+    gwas_atlas,
     harmonizome,
+    mapping,
     monarch,
+    msigdb,
     ontology,
     ontology_owl,
     opentargets,
     opentargets_graphql,
+    transform,
     uniprot,
     utils,
 )
@@ -64,13 +69,14 @@ from biodb.harmonizome import (
 from biodb.harmonizome import (
     list_datasets as harmonizome_list_datasets,
 )
+from biodb.mapping import map_gene_ids
 from biodb.monarch import (
     get_gene_associations as monarch_get_gene_associations,
 )
 from biodb.monarch import (
     read_causal_gene_to_disease_association,
 )
-from biodb.ontology_owl import (
+from biodb.ontology import (
     get_ancestors,
     get_descendants,
     get_mrca,
@@ -137,6 +143,8 @@ __all__ = [
     "get_pathways",
     "get_sequences",
     "get_targets",
+    "gprofiler",
+    "gwas_atlas",
     "harmonizome",
     "harmonizome_download_datasets",
     "harmonizome_get_dataset_metadata",
@@ -145,8 +153,11 @@ __all__ = [
     "list_available_versions",
     "list_datasets",
     "load_gene_attribute_matrix",
+    "map_gene_ids",
+    "mapping",
     "monarch",
     "monarch_get_gene_associations",
+    "msigdb",
     "ontology",
     "ontology_owl",
     "opentargets",
@@ -159,6 +170,7 @@ __all__ = [
     "read_causal_gene_to_disease_association",
     "set_random_seed",
     "simplify_annotations",
+    "transform",
     "uniprot",
     "utils",
     "vcf_to_df",

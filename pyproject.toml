@@ -81,6 +81,10 @@ gget = [
 protein = [
     "biopython>=1.83",
 ]
+# Cross-namespace gene-id mapping (biodb.mapping.map_gene_ids).
+mapping = [
+    "gprofiler-official>=1.0",
+]
 docs = [
     "sphinx>=7.2",
     "sphinx-rtd-theme>=2.0",
@@ -94,7 +98,7 @@ test = [
     "ruff>=0.5",
     "coverage-badge>=1.1",
 ]
-dev = ["biodb[ontology,viz,tokens,gget,protein,clinvar,docs,test]"]
+dev = ["biodb[ontology,viz,tokens,gget,protein,clinvar,mapping,docs,test]"]
 
 [project.urls]
 Homepage = "https://github.com/bschilder/bioDB"

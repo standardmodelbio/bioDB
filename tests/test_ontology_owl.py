@@ -51,12 +51,19 @@ def test_get_descendants_default_return_format() -> None:
 
 
 def test_multi_handler_pure() -> None:
-    """``_multi_handler`` doesn't touch owlready2 and is exercised here."""
-    assert ontology_owl._multi_handler(["a", "b", "c"], "first") == "a"
-    assert ontology_owl._multi_handler(["a", "b", "c"], "join", sep=".") == "a.b.c"
-    assert ontology_owl._multi_handler(["a", "b", "c"], "all") == ["a", "b", "c"]
+    """``_multi_handler`` doesn't touch owlready2 and is exercised here.
+
+    Note: the helper moved into :mod:`biodb.ontology` when ``ontology_owl``
+    was merged in. We pull it from the canonical home; the shim doesn't
+    re-export private helpers.
+    """
+    from biodb.ontology import _multi_handler
+
+    assert _multi_handler(["a", "b", "c"], "first") == "a"
+    assert _multi_handler(["a", "b", "c"], "join", sep=".") == "a.b.c"
+    assert _multi_handler(["a", "b", "c"], "all") == ["a", "b", "c"]
     with pytest.raises(ValueError, match="Invalid multi"):
-        ontology_owl._multi_handler(["a"], "bogus")  # type: ignore[arg-type]
+        _multi_handler(["a"], "bogus")  # type: ignore[arg-type]
 
 
 @pytest.mark.network
