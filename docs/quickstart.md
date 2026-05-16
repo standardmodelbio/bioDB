@@ -59,22 +59,6 @@ print(expanded["dementia"])
 #  "early onset alzheimer's"]
 ```
 
-## Gene weighting
-
-```python
-import torch
-from biodb.gene_weighting import GeneWeightingConfig, compute_gene_weights_fast
-
-cfg = GeneWeightingConfig(top_k=50, temperature=0.1)
-event_emb = torch.randn(4, 10, 64)        # (batch, n_events, embed_dim)
-gene_emb = torch.randn(2_000, 64)          # (n_genes,        embed_dim)
-
-scores = compute_gene_weights_fast(
-    event_embeddings=event_emb,
-    gene_name_embeddings=gene_emb,
-)
-```
-
 ## Building a gene-association matrix
 
 ```python

@@ -1,10 +1,10 @@
 # biodb
 
 `biodb` is a small standalone library of phenotype-knowledge-graph
-helpers — Open Targets Platform, Monarch Initiative, OBO / OWL
-ontologies, and gene-weighting attention for clinical event embeddings.
-Ported out of `AoU.phenome` so sibling projects can depend on a narrow
-phenotype-KG library without pulling the full All-of-Us pipeline.
+helpers — Open Targets Platform, Monarch Initiative, and OBO / OWL
+ontologies. Ported out of `AoU.phenome` so sibling projects can
+depend on a narrow phenotype-KG library without pulling the full
+All-of-Us pipeline.
 
 ## Why use it
 
@@ -16,9 +16,6 @@ phenotype-KG library without pulling the full All-of-Us pipeline.
 - **`ontology`** — N-hop keyword set expansion, Mondo / OWL loaders,
   hierarchical keyword set generation, attention analysis, gene-
   phenotype matrices, ontological similarity.
-- **`gene_weighting`** — fast two-stage gene attention scoring with a
-  lazy `GeneEmbeddingCache`, temporal weighting, and multi-condition
-  weighting.
 
 ## Quickstart
 

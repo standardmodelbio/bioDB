@@ -1,7 +1,7 @@
 # biodb
 
-Phenotype-knowledge-graph helpers — Open Targets, Monarch Initiative, OBO
-ontologies, and gene-weighting attention for clinical embeddings.
+Phenotype-knowledge-graph helpers — Open Targets, Monarch Initiative,
+and OBO ontologies.
 
 [![CI](https://github.com/bschilder/bioDB/actions/workflows/ci.yml/badge.svg)](https://github.com/bschilder/bioDB/actions/workflows/ci.yml)
 [![Docs](https://github.com/bschilder/bioDB/actions/workflows/docs.yml/badge.svg)](https://bschilder.github.io/biodb/)
@@ -25,13 +25,10 @@ ontologies, and gene-weighting attention for clinical embeddings.
   (Mondo by default), N-hop neighbour expansion, hierarchical keyword
   set generation, attention-weight analysis, gene-phenotype matrix
   construction, ontological similarity.
-* **`gene_weighting`** — fast two-stage gene attention for clinical
-  event embeddings, with lazy genomic sequence embedding cache and
-  temporal / multi-condition weighting.
 
 Each module was extracted from `AoU.phenome.{opentargets,monarch,
-ontology,gene_weighting}` so sibling projects can depend on a narrow
-phenotype-KG library without pulling the full All-of-Us pipeline.
+ontology}` so sibling projects can depend on a narrow phenotype-KG
+library without pulling the full All-of-Us pipeline.
 
 ## Install
 
@@ -80,10 +77,6 @@ expanded = expand_keyword_sets_from_ontology(
     ontology_dict=ontology,
     n_hops=2,
 )
-
-# Gene weighting — score gene relevance against event embeddings
-from biodb.gene_weighting import GeneWeightingConfig, compute_gene_weights_fast
-cfg = GeneWeightingConfig(top_k=50, temperature=0.1)
 ```
 
 ## License

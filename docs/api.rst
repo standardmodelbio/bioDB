@@ -10,5 +10,4 @@ API Reference
    opentargets
    monarch
    ontology
-   gene_weighting
    utils

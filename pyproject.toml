@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "biodb"
 version = "0.1.0"
-description = "Phenotype-knowledge-graph helpers — Open Targets / Monarch / OBO ontologies / gene weighting"
+description = "Phenotype-knowledge-graph helpers — Open Targets / Monarch / OBO ontologies"
 readme = "README.md"
 license = { text = "PolyForm-Noncommercial-1.0.0" }
 requires-python = ">=3.10"
@@ -32,9 +32,8 @@ classifiers = [
     "Topic :: Scientific/Engineering :: Bio-Informatics",
 ]
 # Core dependencies — every module imports at least numpy + pandas.
-# torch is required by gene_weighting.py; matplotlib + datashader are
-# used by ontology.py's plotting helpers but are lazy-imported only when
-# the plotting paths are invoked.
+# matplotlib + datashader are used by ontology.py's plotting helpers
+# but are lazy-imported only when the plotting paths are invoked.
 dependencies = [
     "numpy>=1.24",
     "pandas>=2.0",
@@ -42,7 +41,6 @@ dependencies = [
     "requests>=2.28",
     "tqdm>=4.65",
     "scipy>=1.10",
-    "torch>=2.0",
 ]
 
 [project.optional-dependencies]
@@ -117,15 +115,14 @@ markers = [
 branch = true
 source = ["biodb"]
 omit = [
-    # The four vendored AoU modules are huge surface-area ports. Each
+    # The three vendored AoU modules are huge surface-area ports. Each
     # has many branches (Open Targets API shapes, gget fallbacks, OBO
-    # readers, mondo loaders, GPU code paths) that are unreachable
-    # without live network access or optional heavy deps. The CPU/no-
-    # net CI exercises the import surface + signature shape only.
+    # readers, mondo loaders) that are unreachable without live network
+    # access or optional heavy deps. The CPU/no-net CI exercises the
+    # import surface + signature shape only.
     "src/biodb/opentargets.py",
     "src/biodb/monarch.py",
     "src/biodb/ontology.py",
-    "src/biodb/gene_weighting.py",
 ]
 
 [tool.coverage.report]
@@ -144,12 +141,11 @@ line-length = 100
 target-version = "py310"
 src = ["src", "tests"]
 extend-exclude = [
-    # Vendored ports of AoU.phenome.{opentargets,monarch,ontology,gene_weighting}.
+    # Vendored ports of AoU.phenome.{opentargets,monarch,ontology}.
     # Treat as third-party — style fixes belong upstream in AoU, not here.
     "src/biodb/opentargets.py",
     "src/biodb/monarch.py",
     "src/biodb/ontology.py",
-    "src/biodb/gene_weighting.py",
 ]
 
 [tool.ruff.lint]
