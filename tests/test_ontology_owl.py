@@ -62,6 +62,7 @@ def test_multi_handler_pure() -> None:
 @pytest.mark.network
 def test_sequence_ontology_loads() -> None:
     """Smoke check that the SO URL still resolves."""
+    pytest.importorskip("owlready2")
     ont = ontology_owl.get_sequence_ontology()
     assert ont is not None
     labels = ontology_owl.get_labels(ont)

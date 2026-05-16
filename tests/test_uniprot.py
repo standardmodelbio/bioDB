@@ -42,6 +42,7 @@ def test_query_protein_signature_uses_keyword_only_options() -> None:
 def test_query_protein_returns_materialized_list() -> None:
     """Smoke check: result is a list (not a SeqIO iterator) so it can be
     re-traversed. This is the explicit fix over the VEP_protein version."""
+    pytest.importorskip("Bio")
     records = uniprot.query_protein("P12345")
     assert isinstance(records, list)
     # The "must reimport" footgun: a SeqIO.parse() iterator would be empty here.
@@ -50,6 +51,7 @@ def test_query_protein_returns_materialized_list() -> None:
 
 @pytest.mark.network
 def test_get_features_returns_dataframe() -> None:
+    pytest.importorskip("Bio")
     df = uniprot.get_features("P12345")
     assert isinstance(df, pd.DataFrame)
     if not df.empty:

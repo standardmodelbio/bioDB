@@ -62,7 +62,9 @@ jobs:
           pip install --index-url https://download.pytorch.org/whl/cpu torch
           pip install -e ".[test]"
       - name: Run tests
-        run: pytest --cov=biodb --cov-report=xml --cov-report=term
+        # Skip @pytest.mark.network tests in CI - they hit live remote APIs
+        # (Maayan-Lab, UniProt, OBO Foundry, ...) and would be flaky.
+        run: pytest -m "not network" --cov=biodb --cov-report=xml --cov-report=term
 
       - name: Generate coverage badge
         if: ${{ matrix.python == '3.11' && github.event_name == 'push' && github.ref == 'refs/heads/main' }}
