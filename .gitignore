@@ -30,6 +30,9 @@ htmlcov/
 docs/_build/
 docs/_generated/
 
+# uv lockfile (not authoritative — pyproject.toml is)
+uv.lock
+
 # Local scratch
 *.pkl
 *.pt
