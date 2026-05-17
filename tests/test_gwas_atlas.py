@@ -302,23 +302,85 @@ def test_melt_magma_p_handles_unnamed_index() -> None:
 
 
 # ---------------------------------------------------------------------------
-# Live network smoke tests (skipped in CI)
+# Live integration tests — RUN BY DEFAULT in CI.
+#
+# The mocked tests above verify "if the server returns X, our code does Y".
+# They CANNOT catch upstream breakage (e.g. atlas.ctglab.nl changing its
+# CSRF flow, renaming files, or rotating the release directory). These
+# tests prove the downloader actually works against the live server on
+# every CI run; they pay for it with a few seconds of network IO.
+#
+# Trade-off acknowledged: third-party downtime now fails our CI. That's
+# the right failure mode — if we can't download GWAS Atlas data, our
+# downloader is broken in production too, and we want to know.
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.network
-def test_session_csrf_handshake_live() -> None:
-    """Hit the live homepage and confirm the CSRF token + cookies come back."""
+def test_session_csrf_handshake_against_live_server() -> None:
+    """The live homepage still emits a usable ``_token`` + session cookies.
+
+    Breaks if Atlas changes its Laravel CSRF flow (token regex, cookie
+    names, redirect chain). The regex-extraction itself is exercised
+    against synthetic HTML above; this test exists purely to verify the
+    real HTML still matches what we look for.
+    """
     session, token = gwas_atlas._session(timeout=30)
-    assert isinstance(token, str) and len(token) > 20
+    assert isinstance(token, str) and len(token) > 20, (
+        f"CSRF token regex returned {token!r} from the live homepage — "
+        "atlas.ctglab.nl probably changed its form layout."
+    )
     assert "atlas_session" in session.cookies
     assert "XSRF-TOKEN" in session.cookies
 
 
-@pytest.mark.network
-def test_download_readme_live(tmp_path) -> None:
-    """End-to-end smoke: fetch the small readme via the form-POST flow."""
+def test_download_readme_from_live_server(tmp_path) -> None:
+    """End-to-end: fetch the tiny ``.readme`` via the CSRF-form POST.
+
+    This is the cheapest possible integration test for the downloader —
+    a few KB of text. If it passes, the GET-form-POST handshake works
+    against the real server.
+    """
     path = gwas_atlas.download_file("gwasATLAS_v20191115.readme", cache_dir=tmp_path, force=True)
     body = path.read_text()
-    # Distinctive header line from the upstream readme.
-    assert "GWAS ATLAS release v20191115" in body
+    # Distinctive header line from the upstream readme — pinning this
+    # specific phrase will surface upstream-content changes too.
+    assert "GWAS ATLAS release v20191115" in body, (
+        f"Readme content changed unexpectedly; first 200 chars: {body[:200]!r}"
+    )
+
+
+def test_download_metadata_from_live_server_and_parse(tmp_path) -> None:
+    """Full pipeline test: download the real per-study metadata TSV (a few MB
+    gzipped) and verify it parses into a DataFrame with the schema bioDB
+    documents.
+
+    This is the test the user actually wants when they ask "can we download
+    the data?" — it exercises:
+      * the CSRF-form download path on a real artifact
+      * gzip-streaming end-to-end
+      * pandas ``read_csv`` against the actual file contents
+      * the schema bioDB advertises (key columns present, non-empty rows)
+    """
+    df = gwas_atlas.load_metadata(version="20191115", cache_dir=tmp_path)
+
+    # The metadata frame should have hundreds of GWAS studies, not zero.
+    assert len(df) > 100, (
+        f"Got only {len(df)} rows — GWAS Atlas metadata is normally ~4k rows. "
+        "Upstream either changed format or returned an error page."
+    )
+
+    # Documented columns that downstream code (and the README) rely on.
+    expected_columns = {"id", "Trait", "PMID", "N", "Year"}
+    missing = expected_columns - set(df.columns)
+    assert not missing, (
+        f"Metadata schema changed: expected columns {expected_columns} "
+        f"but {missing} are missing from {list(df.columns)}"
+    )
+
+    # ``PMID`` should be at least mostly populated — sanity-check we didn't
+    # download an error page that happens to gzip-parse.
+    pmid_populated = df["PMID"].notna().mean()
+    assert pmid_populated > 0.5, (
+        f"Only {pmid_populated:.1%} of rows have a PMID — payload looks "
+        "wrong; full row count was {len(df)}."
+    )
