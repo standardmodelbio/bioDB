@@ -213,13 +213,51 @@ def test_gost_uses_gprofiler_official_when_available(monkeypatch) -> None:
 
 
 # ---------------------------------------------------------------------------
-# Live network smoke test (CI skips)
+# Live integration tests — RUN BY DEFAULT in CI.
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.network
+def test_gost_against_live_server() -> None:
+    """Hit g:Profiler's live ``/gost`` endpoint with a small gene list and
+    verify we get back an enrichment DataFrame with the documented schema.
+
+    ``gost`` is a tiny POST + JSON response (~10 KB), so it's the cheapest
+    live probe and verifies the functional-enrichment surface works."""
+    pytest.importorskip("gprofiler")
+    # BRCA1/BRCA2/TP53 are well-studied tumour suppressors. They reliably
+    # produce significant enrichment hits.
+    result = gprofiler.gost(query=["BRCA1", "BRCA2", "TP53"], organism="hsapiens")
+    assert isinstance(result, pd.DataFrame)
+    assert len(result) > 0, (
+        "g:Profiler returned 0 hits for BRCA1/BRCA2/TP53 — upstream likely changed."
+    )
+    for col in ("name", "p_value", "source"):
+        assert col in result.columns, (
+            f"Documented column {col!r} missing from {list(result.columns)}"
+        )
+    # We set ``significant=True`` by default → every row should be < 0.05.
+    assert (result["p_value"] < 0.05).all()
+
+
+@pytest.mark.xfail(
+    reason=(
+        "The legacy gprofiler GMT URL pattern "
+        "``biit.cs.ut.ee/gprofiler/static/gprofiler_full_<organism>.name.gmt.zip`` "
+        "now returns 404 — gProfiler migrated to a Vue SPA in 2026 and "
+        "the bulk-download path needs rediscovery. Tracked as a follow-up; "
+        "the test stays so we notice the day they restore (or we fix) the URL."
+    ),
+    strict=False,
+)
 def test_download_gmt_live(tmp_path) -> None:
-    """Round-trip a real download; this can fail when upstream rotates the file."""
+    """Download the per-organism GMT and verify it parses. **Currently xfailed**
+    because the upstream URL pattern is dead — see the marker above."""
     path = gprofiler.download_gmt(organism="hsapiens", cache_dir=tmp_path, force=True)
-    assert path.stat().st_size > 1000
+    assert path.exists()
+    size = path.stat().st_size
+    assert size > 100_000, (
+        f"GMT file is only {size} bytes — upstream probably returned an error page."
+    )
     assert path.suffix == ".gmt"
+    first_line = path.read_text(encoding="utf-8").splitlines()[0]
+    assert "\t" in first_line

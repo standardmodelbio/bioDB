@@ -149,14 +149,20 @@ def gost(
         from gprofiler import GProfiler
 
         gp = GProfiler(return_dataframe=True)
-        return gp.profile(
+        # gprofiler-official's ``profile`` filters by ``user_threshold``
+        # internally; it doesn't expose a separate ``significant`` flag.
+        # We mirror the REST endpoint's semantics by post-filtering when
+        # the caller asked for ``significant=True``.
+        df = gp.profile(
             organism=organism,
             query=query,
             sources=sources,
             user_threshold=user_threshold,
-            significant=significant,
             **kwargs,
         )
+        if significant and "p_value" in df.columns:
+            df = df[df["p_value"] < user_threshold].reset_index(drop=True)
+        return df
     except ImportError:
         pass
 

@@ -92,3 +92,41 @@ def test_expand_keyword_sets_signature() -> None:
     sig = inspect.signature(ontology.expand_keyword_sets_from_ontology)
     params = set(sig.parameters)
     assert {"seed_keywords", "n_hops"}.issubset(params)
+
+
+# ---------------------------------------------------------------------------
+# Live integration test — RUN BY DEFAULT in CI.
+#
+# Mondo (the Monarch Disease Ontology) is the canonical disease ontology
+# used throughout the AoU pipeline. It's ~25 MB OWL, the load takes a few
+# seconds, and the file changes monthly — exactly the kind of upstream
+# that needs real verification on every CI run, not a stub against
+# synthetic dicts.
+# ---------------------------------------------------------------------------
+
+
+def test_load_mondo_ontology_from_live_server(tmp_path) -> None:
+    """Download + parse the real MONDO OWL and verify the documented
+    return shape + a canonical disease term exists.
+
+    Catches both URL rot (purl.obolibrary.org redirects breaking) and
+    Mondo content changes (a canonical disease class disappearing).
+    """
+    pytest.importorskip("owlready2")
+    pytest.importorskip("networkx")
+
+    graph = ontology.load_mondo_ontology(cache_dir=str(tmp_path))
+    # Mondo has tens of thousands of disease classes.
+    assert graph.number_of_nodes() > 5000, (
+        f"Mondo graph has only {graph.number_of_nodes()} nodes — "
+        "probable corrupt download or upstream change."
+    )
+
+    # ``Alzheimer disease`` is one of the most-cited MONDO classes
+    # (MONDO:0004975); it's a load-bearing concept for the AoU
+    # phenome pipeline. If it vanishes, downstream gene-knowledge
+    # selection breaks.
+    node_names = {str(n).lower() for n in graph.nodes}
+    assert any("alzheimer" in name for name in node_names), (
+        "No MONDO node contains 'alzheimer' — Mondo download likely broken."
+    )

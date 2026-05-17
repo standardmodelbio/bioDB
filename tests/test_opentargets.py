@@ -12,6 +12,8 @@ from __future__ import annotations
 
 import inspect
 
+import pandas as pd
+
 from biodb import opentargets
 
 
@@ -66,3 +68,107 @@ def test_get_dataset_signature() -> None:
     # Must at least accept a dataset name + cache hooks.
     params = set(sig.parameters)
     assert "dataset" in params or "name" in params or len(params) >= 1
+
+
+# ---------------------------------------------------------------------------
+# Live integration tests — RUN BY DEFAULT in CI.
+#
+# bioDB advertises Open Targets bulk Parquet downloads as a core feature.
+# The previous test file had ZERO real-data coverage — every assertion
+# checked signatures and constants, none verified the downloader actually
+# works against the upstream FTP at ftp.ebi.ac.uk.
+#
+# These tests use ``limit_files=1`` to download a single Parquet shard
+# from one of the smaller datasets, keeping the per-CI cost bounded
+# while still proving the end-to-end download + parse path.
+# ---------------------------------------------------------------------------
+
+
+def test_list_datasets_against_live_server() -> None:
+    """The Open Targets FTP root really exposes the documented datasets
+    (``target``, ``association_overall_direct``, ``drug``, …).
+
+    Catches both URL rot (release directory moved) and content changes
+    (a documented dataset disappearing)."""
+    datasets = opentargets.list_datasets()
+    assert isinstance(datasets, dict)
+    assert len(datasets) > 5, (
+        f"Got only {len(datasets)} datasets — Open Targets release "
+        f"normally has dozens. Probable upstream change."
+    )
+    for required in ("target", "association_overall_direct"):
+        assert required in datasets, f"Documented dataset {required!r} missing from FTP listing."
+    # Each URL must be on the EBI FTP server.
+    for url in datasets.values():
+        assert "ebi.ac.uk" in url
+
+
+def test_get_dataset_target_downloads_one_real_parquet_shard(tmp_path) -> None:
+    """Download ONE real Parquet shard from the ``target`` dataset and
+    verify it parses with the documented schema.
+
+    ``target`` is the OT gene-metadata dataset (no association evidence),
+    so per-shard size is bounded. ``limit_files=1`` is the key knob that
+    keeps the per-CI cost bounded — without it, the full ``target``
+    dataset would be 100+ MB across many shards.
+    """
+    df = opentargets.get_dataset(
+        "target",
+        version=opentargets.DEFAULT_VERSION,
+        cache_dir=tmp_path,
+        limit_files=1,
+        verbose=0,
+    )
+    assert isinstance(df, pd.DataFrame)
+    assert len(df) > 100, (
+        f"Got only {len(df)} rows from the target shard — looks like "
+        "an empty response or error page."
+    )
+
+    # The ``target`` dataset is documented to carry these columns; if they
+    # disappear, every downstream pipeline breaks.
+    columns = set(df.columns)
+    for required in ("id", "approvedSymbol", "biotype"):
+        assert required in columns, (
+            f"Required column {required!r} missing from target shard. Got: {sorted(columns)[:20]}"
+        )
+
+    # Sanity: every row should have an Ensembl gene id starting with ``ENSG``.
+    assert df["id"].astype(str).str.startswith("ENSG").all(), (
+        "Some target rows don't have an ENSG-prefixed id — schema drift?"
+    )
+
+
+def test_get_dataset_caches_locally(tmp_path) -> None:
+    """Second call with the same ``cache_dir`` reuses the local file
+    instead of redownloading."""
+    import time
+
+    t0 = time.monotonic()
+    df1 = opentargets.get_dataset(
+        "target",
+        version=opentargets.DEFAULT_VERSION,
+        cache_dir=tmp_path,
+        limit_files=1,
+        verbose=0,
+    )
+    dt_download = time.monotonic() - t0
+
+    t0 = time.monotonic()
+    df2 = opentargets.get_dataset(
+        "target",
+        version=opentargets.DEFAULT_VERSION,
+        cache_dir=tmp_path,
+        limit_files=1,
+        verbose=0,
+    )
+    dt_cached = time.monotonic() - t0
+
+    assert len(df1) == len(df2)
+    assert set(df1.columns) == set(df2.columns)
+    # Cached re-read should be at least 2x faster than the original
+    # download (and never slower than 5 s on commodity hardware).
+    assert dt_cached < max(dt_download / 2, 5.0), (
+        f"Cached read took {dt_cached:.1f}s vs initial {dt_download:.1f}s — "
+        "the local cache layer probably re-downloaded."
+    )

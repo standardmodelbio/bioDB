@@ -156,12 +156,32 @@ def test_load_gmt_dict(tmp_path) -> None:
 
 
 # ---------------------------------------------------------------------------
-# Live network smoke test (CI skips)
+# Live integration tests — RUN BY DEFAULT.
+#
+# Hallmark (``h.all``) is the smallest MSigDB collection (50 sets, ~50 KB
+# unzipped) so it's a cheap "is the downloader still working?" probe.
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.network
-def test_download_hallmark_gmt_live(tmp_path) -> None:
+def test_download_hallmark_gmt_from_live_server(tmp_path) -> None:
+    """Download the real Hallmark GMT and verify the file isn't empty / a
+    redirect / an HTML error page."""
     path = msigdb.download_gmt(collection="h.all", cache_dir=tmp_path)
     assert path.exists()
-    assert path.stat().st_size > 100
+    # Hallmark is ~50 KB; anything under 1 KB is almost certainly an error page.
+    size = path.stat().st_size
+    assert size > 1024, f"Hallmark GMT was only {size} bytes — looks like an error response."
+    # Should start with a gene-set name (Hallmark sets begin with ``HALLMARK_``).
+    head = path.read_text(encoding="utf-8")[:80]
+    assert head.startswith("HALLMARK_"), f"Unexpected first 80 bytes of hallmark GMT: {head!r}"
+
+
+def test_load_hallmark_gmt_parses_to_dataframe(tmp_path) -> None:
+    """Download + parse Hallmark and check the documented schema. Hallmark
+    has exactly 50 gene sets — anything wildly off means upstream changed."""
+    df = msigdb.load_gmt(collection="h.all", cache_dir=tmp_path, return_format="pandas")
+    assert set(df.columns) == {"id", "label", "gene"}
+    n_sets = df["id"].nunique()
+    assert 20 < n_sets < 200, f"Hallmark has 50 sets normally; got {n_sets}. Upstream changed?"
+    # All Hallmark set IDs start with ``HALLMARK_``.
+    assert df["id"].str.startswith("HALLMARK_").all()

@@ -230,20 +230,38 @@ def test_get_dbxrefs_empty(monkeypatch) -> None:
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.network
+# Live integration tests — RUN BY DEFAULT in CI. The mocked tests above
+# verify our parsing/HTTP plumbing; these prove UniProt still serves the
+# XML schema we depend on. They cost a single REST call each (~1 KB).
+
+
 def test_query_protein_returns_materialized_list_live() -> None:
     pytest.importorskip("Bio")
     records = uniprot.query_protein("P12345")
     assert isinstance(records, list)
+    assert len(records) > 0, "UniProt returned 0 records for P12345 — schema change?"
     # If query_protein returned a raw SeqIO.parse() iterator, the first
     # iteration below would exhaust it and the second would yield 0.
     first_pass = sum(1 for _ in records)
     second_pass = sum(1 for _ in records)
-    assert first_pass == second_pass > 0
+    assert first_pass == second_pass > 0, (
+        "Records list is single-pass iterable — the SeqIO.parse() footgun is back."
+    )
+    # P12345 is amine oxidase A; verify the protein has at least one
+    # documented feature so we know we got real annotation, not an error page.
+    assert any(record.features for record in records), (
+        "P12345 came back with zero features — UniProt response looks empty."
+    )
 
 
-@pytest.mark.network
 def test_get_features_live() -> None:
+    """Pull the real feature DataFrame for P12345 and check the documented columns."""
     pytest.importorskip("Bio")
     df = uniprot.get_features("P12345")
     assert isinstance(df, pd.DataFrame)
+    assert len(df) > 0, "P12345 should have annotated features in UniProt."
+    for col in ("type", "start", "end", "length"):
+        assert col in df.columns, f"Documented column {col!r} missing from {list(df.columns)}"
+    # ``length`` is computed by us as ``end - start`` — sanity-check the math.
+    computed = (df["end"] - df["start"]).astype(int)
+    assert (df["length"].astype(int) == computed).all()
