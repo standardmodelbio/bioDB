@@ -235,7 +235,11 @@ def test_query_protein_returns_materialized_list_live() -> None:
     pytest.importorskip("Bio")
     records = uniprot.query_protein("P12345")
     assert isinstance(records, list)
-    assert len(records) == len(records)  # the "must reimport" footgun
+    # If query_protein returned a raw SeqIO.parse() iterator, the first
+    # iteration below would exhaust it and the second would yield 0.
+    first_pass = sum(1 for _ in records)
+    second_pass = sum(1 for _ in records)
+    assert first_pass == second_pass > 0
 
 
 @pytest.mark.network
