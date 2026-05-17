@@ -66,11 +66,35 @@ def test_multi_handler_pure() -> None:
         _multi_handler(["a"], "bogus")  # type: ignore[arg-type]
 
 
-@pytest.mark.network
-def test_sequence_ontology_loads() -> None:
-    """Smoke check that the SO URL still resolves."""
+# Live integration test — RUN BY DEFAULT. SO is the smallest OBO ontology
+# (~3 MB) so the cost-per-run is acceptable. Proves the generic OWL
+# loader pulls + parses real upstream OBO Foundry data.
+
+
+def test_sequence_ontology_loads_real_data() -> None:
+    """Download + parse the real Sequence Ontology and verify a known
+    SO class exists.
+
+    Pinning a specific well-known SO term (``coding_sequence_variant``,
+    used throughout VEP) means this catches both URL rot AND content
+    changes that would silently remove the term from the public release.
+    """
     pytest.importorskip("owlready2")
     ont = ontology_owl.get_sequence_ontology()
     assert ont is not None
+
     labels = ontology_owl.get_labels(ont)
-    assert "coding_sequence_variant" in labels or len(labels) > 100
+    # SO has ~2000 classes; anything < 100 is an error page.
+    assert len(labels) > 100, (
+        f"Got only {len(labels)} labels — SO download probably returned an error page."
+    )
+    assert "coding_sequence_variant" in labels, (
+        "Canonical SO class missing — upstream content drifted."
+    )
+
+    # The descendants walk is the load-bearing API for downstream users.
+    desc = ontology_owl.get_descendants("coding_sequence_variant", ont=ont, return_as="label")
+    assert isinstance(desc, list)
+    assert "missense_variant" in desc, (
+        "missense_variant should be a descendant of coding_sequence_variant in SO."
+    )

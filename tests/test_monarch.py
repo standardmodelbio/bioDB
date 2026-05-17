@@ -1,8 +1,16 @@
-"""Smoke tests for ``biodb.monarch`` -- import + public-API stability."""
+"""Smoke + live integration tests for ``biodb.monarch``.
+
+The signature/import smoke tests at the top are the fast-feedback layer.
+The live integration test at the bottom downloads a real Monarch TSV
+from ``data.monarchinitiative.org`` and proves the downloader still
+works against the upstream knowledge graph.
+"""
 
 from __future__ import annotations
 
 import inspect
+
+import pandas as pd
 
 from biodb import monarch
 
@@ -40,3 +48,41 @@ def test_read_causal_gene_to_disease_association_signature() -> None:
     params = set(sig.parameters)
     # The fn at minimum takes a save_path / url / verbose-ish knob.
     assert len(params) >= 1
+
+
+# ---------------------------------------------------------------------------
+# Live integration test — RUN BY DEFAULT in CI.
+#
+# Downloads the real causal-gene-to-disease association TSV (~few MB
+# gzipped) from data.monarchinitiative.org and verifies the schema bioDB
+# advertises. This is the test that actually proves "can we download
+# Monarch data?" — the previous test file had ZERO real-data coverage.
+# ---------------------------------------------------------------------------
+
+
+def test_read_causal_gene_to_disease_association_from_live_server(tmp_path) -> None:
+    """Download + parse the real causal-gene-to-disease TSV.
+
+    Monarch publishes this at
+    ``data.monarchinitiative.org/.../causal_gene_to_disease_association.all.tsv.gz``.
+    Schema is documented in the Monarch KG README; this test pins the
+    columns + a sanity row count.
+    """
+    df = monarch.read_causal_gene_to_disease_association(
+        cache_dir=str(tmp_path), output_format="pandas", verbose=0
+    )
+    assert isinstance(df, pd.DataFrame)
+    # Monarch's causal-gene-to-disease catalog has thousands of rows.
+    assert len(df) > 1000, (
+        f"Got only {len(df)} rows — Monarch download likely returned an error page."
+    )
+
+    # Documented columns from the Monarch KG TSV schema. These power
+    # downstream gene-association matrix construction.
+    columns = set(df.columns)
+    for required in ("subject", "predicate", "object"):
+        assert required in columns, f"Required column {required!r} missing from {sorted(columns)}"
+
+    # The "subject" column is gene IDs in CURIE form (e.g. 'HGNC:1100').
+    sample_subject = df["subject"].dropna().iloc[0]
+    assert ":" in sample_subject, f"Sample subject {sample_subject!r} doesn't look like a CURIE."

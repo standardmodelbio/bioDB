@@ -914,20 +914,119 @@ def test_detect_attribute_start_short_header() -> None:
 
 
 # ---------------------------------------------------------------------------
-# Live network smoke tests (CI skips)
+# Live integration tests — RUN BY DEFAULT in CI.
+#
+# Maayan-Lab's Harmonizome API is fast (~1 s) and the per-dataset metadata
+# files are tiny (a few KB). The full ``get_gmt()`` flow downloads many MB
+# so we don't run it here; instead we exercise the smaller live surface
+# (config endpoint + dataset listing + per-dataset metadata).
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.network
-def test_config_lazy_load() -> None:
+def test_config_lazy_load_against_live_api() -> None:
+    """The /dark/script_config endpoint returns the canonical
+    ``downloads`` + ``datasets`` mappings."""
     downloads = harmonizome.DOWNLOADS
     assert isinstance(downloads, list)
-    assert any("gmt" in d for d in downloads)
+    assert any("gmt" in d for d in downloads), (
+        f"No GMT-shaped downloadables in DOWNLOADS — got {downloads[:5]}"
+    )
+
+    dataset_to_path = harmonizome.DATASET_TO_PATH
+    assert isinstance(dataset_to_path, dict)
+    assert len(dataset_to_path) > 50, (
+        f"Only {len(dataset_to_path)} datasets — Harmonizome catalog is ~114."
+    )
 
 
-@pytest.mark.network
-def test_list_datasets_returns_dataframe_live() -> None:
+def test_list_datasets_returns_real_catalog() -> None:
+    """The /api/1.0/dataset paginated endpoint returns the full catalog."""
     df = harmonizome.list_datasets(as_df=True)
     assert isinstance(df, pd.DataFrame)
     assert {"name", "href"}.issubset(df.columns)
-    assert len(df) > 50
+    assert len(df) > 50, f"Got {len(df)} datasets — pagination broken?"
+    # The catalog should include well-known datasets.
+    names = set(df["name"])
+    assert any("GTEx" in n for n in names), "GTEx not in Harmonizome catalog?"
+
+
+def test_get_dataset_metadata_against_real_dataset() -> None:
+    """Fetch metadata for a well-known dataset and verify the schema."""
+    # CCLE Cell Line Gene Expression Profiles is a stable dataset in
+    # Harmonizome since the original publication.
+    metadata = harmonizome.get_dataset_metadata("GTEx Tissue Gene Expression Profiles")
+    assert isinstance(metadata, dict)
+    assert set(metadata.keys()) == {
+        "description",
+        "measurement",
+        "association",
+        "category",
+        "resource",
+        "citations",
+        "last_updated",
+        "stats",
+    }
+    # At least the description should be populated for a real public dataset.
+    assert metadata["description"] != "", (
+        "GTEx metadata returned an empty description — fetch probably failed silently."
+    )
+
+
+def test_download_single_gmt_file_from_live_server(tmp_path) -> None:
+    """End-to-end: download ONE real ``.gmt.gz`` file from a Harmonizome
+    dataset and verify the file is a non-empty gene-set library.
+
+    Try a few (dataset, downloadable) combos and stop on the first
+    successful fetch. Not every dataset hosts every downloadable, so the
+    test stays resilient to upstream changes in which combos exist —
+    but it still has to fetch at least one real file.
+    """
+    cfg = harmonizome._load_config()
+    dataset_to_path = cfg.get("datasets", {})
+    gmt_filenames = [d for d in cfg.get("downloads", []) if d.endswith(".gmt.gz")]
+    assert gmt_filenames, "No .gmt.gz downloadables advertised by Harmonizome config."
+
+    # Try a handful of historically stable datasets with the GMT files
+    # most commonly hosted across Harmonizome.
+    candidate_datasets = [
+        "Achilles Cell Line Gene Essentiality Profiles",
+        "CCLE Cell Line Gene CNV Profiles",
+        "CCLE Cell Line Gene Expression Profiles",
+        "GTEx Tissue Gene Expression Profiles",
+        "HPA Cell Line Gene Expression Profiles",
+    ]
+    candidate_files = [
+        "gene_set_library_crisp.gmt.gz",
+        "gene_set_library_up_crisp.gmt.gz",
+        "gene_set_library_dn_crisp.gmt.gz",
+        "attribute_set_library_crisp.gmt.gz",
+    ]
+
+    successes: dict[str, str] = {}
+    tried: list[str] = []
+    for ds_name in candidate_datasets:
+        if ds_name not in dataset_to_path:
+            continue
+        for fname in candidate_files:
+            tried.append(f"({ds_name}, {fname})")
+            paths = harmonizome.download_datasets(
+                selected_datasets=[(ds_name, dataset_to_path[ds_name])],
+                selected_downloads=[fname],
+                cache_dir=tmp_path,
+                verbose=False,
+            )
+            if paths:
+                successes = paths
+                break
+        if successes:
+            break
+
+    assert successes, (
+        "Could not download any GMT from Harmonizome across all candidates: "
+        + ", ".join(tried[:8])
+        + ". Either the catalog changed or upstream is down."
+    )
+    fname = next(iter(successes))
+    path = Path(successes[fname])
+    assert path.exists()
+    assert path.stat().st_size > 100

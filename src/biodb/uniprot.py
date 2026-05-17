@@ -27,7 +27,7 @@ Examples
 from __future__ import annotations
 
 import logging
-from io import StringIO
+from io import BytesIO
 from typing import Any
 
 import pandas as pd
@@ -60,7 +60,10 @@ def _fetch_records(
     response = requests.get(url, timeout=timeout_s)
     response.raise_for_status()
     parser = "uniprot-xml" if fmt == "xml" else fmt
-    return list(SeqIO.parse(StringIO(response.text), parser))
+    # Biopython's uniprot-xml reader requires binary mode (it calls
+    # ``defusedxml.ElementTree.iterparse`` which expects bytes). Use
+    # ``response.content`` + ``BytesIO``, not ``response.text`` + ``StringIO``.
+    return list(SeqIO.parse(BytesIO(response.content), parser))
 
 
 def query_protein(

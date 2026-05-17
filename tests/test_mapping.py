@@ -116,3 +116,46 @@ def test_map_gene_ids_verbose_logs(monkeypatch, caplog) -> None:
         mapping.map_gene_ids(df, verbose=True)
     messages = " ".join(record.message for record in caplog.records)
     assert "Mapping gene IDs" in messages or "Mapped" in messages
+
+
+# ---------------------------------------------------------------------------
+# Live integration test — RUN BY DEFAULT.
+#
+# gProfiler's ``/convert`` REST API is public + free + fast (<1 s for a
+# handful of genes). Proves the mapper actually works against the real
+# upstream — the mocked tests above only verify our reshaping of the
+# response, not that g:Profiler still returns the response we expect.
+# ---------------------------------------------------------------------------
+
+
+def test_map_gene_ids_ensembl_to_hgnc_live() -> None:
+    """Convert three well-known Ensembl IDs to HGNC symbols via the real
+    g:Profiler API. Pinning the expected symbols would catch silent
+    upstream-mapping changes (genes do occasionally get renamed)."""
+    pytest.importorskip("gprofiler")
+    df = pd.DataFrame(
+        {
+            "targetId": [
+                "ENSG00000012048",  # BRCA1
+                "ENSG00000141510",  # TP53
+                "ENSG00000146648",  # EGFR
+            ],
+            "score": [0.1, 0.2, 0.3],
+        }
+    )
+    out = mapping.map_gene_ids(
+        df,
+        target_id_col="targetId",
+        target_namespace="HGNC",
+        verbose=False,
+    )
+
+    assert "HGNC" in out.columns
+    # Score column preserved; row count preserved.
+    assert len(out) == 3
+    assert list(out["score"]) == [0.1, 0.2, 0.3]
+    # The three canonical genes should map to their well-known symbols.
+    by_ensembl = dict(zip(out["targetId"], out["HGNC"], strict=True))
+    assert by_ensembl["ENSG00000012048"] == "BRCA1"
+    assert by_ensembl["ENSG00000141510"] == "TP53"
+    assert by_ensembl["ENSG00000146648"] == "EGFR"

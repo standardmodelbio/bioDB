@@ -98,15 +98,23 @@ test = [
     "ruff>=0.5",
     "coverage-badge>=1.1",
     # Mock HTTP for ``requests``-based clients (gwas_atlas, gprofiler,
-    # msigdb, harmonizome, ...). Used by every source-client test so CI
-    # stays offline. ``httpx`` is mocked via the built-in MockTransport.
+    # msigdb, harmonizome, ...). Used by every source-client test so the
+    # offline path stays deterministic. ``httpx`` is mocked via the
+    # built-in MockTransport.
     "responses>=0.25",
     # pandas' parquet engine isn't bundled. ``opentargets.get_dataset``
     # and ``harmonizome.get_gmt`` both call ``pd.read_parquet`` /
     # ``DataFrame.to_parquet`` and crash on a fresh install without one
-    # of these engines. Pinned in the test extra because CI exercises
-    # those code paths.
+    # of these engines.
     "pyarrow>=14.0",
+    # CI runs live integration tests against every source; the protein
+    # tests (uniprot) need biopython, the mapping tests need gprofiler,
+    # and the ontology tests need owlready2 + networkx. Without these
+    # the live tests skip silently — defeating the point.
+    "biopython>=1.83",
+    "gprofiler-official>=1.0",
+    "owlready2>=0.45",
+    "networkx>=3.0",
 ]
 dev = ["biodb[ontology,viz,tokens,gget,protein,clinvar,mapping,docs,test]"]
 

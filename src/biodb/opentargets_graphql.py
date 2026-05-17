@@ -122,10 +122,13 @@ query Target($ensemblId: String!) {
     nameSynonyms { label source }
     subcellularLocations { location source }
     pathways { pathway pathwayId topLevelTerm }
-    go { term aspect source }
   }
 }
 """
+# Note: the ``go { term aspect source }`` field was removed from
+# Open Targets' Target GraphQL type sometime before 2026-05; pulling
+# Gene Ontology annotations now requires a separate API. Dropping the
+# field here keeps the query well-formed against the current schema.
 
 _DISEASE_QUERY = """
 query Disease($efoId: String!) {

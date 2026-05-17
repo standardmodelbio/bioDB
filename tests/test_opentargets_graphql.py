@@ -184,19 +184,31 @@ def test_query_returns_none_when_data_key_missing() -> None:
 
 
 # ---------------------------------------------------------------------------
-# Live network smoke tests (CI skips)
+# Live integration tests — RUN BY DEFAULT in CI.
+#
+# The GraphQL endpoint is fast (sub-second) and the response is tiny, so
+# we can afford to hit it on every CI run. These tests are the only thing
+# that would catch upstream schema changes (e.g. fields being removed
+# from the ``Target`` type — has happened before).
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.network
 def test_query_target_live() -> None:
+    """Fetch the real BRCA1 record and verify the documented fields. Catches
+    schema drift like the 2026-05 removal of the ``go`` field."""
     brca1 = gql.query_target("ENSG00000012048")
-    assert brca1 is not None
+    assert brca1 is not None, "query_target returned None for BRCA1 — query rejected?"
     assert brca1["approvedSymbol"] == "BRCA1"
+    # A few other documented fields that bioDB users depend on.
+    assert brca1["biotype"] == "protein_coding"
+    assert isinstance(brca1.get("pathways"), list)
 
 
-@pytest.mark.network
 def test_query_disease_live() -> None:
+    """Fetch the real ``MONDO_0007254`` (breast cancer) record."""
     bc = gql.query_disease("MONDO_0007254")
     assert bc is not None
-    assert "carcinoma" in bc["name"].lower() or "cancer" in bc["name"].lower()
+    name = (bc.get("name") or "").lower()
+    assert "carcinoma" in name or "cancer" in name, (
+        f"Got unexpected disease name {bc.get('name')!r} for MONDO_0007254."
+    )
