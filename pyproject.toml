@@ -101,6 +101,12 @@ test = [
     # msigdb, harmonizome, ...). Used by every source-client test so CI
     # stays offline. ``httpx`` is mocked via the built-in MockTransport.
     "responses>=0.25",
+    # pandas' parquet engine isn't bundled. ``opentargets.get_dataset``
+    # and ``harmonizome.get_gmt`` both call ``pd.read_parquet`` /
+    # ``DataFrame.to_parquet`` and crash on a fresh install without one
+    # of these engines. Pinned in the test extra because CI exercises
+    # those code paths.
+    "pyarrow>=14.0",
 ]
 dev = ["biodb[ontology,viz,tokens,gget,protein,clinvar,mapping,docs,test]"]
 
