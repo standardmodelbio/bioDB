@@ -5,14 +5,23 @@ is a Vrije Universiteit Amsterdam meta-resource that publishes
 per-study gene-level MAGMA p-values across ~4,000 GWAS summary
 statistics in a single (gene × study) matrix.
 
-The Atlas distributes its bulk artifacts at
-``https://atlas.ctglab.nl/ukb2_sumstats/`` — the two files
-this module wraps are:
+The Atlas does *not* expose direct-URL downloads. Each bulk artifact
+goes through a Laravel CSRF-protected form on the homepage that posts
+to ``/home/release`` with a per-session ``_token`` and an
+``XSRF-TOKEN`` / ``atlas_session`` cookie pair. :func:`_session` performs
+that handshake transparently so callers see plain
+``download_*`` / ``load_*`` APIs.
+
+Files this module wraps:
 
 * ``gwasATLAS_v20191115.txt.gz`` — per-study metadata (PMID, trait,
   domain, sample size, …).
 * ``gwasATLAS_v20191115_magma_P.txt.gz`` — the (gene × study) MAGMA
   -log10 p-value matrix.
+
+Any other file listed on the release page (``_columns.txt.gz``,
+``_GC.txt.gz``, ``_magma_sets_P.txt.gz``, ``_riskloci.txt.gz``, …) can be
+fetched with :func:`download_file`.
 
 Both are cached under ``~/.cache/biodb/gwas_atlas/``.
 
@@ -26,6 +35,7 @@ Examples
 from __future__ import annotations
 
 import logging
+import re
 from pathlib import Path
 
 import pandas as pd
@@ -33,8 +43,10 @@ import requests
 
 logger = logging.getLogger(__name__)
 
-GWAS_ATLAS_BASE_URL = "https://atlas.ctglab.nl/ukb2_sumstats"
-"""Public bulk-download root."""
+GWAS_ATLAS_BASE_URL = "https://atlas.ctglab.nl"
+"""Public site root. The form-POST endpoint lives at ``/home/release``."""
+
+GWAS_ATLAS_RELEASE_ENDPOINT = f"{GWAS_ATLAS_BASE_URL}/home/release"
 
 DEFAULT_VERSION = "20191115"
 """Default GWAS Atlas snapshot date. Bump after testing a new release."""
@@ -42,25 +54,80 @@ DEFAULT_VERSION = "20191115"
 CACHE_DIR = Path("~/.cache/biodb/gwas_atlas").expanduser()
 CACHE_DIR.mkdir(parents=True, exist_ok=True)
 
-
-def _metadata_url(version: str) -> str:
-    return f"{GWAS_ATLAS_BASE_URL}/gwasATLAS_v{version}.txt.gz"
-
-
-def _magma_p_url(version: str) -> str:
-    return f"{GWAS_ATLAS_BASE_URL}/gwasATLAS_v{version}_magma_P.txt.gz"
+_USER_AGENT = "biodb/0.1 (+https://github.com/bschilder/bioDB)"
+_TOKEN_RE = re.compile(r'name="_token"\s+value="([^"]+)"')
 
 
-def _download(url: str, dst: Path) -> Path:
-    """Stream ``url`` to ``dst`` (creating parents); return ``dst``."""
-    dst.parent.mkdir(parents=True, exist_ok=True)
-    logger.info("Downloading %s", url)
-    response = requests.get(url, stream=True, timeout=300)
+def _session(timeout: float = 30) -> tuple[requests.Session, str]:
+    """Open a session, scrape a Laravel CSRF ``_token``, return ``(session, token)``.
+
+    Cookies (``XSRF-TOKEN`` + ``atlas_session``) are stored on the session.
+    The token is form-bound — pass it as ``data["_token"]`` on the POST to
+    :data:`GWAS_ATLAS_RELEASE_ENDPOINT`.
+    """
+    session = requests.Session()
+    session.headers["User-Agent"] = _USER_AGENT
+    response = session.get(f"{GWAS_ATLAS_BASE_URL}/", timeout=timeout)
     response.raise_for_status()
-    with open(dst, "wb") as f:
-        for chunk in response.iter_content(chunk_size=1 << 16):
-            f.write(chunk)
+    match = _TOKEN_RE.search(response.text)
+    if not match:
+        raise RuntimeError(
+            "Could not locate a Laravel _token field on the GWAS Atlas homepage — "
+            "the site layout may have changed; please file an issue at "
+            "https://github.com/bschilder/bioDB/issues."
+        )
+    return session, match.group(1)
+
+
+def _download(filename: str, dst: Path, timeout: float = 300) -> Path:
+    """Stream the GWAS Atlas file named ``filename`` to ``dst``; return ``dst``.
+
+    Goes through the CSRF-form flow at :data:`GWAS_ATLAS_RELEASE_ENDPOINT`.
+    """
+    dst.parent.mkdir(parents=True, exist_ok=True)
+    session, token = _session(timeout=timeout)
+    logger.info("Downloading %s via %s", filename, GWAS_ATLAS_RELEASE_ENDPOINT)
+    with session.post(
+        GWAS_ATLAS_RELEASE_ENDPOINT,
+        data={"_token": token, "file": filename},
+        stream=True,
+        timeout=timeout,
+        allow_redirects=True,
+    ) as response:
+        response.raise_for_status()
+        with open(dst, "wb") as f:
+            for chunk in response.iter_content(chunk_size=1 << 16):
+                if chunk:
+                    f.write(chunk)
     return dst
+
+
+def download_file(
+    filename: str,
+    cache_dir: str | Path | None = None,
+    force: bool = False,
+) -> Path:
+    """Download an arbitrary GWAS Atlas release file by filename.
+
+    Useful for the auxiliary files not wrapped by the dedicated helpers
+    (``gwasATLAS_v20191115.readme``, ``_columns.txt.gz``, ``_GC.txt.gz``,
+    ``_magma_sets_P.txt.gz``, ``_riskloci.txt.gz``, …).
+
+    Parameters
+    ----------
+    filename : str
+        Exact filename shown on https://atlas.ctglab.nl/ (e.g.
+        ``"gwasATLAS_v20191115_riskloci.txt.gz"``).
+    cache_dir : str or Path, optional
+        Cache root. Defaults to :data:`CACHE_DIR`.
+    force : bool, default False
+        Re-download even if cached.
+    """
+    root = Path(cache_dir).expanduser() if cache_dir else CACHE_DIR
+    dst = root / filename
+    if dst.exists() and not force:
+        return dst
+    return _download(filename, dst)
 
 
 def download_metadata(
@@ -69,11 +136,7 @@ def download_metadata(
     force: bool = False,
 ) -> Path:
     """Download the per-study metadata TSV (gzip) and return its local path."""
-    root = Path(cache_dir).expanduser() if cache_dir else CACHE_DIR
-    dst = root / f"gwasATLAS_v{version}.txt.gz"
-    if dst.exists() and not force:
-        return dst
-    return _download(_metadata_url(version), dst)
+    return download_file(f"gwasATLAS_v{version}.txt.gz", cache_dir=cache_dir, force=force)
 
 
 def download_magma_p(
@@ -82,11 +145,7 @@ def download_magma_p(
     force: bool = False,
 ) -> Path:
     """Download the (gene × study) MAGMA P-value matrix (gzip)."""
-    root = Path(cache_dir).expanduser() if cache_dir else CACHE_DIR
-    dst = root / f"gwasATLAS_v{version}_magma_P.txt.gz"
-    if dst.exists() and not force:
-        return dst
-    return _download(_magma_p_url(version), dst)
+    return download_file(f"gwasATLAS_v{version}_magma_P.txt.gz", cache_dir=cache_dir, force=force)
 
 
 def load_metadata(
@@ -151,6 +210,8 @@ __all__ = [
     "CACHE_DIR",
     "DEFAULT_VERSION",
     "GWAS_ATLAS_BASE_URL",
+    "GWAS_ATLAS_RELEASE_ENDPOINT",
+    "download_file",
     "download_magma_p",
     "download_metadata",
     "load_magma_p",
