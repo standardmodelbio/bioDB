@@ -242,6 +242,63 @@ def query_abstract(
     return records[0]
 
 
+def query_abstracts(
+    pmids: list[str | int],
+    *,
+    api_key: str | None = None,
+    timeout: int = 60,
+    batch_size: int = 100,
+) -> list[dict]:
+    """Batched analog of :func:`query_abstract` — one HTTP call per chunk.
+
+    NCBI's ``efetch.fcgi`` accepts a comma-separated ``id`` parameter, so a
+    single request can return up to ~100-200 records. Per-PMID looping would
+    multiply round-trips and exhaust the rate limit (3 req/sec without an
+    API key, 10 req/sec with). This call chunks the input list into groups
+    of ``batch_size`` and parses each multi-record XML response in one go.
+
+    Parameters
+    ----------
+    pmids : list[str | int]
+        Pubmed IDs to fetch. Order is preserved in the output where
+        possible, but PMIDs NCBI doesn't return a record for are silently
+        dropped (matches single-PMID ``query_abstract``'s behaviour minus
+        the raise — bulk callers usually want partial results, not a hard
+        failure on one missing id).
+    api_key : str, optional
+        NCBI API key for rate-limit lift.
+    timeout : int, default 60
+        Per-request timeout in seconds. Bumped from the single-PMID
+        default because chunked efetch can serialise ~100 records.
+    batch_size : int, default 100
+        PMIDs per ``efetch.fcgi`` request. Stay <=200 to avoid NCBI's
+        URL-length cap on GET; the helper uses GET for parity with the
+        rest of this module.
+
+    Returns
+    -------
+    list[dict]
+        One dict per parsed article (same shape as
+        :func:`query_abstract`'s return value). Missing PMIDs are omitted.
+    """
+    if not pmids:
+        return []
+    out: list[dict] = []
+    for i in range(0, len(pmids), batch_size):
+        chunk = pmids[i : i + batch_size]
+        params: dict = {
+            "db": "pubmed",
+            "id": ",".join(str(p) for p in chunk),
+            "rettype": "abstract",
+            "retmode": "xml",
+        }
+        if api_key:
+            params["api_key"] = api_key
+        response = _eutils_get("efetch.fcgi", params, timeout=timeout)
+        out.extend(_iter_articles_from_xml(response.content))
+    return out
+
+
 # ─── Bulk FTP — baseline + daily update files ──────────────────────────────
 
 
