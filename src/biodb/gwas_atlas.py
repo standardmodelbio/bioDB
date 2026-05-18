@@ -41,6 +41,8 @@ from pathlib import Path
 import pandas as pd
 import requests
 
+from biodb._downloads import stream_to_file
+
 logger = logging.getLogger(__name__)
 
 GWAS_ATLAS_BASE_URL = "https://atlas.ctglab.nl"
@@ -79,33 +81,36 @@ def _session(timeout: float = 30) -> tuple[requests.Session, str]:
     return session, match.group(1)
 
 
-def _download(filename: str, dst: Path, timeout: float = 300) -> Path:
+def _download(
+    filename: str,
+    dst: Path,
+    timeout: float = 300,
+    *,
+    progress: bool = True,
+) -> Path:
     """Stream the GWAS Atlas file named ``filename`` to ``dst``; return ``dst``.
 
     Goes through the CSRF-form flow at :data:`GWAS_ATLAS_RELEASE_ENDPOINT`.
     """
-    dst.parent.mkdir(parents=True, exist_ok=True)
     session, token = _session(timeout=timeout)
     logger.info("Downloading %s via %s", filename, GWAS_ATLAS_RELEASE_ENDPOINT)
-    with session.post(
+    return stream_to_file(
         GWAS_ATLAS_RELEASE_ENDPOINT,
-        data={"_token": token, "file": filename},
-        stream=True,
-        timeout=timeout,
-        allow_redirects=True,
-    ) as response:
-        response.raise_for_status()
-        with open(dst, "wb") as f:
-            for chunk in response.iter_content(chunk_size=1 << 16):
-                if chunk:
-                    f.write(chunk)
-    return dst
+        dst,
+        timeout=int(timeout),
+        progress=progress,
+        desc=filename,
+        session=session,
+        post_data={"_token": token, "file": filename},
+    )
 
 
 def download_file(
     filename: str,
     cache_dir: str | Path | None = None,
     force: bool = False,
+    *,
+    progress: bool = True,
 ) -> Path:
     """Download an arbitrary GWAS Atlas release file by filename.
 
@@ -122,30 +127,46 @@ def download_file(
         Cache root. Defaults to :data:`CACHE_DIR`.
     force : bool, default False
         Re-download even if cached.
+    progress : bool, default True
+        Show a tqdm download bar.
     """
     root = Path(cache_dir).expanduser() if cache_dir else CACHE_DIR
     dst = root / filename
     if dst.exists() and not force:
         return dst
-    return _download(filename, dst)
+    return _download(filename, dst, progress=progress)
 
 
 def download_metadata(
     version: str = DEFAULT_VERSION,
     cache_dir: str | Path | None = None,
     force: bool = False,
+    *,
+    progress: bool = True,
 ) -> Path:
     """Download the per-study metadata TSV (gzip) and return its local path."""
-    return download_file(f"gwasATLAS_v{version}.txt.gz", cache_dir=cache_dir, force=force)
+    return download_file(
+        f"gwasATLAS_v{version}.txt.gz",
+        cache_dir=cache_dir,
+        force=force,
+        progress=progress,
+    )
 
 
 def download_magma_p(
     version: str = DEFAULT_VERSION,
     cache_dir: str | Path | None = None,
     force: bool = False,
+    *,
+    progress: bool = True,
 ) -> Path:
     """Download the (gene × study) MAGMA P-value matrix (gzip)."""
-    return download_file(f"gwasATLAS_v{version}_magma_P.txt.gz", cache_dir=cache_dir, force=force)
+    return download_file(
+        f"gwasATLAS_v{version}_magma_P.txt.gz",
+        cache_dir=cache_dir,
+        force=force,
+        progress=progress,
+    )
 
 
 def load_metadata(
