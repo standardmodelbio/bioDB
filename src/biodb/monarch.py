@@ -894,3 +894,137 @@ def query_gene_associations(gene_id: str, *, limit: int = 100) -> pd.DataFrame:
             break
         offset += limit
     return pd.DataFrame(rows)
+
+
+# ─── Monarch KG Cypher API (public Neo4j HTTP transactional endpoint) ──────
+# Monarch publishes a continuously updated, public read-only Neo4j instance
+# at https://neo4j.monarchinitiative.org/. The Neo4j Browser is at
+# /browser/ for interactive exploration; the HTTP transactional API at
+# /db/<database>/tx/commit accepts plain Cypher and returns JSON — no
+# bolt driver required, no credentials.
+#
+# This is the path to use when you need graph-shaped queries (multi-hop
+# traversal, neighbours, paths) that the BioLink REST API doesn't expose.
+
+MONARCH_NEO4J_HTTP_URL = "https://neo4j.monarchinitiative.org"
+"""Monarch's public Neo4j HTTP API root."""
+
+MONARCH_NEO4J_DATABASE = "neo4j"
+"""Database name on the Monarch Neo4j server (the Neo4j default)."""
+
+
+def query_cypher(
+    cypher: str,
+    *,
+    parameters: Optional[Dict] = None,
+    database: str = MONARCH_NEO4J_DATABASE,
+    base_url: str = MONARCH_NEO4J_HTTP_URL,
+    timeout: int = 60,
+) -> pd.DataFrame:
+    """Run a read-only Cypher query against Monarch's public Neo4j and
+    return one row per record.
+
+    Parameters
+    ----------
+    cypher : str
+        The Cypher statement, e.g. ``"MATCH (n:Gene {id: $id}) RETURN n"``.
+    parameters : dict, optional
+        Parameters bound into the query (use ``$name`` placeholders in
+        ``cypher`` — never f-string interpolation, which is a Cypher
+        injection footgun).
+    database : str
+        Target database; the Monarch instance exposes the Neo4j default
+        ``"neo4j"`` only — other names (e.g. ``"monarch"``) return
+        ``DatabaseNotFound``.
+    base_url : str
+        Override only when pointing at a private mirror.
+    timeout : int
+
+    Returns
+    -------
+    pandas.DataFrame
+        One row per Cypher record; columns are taken from the ``RETURN``
+        clause. Node / relationship values are nested ``dict`` /
+        ``list`` payloads — convert as needed.
+
+    Raises
+    ------
+    RuntimeError
+        If Neo4j returns any error in the response ``"errors"`` list
+        (e.g. ``SyntaxError``, ``DatabaseNotFound``).
+    requests.HTTPError
+        On non-2xx HTTP response.
+
+    Examples
+    --------
+    >>> df = query_cypher("MATCH (n) RETURN count(n) AS total")  # doctest: +SKIP
+    >>> df.iloc[0]["total"]  # doctest: +SKIP
+    1460060
+    >>> df = query_cypher(
+    ...     "MATCH (g {id: $id})-[r]-(n) RETURN type(r) AS rel, n.id AS neighbour LIMIT 5",
+    ...     parameters={"id": "HGNC:1100"},
+    ... )  # doctest: +SKIP
+    """
+    url = f"{base_url}/db/{database}/tx/commit"
+    statement: Dict = {"statement": cypher}
+    if parameters:
+        statement["parameters"] = parameters
+    response = requests.post(
+        url,
+        json={"statements": [statement]},
+        headers={"Accept": "application/json", "Content-Type": "application/json"},
+        timeout=timeout,
+    )
+    response.raise_for_status()
+    payload = response.json()
+    errors = payload.get("errors") or []
+    if errors:
+        first = errors[0]
+        raise RuntimeError(
+            f"Monarch Neo4j returned an error "
+            f"({first.get('code', 'UnknownError')}): {first.get('message', '')}"
+        )
+    results = payload.get("results") or []
+    if not results:
+        return pd.DataFrame()
+    block = results[0]
+    columns = block.get("columns", [])
+    rows = [item["row"] for item in block.get("data", [])]
+    return pd.DataFrame(rows, columns=columns)
+
+
+def query_neighbors(
+    curie: str,
+    *,
+    limit: int = 50,
+    timeout: int = 60,
+) -> pd.DataFrame:
+    """Return immediate neighbours of one Monarch KG node via Cypher.
+
+    Convenience wrapper over :func:`query_cypher` for the most common
+    ad-hoc question: "what is this CURIE connected to?".
+
+    Parameters
+    ----------
+    curie : str
+        Subject CURIE, e.g. ``"HGNC:1100"`` (BRCA1), ``"MONDO:0007254"``.
+    limit : int, default 50
+    timeout : int
+
+    Returns
+    -------
+    pandas.DataFrame
+        Columns: ``predicate`` (BioLink predicate), ``neighbor_id``,
+        ``neighbor_name``, ``neighbor_category``.
+    """
+    cypher = (
+        "MATCH (s {id: $id})-[r]-(n) "
+        "RETURN type(r) AS predicate, n.id AS neighbor_id, "
+        "n.name AS neighbor_name, n.category AS neighbor_category "
+        "LIMIT $limit"
+    )
+    return query_cypher(
+        cypher,
+        parameters={"id": curie, "limit": limit},
+        timeout=timeout,
+    )

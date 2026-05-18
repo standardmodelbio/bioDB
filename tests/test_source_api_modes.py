@@ -51,6 +51,55 @@ def test_monarch_query_gene_associations_returns_dataframe() -> None:
     assert (df["subject"] == "HGNC:1100").all()
 
 
+# ─── biodb.monarch.query_cypher (public Neo4j HTTP API) ─────────────────────
+
+
+def test_monarch_query_cypher_count_nodes() -> None:
+    """A trivial ``MATCH (n) RETURN count(n)`` round-trips through the
+    public Neo4j HTTP transactional endpoint."""
+    from biodb import monarch
+
+    df = monarch.query_cypher("MATCH (n) RETURN count(n) AS total")
+    assert list(df.columns) == ["total"]
+    assert df.iloc[0]["total"] > 1_000_000, (
+        f"Monarch KG should have well over 1 M nodes; got {df.iloc[0]['total']} — suspicious"
+    )
+
+
+def test_monarch_query_cypher_parameters_round_trip() -> None:
+    """Parameter binding (``$id``) is the only safe way to pass a CURIE
+    into a Cypher query — verify the wire format works end-to-end."""
+    from biodb import monarch
+
+    df = monarch.query_cypher(
+        "MATCH (n {id: $id}) RETURN n.id AS id, n.name AS name LIMIT 1",
+        parameters={"id": "HGNC:1100"},
+    )
+    assert len(df) == 1
+    assert df.iloc[0]["id"] == "HGNC:1100"
+    assert df.iloc[0]["name"] == "BRCA1"
+
+
+def test_monarch_query_cypher_surfaces_syntax_errors() -> None:
+    """Neo4j returns Cypher syntax errors inside a 200 response body's
+    ``"errors"`` array. We have to surface those as Python exceptions."""
+    from biodb import monarch
+
+    with pytest.raises(RuntimeError, match="SyntaxError"):
+        monarch.query_cypher("MATCH (n RETURN n")  # missing closing paren
+
+
+def test_monarch_query_neighbors_returns_real_edges() -> None:
+    """BRCA1 has many neighbours in the KG; the convenience wrapper
+    should pull a sample with the documented columns."""
+    from biodb import monarch
+
+    df = monarch.query_neighbors("HGNC:1100", limit=5)
+    assert len(df) == 5
+    for col in ("predicate", "neighbor_id", "neighbor_name", "neighbor_category"):
+        assert col in df.columns
+
+
 # ─── biodb.clinvar.query_variant / query_gene (NCBI E-utilities) ────────────
 
 
