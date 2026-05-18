@@ -23,7 +23,6 @@ Examples
 from __future__ import annotations
 
 import logging
-import zipfile
 from pathlib import Path
 from typing import Any
 
@@ -33,9 +32,16 @@ import requests
 logger = logging.getLogger(__name__)
 
 GPROFILER_GMT_URL_TEMPLATE = (
-    "https://biit.cs.ut.ee/gprofiler//static/gprofiler_full_{organism}.name.gmt.zip"
+    "https://biit.cs.ut.ee/gprofiler/static/gprofiler_full_{organism}.name.gmt"
 )
-"""URL template for the per-organism g:Profiler gene-set library zip."""
+"""URL template for the combined per-organism g:Profiler gene-set library.
+
+g:Profiler migrated to a Vue SPA in 2026 and renamed the bulk-download
+path: the file is now a plain ``.gmt`` (no longer wrapped in a zip) and
+the old double-slash path returns 404. The combined-file pattern is the
+one the website's *Download g:Profiler data as a combined GMT file* link
+points at. ~41 MB for hsapiens, smaller for other organisms.
+"""
 
 GPROFILER_REST_API = "https://biit.cs.ut.ee/gprofiler/api/gost/profile/"
 """REST endpoint for live g:Profiler functional enrichment (``gost``)."""
@@ -72,24 +78,12 @@ def download_gmt(
         return gmt_path
 
     url = GPROFILER_GMT_URL_TEMPLATE.format(organism=organism)
-    zip_path = root / f"gprofiler_full_{organism}.name.gmt.zip"
     logger.info("Downloading %s", url)
     response = requests.get(url, stream=True, timeout=120)
     response.raise_for_status()
-    with open(zip_path, "wb") as f:
+    with open(gmt_path, "wb") as f:
         for chunk in response.iter_content(chunk_size=1 << 16):
             f.write(chunk)
-
-    with zipfile.ZipFile(zip_path) as zf:
-        # The archive contains a single .gmt; extract to the cache root.
-        for name in zf.namelist():
-            if name.endswith(".gmt"):
-                with zf.open(name) as src, open(gmt_path, "wb") as dst:
-                    dst.write(src.read())
-                break
-        else:
-            raise RuntimeError(f"No .gmt entry found inside {zip_path}")
-
     return gmt_path
 
 

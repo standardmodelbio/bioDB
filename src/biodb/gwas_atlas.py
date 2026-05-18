@@ -206,6 +206,92 @@ def melt_magma_p(magma_p: pd.DataFrame, p_col: str = "score") -> pd.DataFrame:
     return long
 
 
+# ─── Per-trait targeted-query API ───────────────────────────────────────────
+# GWAS Atlas doesn't publish a structured REST API for per-trait
+# lookups, so we mimic one by caching the per-study metadata TSV in
+# memory and indexing on the lookup keys callers most often want
+# (numeric ``id``, ``Trait`` name, or ``PMID``).
+
+_METADATA_CACHE: pd.DataFrame | None = None
+
+
+def _get_metadata_cached(
+    version: str = DEFAULT_VERSION,
+    cache_dir: str | Path | None = None,
+) -> pd.DataFrame:
+    """Lazy-load the per-study metadata TSV and cache it in module memory."""
+    global _METADATA_CACHE
+    if _METADATA_CACHE is None or _METADATA_CACHE.empty:
+        _METADATA_CACHE = load_metadata(version=version, cache_dir=cache_dir)
+    return _METADATA_CACHE
+
+
+def query_trait(
+    trait: str | int,
+    *,
+    column: str | None = None,
+    version: str = DEFAULT_VERSION,
+    cache_dir: str | Path | None = None,
+) -> pd.DataFrame:
+    """Look up GWAS Atlas study metadata by trait name, PMID, or numeric id.
+
+    Parameters
+    ----------
+    trait : str or int
+        The lookup value:
+
+        * an ``int`` (or all-digit ``str``) is treated as ``id`` first,
+          falling back to ``PMID`` if no ``id`` matches.
+        * any other string is treated as a substring filter on ``Trait``.
+    column : str, optional
+        Force the lookup column. One of ``"id"``, ``"PMID"``, ``"Trait"``,
+        or any other column present in the metadata frame.
+    version : str
+    cache_dir : str or Path, optional
+
+    Returns
+    -------
+    pandas.DataFrame
+        Zero or more matching rows from the metadata TSV (e.g. PMID,
+        Trait, Year, N, Domain, Population, Chip, …).
+    """
+    meta = _get_metadata_cached(version=version, cache_dir=cache_dir)
+
+    if column is not None:
+        if column not in meta.columns:
+            raise KeyError(
+                f"Column {column!r} not in metadata; available: {list(meta.columns)[:8]}…"
+            )
+        col_data = meta[column].astype(str)
+        return meta[col_data.str.contains(str(trait), na=False, case=False)]
+
+    str_val = str(trait).strip()
+    if str_val.isdigit():
+        as_int = int(str_val)
+        if "id" in meta.columns:
+            id_col = meta["id"]
+            hits = meta[id_col == (as_int if id_col.dtype.kind in "iuf" else str_val)]
+            if not hits.empty:
+                return hits
+        if "PMID" in meta.columns:
+            pmid_col = meta["PMID"]
+            return meta[pmid_col == (as_int if pmid_col.dtype.kind in "iuf" else str_val)]
+        return meta.iloc[0:0]
+
+    if "Trait" in meta.columns:
+        return meta[meta["Trait"].astype(str).str.contains(str_val, na=False, case=False)]
+    return meta.iloc[0:0]
+
+
+def list_traits(
+    *,
+    version: str = DEFAULT_VERSION,
+    cache_dir: str | Path | None = None,
+) -> pd.DataFrame:
+    """Return the full per-study metadata table (cached after first call)."""
+    return _get_metadata_cached(version=version, cache_dir=cache_dir)
+
+
 __all__ = [
     "CACHE_DIR",
     "DEFAULT_VERSION",
@@ -214,7 +300,9 @@ __all__ = [
     "download_file",
     "download_magma_p",
     "download_metadata",
+    "list_traits",
     "load_magma_p",
     "load_metadata",
     "melt_magma_p",
+    "query_trait",
 ]

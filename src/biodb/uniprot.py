@@ -28,6 +28,7 @@ from __future__ import annotations
 
 import logging
 from io import BytesIO
+from pathlib import Path
 from typing import Any
 
 import pandas as pd
@@ -152,3 +153,141 @@ def get_dbxrefs(uniprot_id: str, **kwargs: Any) -> pd.DataFrame:
     if not df.empty:
         df[["db", "id"]] = df["dbxref"].str.split(":", n=1, expand=True)
     return df
+
+
+# ─── Bulk Swiss-Prot / TrEMBL FASTA download ────────────────────────────────
+# Pulls and streams the canonical UniProt Knowledgebase FASTA distributions:
+#
+#   Swiss-Prot (manually reviewed) — ``uniprot_sprot.fasta.gz`` (~90 MB)
+#   TrEMBL (auto-annotated)        — ``uniprot_trembl.fasta.gz`` (~50 GB!)
+#
+# Use ``iter_fasta_records`` to stream without loading the full file into
+# memory (essential for TrEMBL).
+
+UNIPROT_FTP_BASE_URL = (
+    "https://ftp.uniprot.org/pub/databases/uniprot/current_release/knowledgebase/complete"
+)
+"""UniProt FTP knowledgebase root (HTTPS-served, ``ftp.uniprot.org``)."""
+
+UNIPROT_FASTA_CACHE_DIR = Path("~/.cache/biodb/uniprot").expanduser()
+UNIPROT_FASTA_CACHE_DIR.mkdir(parents=True, exist_ok=True)
+
+SWISSPROT_FASTA_FILENAME = "uniprot_sprot.fasta.gz"
+TREMBL_FASTA_FILENAME = "uniprot_trembl.fasta.gz"
+
+
+def download_swissprot_fasta(
+    *,
+    cache_dir: str | Path | None = None,
+    force: bool = False,
+    timeout_s: float = 600.0,
+) -> Path:
+    """Download the manually reviewed Swiss-Prot FASTA bundle (~90 MB gzipped).
+
+    Cached locally under ``~/.cache/biodb/uniprot/`` by default.
+
+    Parameters
+    ----------
+    cache_dir : str or Path, optional
+    force : bool, default False
+        Re-download even if cached.
+    timeout_s : float, default 600
+        Per-chunk timeout. Swiss-Prot is ~90 MB; allow plenty.
+    """
+    return _download_uniprot_fasta(
+        SWISSPROT_FASTA_FILENAME, cache_dir=cache_dir, force=force, timeout_s=timeout_s
+    )
+
+
+def download_trembl_fasta(
+    *,
+    cache_dir: str | Path | None = None,
+    force: bool = False,
+    timeout_s: float = 3600.0,
+) -> Path:
+    """Download the auto-annotated TrEMBL FASTA bundle.
+
+    .. warning::
+       TrEMBL is **~50 GB compressed**. Don't call this on a laptop / CI runner
+       without a plan. Use :func:`iter_fasta_records` to stream rather than
+       loading the file into memory.
+    """
+    return _download_uniprot_fasta(
+        TREMBL_FASTA_FILENAME, cache_dir=cache_dir, force=force, timeout_s=timeout_s
+    )
+
+
+def _download_uniprot_fasta(
+    filename: str,
+    *,
+    cache_dir: str | Path | None,
+    force: bool,
+    timeout_s: float,
+) -> Path:
+    """Stream ``<UNIPROT_FTP_BASE_URL>/<filename>`` to ``cache_dir/<filename>``."""
+    root = Path(cache_dir).expanduser() if cache_dir else UNIPROT_FASTA_CACHE_DIR
+    root.mkdir(parents=True, exist_ok=True)
+    dst = root / filename
+    if dst.exists() and not force:
+        return dst
+
+    url = f"{UNIPROT_FTP_BASE_URL}/{filename}"
+    logger.info("Downloading %s", url)
+    with requests.get(url, stream=True, timeout=timeout_s) as response:
+        response.raise_for_status()
+        with open(dst, "wb") as f:
+            for chunk in response.iter_content(chunk_size=1 << 20):  # 1 MB chunks
+                if chunk:
+                    f.write(chunk)
+    return dst
+
+
+def iter_fasta_records(
+    fasta_path: str | Path | None = None,
+    *,
+    swissprot: bool = True,
+    cache_dir: str | Path | None = None,
+):
+    """Yield ``Bio.SeqRecord`` objects from a UniProt FASTA bundle.
+
+    Memory-stable iteration: never materializes the full file in RAM, so
+    works on TrEMBL too.
+
+    Parameters
+    ----------
+    fasta_path : str or Path, optional
+        Path to a UniProt FASTA file (gzipped or plain). If ``None``,
+        downloads Swiss-Prot or TrEMBL according to ``swissprot``.
+    swissprot : bool, default True
+        When ``fasta_path`` is None, choose Swiss-Prot vs TrEMBL.
+    cache_dir : str or Path, optional
+
+    Yields
+    ------
+    Bio.SeqRecord.SeqRecord
+        One record per FASTA entry.
+    """
+    import gzip
+
+    from Bio import SeqIO
+
+    if fasta_path is None:
+        downloader = download_swissprot_fasta if swissprot else download_trembl_fasta
+        fasta_path = downloader(cache_dir=cache_dir)
+    fasta_path = Path(fasta_path)
+    opener = gzip.open if str(fasta_path).endswith(".gz") else open
+    with opener(fasta_path, "rt") as handle:
+        yield from SeqIO.parse(handle, "fasta")
+
+
+def count_swissprot_records(
+    fasta_path: str | Path | None = None,
+    *,
+    cache_dir: str | Path | None = None,
+) -> int:
+    """Cheap streaming count of the records in a UniProt FASTA bundle.
+
+    Convenience for verifying a download succeeded without buffering the
+    whole file.
+    """
+    return sum(1 for _ in iter_fasta_records(fasta_path, cache_dir=cache_dir))
