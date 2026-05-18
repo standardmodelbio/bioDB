@@ -308,6 +308,58 @@ def test_query_abstract_raises_on_empty_response() -> None:
             pubmed.query_abstract("99999999999")
 
 
+def test_query_abstracts_empty_input_skips_http() -> None:
+    """No PMIDs in → zero HTTP calls and an empty list out. Same shape
+    as ``query_summaries([])``."""
+    out = pubmed.query_abstracts([])
+    assert out == []
+
+
+def test_query_abstracts_chunks_by_batch_size() -> None:
+    """Three PMIDs at ``batch_size=2`` → two efetch calls with comma-joined
+    ids in each request URL."""
+    with responses.RequestsMock() as mock_resp:
+        mock_resp.add(
+            responses.GET,
+            f"{pubmed.NCBI_EUTILS_BASE_URL}/efetch.fcgi",
+            body=_MINIMAL_ARTICLE_XML,
+            status=200,
+            content_type="application/xml",
+        )
+        mock_resp.add(
+            responses.GET,
+            f"{pubmed.NCBI_EUTILS_BASE_URL}/efetch.fcgi",
+            body=_MINIMAL_ARTICLE_XML,
+            status=200,
+            content_type="application/xml",
+        )
+        records = pubmed.query_abstracts(["1", "2", "3"], batch_size=2)
+        assert len(mock_resp.calls) == 2
+        first_url = mock_resp.calls[0].request.url
+        second_url = mock_resp.calls[1].request.url
+    # First batch: PMIDs 1+2 comma-joined.
+    assert "id=1%2C2" in first_url or "id=1,2" in first_url
+    # Second batch: just PMID 3.
+    assert "id=3" in second_url
+    # Two articles total (one per mocked response — each fixture has one record).
+    assert len(records) == 2
+    assert all(isinstance(r, dict) and r.get("pmid") for r in records)
+
+
+def test_query_abstracts_threads_api_key() -> None:
+    with responses.RequestsMock() as mock_resp:
+        mock_resp.add(
+            responses.GET,
+            f"{pubmed.NCBI_EUTILS_BASE_URL}/efetch.fcgi",
+            body=_MINIMAL_ARTICLE_XML,
+            status=200,
+            content_type="application/xml",
+        )
+        pubmed.query_abstracts(["1"], api_key="DEADBEEF")
+        url = mock_resp.calls[0].request.url
+    assert "api_key=DEADBEEF" in url
+
+
 # ---------------------------------------------------------------------------
 # Mocked unit tests — bulk listing + MD5 verification
 # ---------------------------------------------------------------------------
