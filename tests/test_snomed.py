@@ -1,192 +1,113 @@
-"""Tests for :mod:`biodb.snomed` — SNOMED CT vocabulary downloader.
+"""Tests for :mod:`biodb.snomed` — local CONCEPT.csv parser + OLS4-backed
+per-concept lookups.
 
-Mocked unit tests for the URL/path/decompression logic, plus a single
-live integration test that HEADs the real bioDB release URL (no
-download — the asset is 29 MB).
+Two halves:
+
+* **Bulk parser** — pure local I/O. Mocked-only, no network. Covers
+  ``load_concept_csv`` + ``load_concept_csv_from_zip`` against synthetic
+  fixtures matching the OHDSI CDM concept schema.
+* **Per-concept lookups via OLS** — mixed mocked + live, same pattern as
+  ``test_ols.py``. The CURIE normalisation is pure-function; the live
+  tests round-trip a known stable SNOMED concept (38341003,
+  "Hypertensive disorder").
+
+There are deliberately no tests for a bulk **downloader**. ``biodb.snomed``
+no longer ships one — SNOMED CT's licensing prohibits onward
+redistribution from a public mirror. Users obtain CONCEPT.csv themselves
+from https://athena.ohdsi.org after accepting the SNOMED CT license, and
+the parser consumes whatever they bring.
 """
 
 from __future__ import annotations
 
 import gzip
+import io
+import zipfile
+from pathlib import Path
 
 import pandas as pd
 import pytest
-import requests
-import responses
 
 from biodb import snomed
 
 # ---------------------------------------------------------------------------
-# Surface
+# Module surface
 # ---------------------------------------------------------------------------
 
 
 def test_module_surface_exposes_expected_names() -> None:
     for name in (
-        "GITHUB_REPO",
-        "GITHUB_RELEASE_TAG",
-        "GITHUB_ASSET_NAME",
-        "SNOMED_RELEASE_URL",
+        "ATHENA_DOWNLOAD_PAGE",
         "CACHE_DIR",
-        "download_concept_csv",
+        "OLS_ONTOLOGY_SLUG",
         "load_concept_csv",
-        "get_concept_csv_path",
+        "load_concept_csv_from_zip",
         "get_snomed_data_dir",
-        "is_available",
+        "query_concept",
+        "search_concepts",
+        "get_descendants",
+        "get_ancestors",
+        "get_children",
+        "get_parents",
     ):
         assert hasattr(snomed, name), f"biodb.snomed.{name} should be exported"
 
 
-def test_default_url_points_at_biodb_release_not_synthlab() -> None:
-    """The whole point of moving the asset: SNOMED_RELEASE_URL must
-    target bioDB. Catches the regression where someone redoes the
-    auth flow but forgets to flip the default URL back to bioDB."""
-    assert snomed.GITHUB_REPO == "bschilder/bioDB"
-    assert "bschilder/bioDB" in snomed.SNOMED_RELEASE_URL
-    assert "synthlab" not in snomed.SNOMED_RELEASE_URL
-    assert snomed.SNOMED_RELEASE_URL.endswith(snomed.GITHUB_ASSET_NAME)
-    assert snomed.GITHUB_RELEASE_TAG in snomed.SNOMED_RELEASE_URL
+def test_module_no_longer_exposes_bulk_downloader_constants() -> None:
+    """Regression: the GitHub-release bulk path was removed in 2026-05-18
+    for SNOMED CT licensing reasons. Catches the regression where someone
+    re-adds it without thinking about distribution rights."""
+    for name in (
+        "GITHUB_REPO",
+        "GITHUB_RELEASE_TAG",
+        "GITHUB_ASSET_NAME",
+        "SNOMED_RELEASE_URL",
+        "download_concept_csv",
+    ):
+        assert not hasattr(snomed, name), (
+            f"biodb.snomed.{name} was deliberately removed; do not re-add "
+            f"without a licensing review (see module docstring)."
+        )
+
+
+def test_athena_download_page_points_at_athena() -> None:
+    """If the docstring or tutorial breaks, the most important thing it
+    must still convey is *where to get the data*. Pin the URL."""
+    assert snomed.ATHENA_DOWNLOAD_PAGE.startswith("https://athena.ohdsi.org")
 
 
 # ---------------------------------------------------------------------------
-# Mocked end-to-end: public download + decompression
+# Bulk parser — local CSV + zip
 # ---------------------------------------------------------------------------
 
+_CONCEPT_HEADER = (
+    "concept_id\tconcept_name\tdomain_id\tvocabulary_id\tconcept_class_id\t"
+    "standard_concept\tconcept_code\tvalid_start_date\tvalid_end_date\tinvalid_reason"
+)
 
-def _make_gzipped_csv() -> bytes:
-    """A minimal OHDSI CONCEPT.csv body, tab-separated."""
-    csv = (
-        "concept_id\tconcept_name\tdomain_id\tvocabulary_id\tconcept_class_id\t"
-        "standard_concept\tconcept_code\tvalid_start_date\tvalid_end_date\tinvalid_reason\n"
-        "12345\tHypertensive disorder\tCondition\tSNOMED\tClinical Finding\t"
-        "S\t38341003\t1970-01-01\t2099-12-31\t\n"
-        "67890\tType 2 diabetes mellitus\tCondition\tSNOMED\tClinical Finding\t"
-        "S\t44054006\t1970-01-01\t2099-12-31\t\n"
-    )
-    return gzip.compress(csv.encode("utf-8"))
-
-
-def test_download_concept_csv_round_trip(tmp_path, monkeypatch) -> None:
-    """End-to-end: GET gzipped CSV → decompress → return path."""
-    # Force the public-download path: disable gh CLI + clear env tokens.
-    monkeypatch.setattr(snomed, "_gh_cli_available", lambda: False)
-    monkeypatch.delenv("GITHUB_TOKEN", raising=False)
-    monkeypatch.delenv("GH_TOKEN", raising=False)
-
-    body = _make_gzipped_csv()
-    with responses.RequestsMock() as mock_resp:
-        mock_resp.add(
-            responses.GET,
-            snomed.SNOMED_RELEASE_URL,
-            body=body,
-            status=200,
-            headers={"content-length": str(len(body))},
-        )
-        path = snomed.download_concept_csv(output_dir=tmp_path, progress=False)
-
-    assert path == tmp_path / "CONCEPT.csv"
-    assert path.exists()
-    # Decompressed CSV body should start with the header.
-    content = path.read_text()
-    assert content.startswith("concept_id\tconcept_name")
-    assert "Hypertensive disorder" in content
-    # The intermediate .gz file should be cleaned up after decompression.
-    assert not (tmp_path / "CONCEPT.csv.gz").exists()
+_CONCEPT_ROWS = (
+    # Hypertensive disorder (SNOMED)
+    "12345\tHypertensive disorder\tCondition\tSNOMED\tClinical Finding\t"
+    "S\t38341003\t1970-01-01\t2099-12-31\t",
+    # Type 2 diabetes mellitus (SNOMED)
+    "67890\tType 2 diabetes mellitus\tCondition\tSNOMED\tClinical Finding\t"
+    "S\t44054006\t1970-01-01\t2099-12-31\t",
+    # Aspirin 81 mg (RxNorm) — different vocabulary, lets us test the filter
+    "1112807\tAspirin 81 MG\tDrug\tRxNorm\tBranded Drug\tS\t315431\t1970-01-01\t2099-12-31\t",
+)
 
 
-def test_download_concept_csv_uses_cache_when_present(tmp_path, monkeypatch) -> None:
-    """A pre-existing CONCEPT.csv should short-circuit — no HTTP call."""
-    cached = tmp_path / "CONCEPT.csv"
-    cached.write_text("concept_id\tconcept_name\n1\tcached\n")
-    monkeypatch.setattr(snomed, "_gh_cli_available", lambda: False)
-    monkeypatch.delenv("GITHUB_TOKEN", raising=False)
-    monkeypatch.delenv("GH_TOKEN", raising=False)
-    with responses.RequestsMock() as mock_resp:
-        # No mocks registered — any HTTP call would raise.
-        path = snomed.download_concept_csv(output_dir=tmp_path)
-        assert len(mock_resp.calls) == 0
-    assert path == cached
-    assert "cached" in cached.read_text()
+def _concept_csv_bytes() -> bytes:
+    return ("\n".join((_CONCEPT_HEADER, *_CONCEPT_ROWS)) + "\n").encode("utf-8")
 
 
-def test_download_concept_csv_force_overrides_cache(tmp_path, monkeypatch) -> None:
-    """``force=True`` should ignore the cached file and re-download."""
-    cached = tmp_path / "CONCEPT.csv"
-    cached.write_text("STALE CONTENTS\n")
-    monkeypatch.setattr(snomed, "_gh_cli_available", lambda: False)
-    monkeypatch.delenv("GITHUB_TOKEN", raising=False)
-    monkeypatch.delenv("GH_TOKEN", raising=False)
+def test_load_concept_csv_parses_documented_columns(tmp_path) -> None:
+    csv_path = tmp_path / "CONCEPT.csv"
+    csv_path.write_bytes(_concept_csv_bytes())
 
-    body = _make_gzipped_csv()
-    with responses.RequestsMock() as mock_resp:
-        mock_resp.add(
-            responses.GET,
-            snomed.SNOMED_RELEASE_URL,
-            body=body,
-            status=200,
-        )
-        path = snomed.download_concept_csv(output_dir=tmp_path, force=True, progress=False)
-
-    assert "Hypertensive" in path.read_text()
-    assert "STALE" not in path.read_text()
-
-
-def test_download_concept_csv_cleans_up_partial_on_error(tmp_path, monkeypatch) -> None:
-    """If the public download succeeds but the gzip is corrupt, the
-    decompression step should fail and clean up both files. No partial
-    CONCEPT.csv should remain on disk to fool a future cache check."""
-    monkeypatch.setattr(snomed, "_gh_cli_available", lambda: False)
-    monkeypatch.delenv("GITHUB_TOKEN", raising=False)
-    monkeypatch.delenv("GH_TOKEN", raising=False)
-    with responses.RequestsMock() as mock_resp:
-        mock_resp.add(
-            responses.GET,
-            snomed.SNOMED_RELEASE_URL,
-            body=b"not actually gzipped",
-            status=200,
-        )
-        with pytest.raises((OSError, EOFError, Exception)):  # gzip raises BadGzipFile
-            snomed.download_concept_csv(output_dir=tmp_path, progress=False)
-    # No leftover files.
-    assert not (tmp_path / "CONCEPT.csv").exists()
-    assert not (tmp_path / "CONCEPT.csv.gz").exists()
-
-
-def test_download_concept_csv_raises_when_all_strategies_fail(tmp_path, monkeypatch) -> None:
-    """No gh CLI, no token, public URL returns 404 → clean RuntimeError."""
-    monkeypatch.setattr(snomed, "_gh_cli_available", lambda: False)
-    monkeypatch.delenv("GITHUB_TOKEN", raising=False)
-    monkeypatch.delenv("GH_TOKEN", raising=False)
-    with responses.RequestsMock() as mock_resp:
-        mock_resp.add(
-            responses.GET,
-            snomed.SNOMED_RELEASE_URL,
-            json={"error": "not found"},
-            status=404,
-        )
-        with pytest.raises(RuntimeError, match="Failed to download SNOMED"):
-            snomed.download_concept_csv(output_dir=tmp_path, progress=False)
-
-
-def test_load_concept_csv_returns_dataframe(tmp_path, monkeypatch) -> None:
-    """``load_concept_csv`` should parse the fixture into the documented columns."""
-    monkeypatch.setattr(snomed, "_gh_cli_available", lambda: False)
-    monkeypatch.delenv("GITHUB_TOKEN", raising=False)
-    monkeypatch.delenv("GH_TOKEN", raising=False)
-    monkeypatch.setattr(snomed, "CACHE_DIR", tmp_path)
-
-    body = _make_gzipped_csv()
-    with responses.RequestsMock() as mock_resp:
-        mock_resp.add(
-            responses.GET,
-            snomed.SNOMED_RELEASE_URL,
-            body=body,
-            status=200,
-        )
-        df = snomed.load_concept_csv(progress=False)
-
+    df = snomed.load_concept_csv(csv_path)
     assert isinstance(df, pd.DataFrame)
-    assert df.shape == (2, 10)
+    assert df.shape == (3, 10)
     for col in (
         "concept_id",
         "concept_name",
@@ -195,64 +116,109 @@ def test_load_concept_csv_returns_dataframe(tmp_path, monkeypatch) -> None:
         "concept_class_id",
         "standard_concept",
         "concept_code",
-        "valid_start_date",
-        "valid_end_date",
-        "invalid_reason",
     ):
         assert col in df.columns
-    # concept_id should be integer-typed thanks to the dtype override.
+    # concept_id should be Int64-typed thanks to the dtype overrides.
     assert df["concept_id"].dtype.kind in "iu"
-    assert list(df["concept_id"]) == [12345, 67890]
+    assert list(df["concept_id"]) == [12345, 67890, 1112807]
+
+
+def test_load_concept_csv_vocabulary_filter_keeps_only_snomed(tmp_path) -> None:
+    """The OHDSI bundle mixes SNOMED with RxNorm/LOINC/etc. The filter
+    is the fast path for the common case 'I only want the SNOMED slice'."""
+    csv_path = tmp_path / "CONCEPT.csv"
+    csv_path.write_bytes(_concept_csv_bytes())
+
+    df = snomed.load_concept_csv(csv_path, vocabulary_id="SNOMED")
+    assert len(df) == 2
+    assert set(df["vocabulary_id"]) == {"SNOMED"}
+    assert "RxNorm" not in set(df["vocabulary_id"])
+
+
+def test_load_concept_csv_raises_for_missing_file(tmp_path) -> None:
+    """Missing-file error message must direct the user at Athena."""
+    with pytest.raises(FileNotFoundError, match="athena.ohdsi.org"):
+        snomed.load_concept_csv(tmp_path / "does_not_exist.csv")
+
+
+def test_load_concept_csv_forwards_read_csv_kwargs(tmp_path) -> None:
+    """``**read_csv_kwargs`` must reach pandas — e.g. nrows for a peek."""
+    csv_path = tmp_path / "CONCEPT.csv"
+    csv_path.write_bytes(_concept_csv_bytes())
+
+    df = snomed.load_concept_csv(csv_path, nrows=1)
+    assert len(df) == 1
+
+
+def test_load_concept_csv_expands_user_tilde(tmp_path, monkeypatch) -> None:
+    """``~/foo`` should be expanded to the user's home so callers can
+    pass shell-style paths without thinking about it."""
+    csv_path = tmp_path / "CONCEPT.csv"
+    csv_path.write_bytes(_concept_csv_bytes())
+    # Pretend tmp_path is $HOME and pass ``~/CONCEPT.csv``.
+    monkeypatch.setenv("HOME", str(tmp_path))
+    df = snomed.load_concept_csv("~/CONCEPT.csv")
+    assert len(df) == 3
+
+
+def test_load_concept_csv_from_zip_extracts_member(tmp_path) -> None:
+    """Athena bundles arrive as a flat zip — verify we can read CONCEPT.csv
+    out of it without staging to disk."""
+    zip_path = tmp_path / "vocabulary_download_v5_abc_123.zip"
+    with zipfile.ZipFile(zip_path, "w") as zf:
+        zf.writestr("CONCEPT.csv", _concept_csv_bytes())
+        zf.writestr("CONCEPT_RELATIONSHIP.csv", "concept_id_1\tconcept_id_2\n1\t2\n")
+
+    df = snomed.load_concept_csv_from_zip(zip_path)
+    assert len(df) == 3
+    assert "concept_name" in df.columns
+
+
+def test_load_concept_csv_from_zip_handles_nested_member(tmp_path) -> None:
+    """Some Athena bundles wrap members under a single sub-directory.
+    Match on basename so layout drift doesn't break us."""
+    zip_path = tmp_path / "bundle.zip"
+    with zipfile.ZipFile(zip_path, "w") as zf:
+        zf.writestr("vocab_2026_05/CONCEPT.csv", _concept_csv_bytes())
+
+    df = snomed.load_concept_csv_from_zip(zip_path)
+    assert len(df) == 3
+
+
+def test_load_concept_csv_from_zip_filters_by_vocabulary(tmp_path) -> None:
+    zip_path = tmp_path / "bundle.zip"
+    with zipfile.ZipFile(zip_path, "w") as zf:
+        zf.writestr("CONCEPT.csv", _concept_csv_bytes())
+
+    df = snomed.load_concept_csv_from_zip(zip_path, vocabulary_id="RxNorm")
+    assert len(df) == 1
+    assert list(df["vocabulary_id"]) == ["RxNorm"]
+
+
+def test_load_concept_csv_from_zip_raises_on_missing_member(tmp_path) -> None:
+    zip_path = tmp_path / "bundle.zip"
+    with zipfile.ZipFile(zip_path, "w") as zf:
+        zf.writestr("README.txt", "no CONCEPT here")
+
+    with pytest.raises(KeyError, match="CONCEPT.csv"):
+        snomed.load_concept_csv_from_zip(zip_path)
+
+
+def test_load_concept_csv_from_zip_raises_for_missing_file(tmp_path) -> None:
+    with pytest.raises(FileNotFoundError, match="athena.ohdsi.org"):
+        snomed.load_concept_csv_from_zip(tmp_path / "does_not_exist.zip")
+
+
+def test_get_snomed_data_dir_is_a_path() -> None:
+    """The cache helper is here for callers who want to stash their
+    parsed bundle somewhere stable. bioDB doesn't auto-populate it."""
+    d = snomed.get_snomed_data_dir()
+    assert isinstance(d, Path)
+    assert d.exists()
 
 
 # ---------------------------------------------------------------------------
-# Auth-helper unit tests (no real subprocess calls)
-# ---------------------------------------------------------------------------
-
-
-def test_get_github_token_prefers_GITHUB_TOKEN_over_GH_TOKEN(monkeypatch) -> None:
-    monkeypatch.setenv("GITHUB_TOKEN", "primary")
-    monkeypatch.setenv("GH_TOKEN", "secondary")
-    assert snomed._get_github_token() == "primary"
-
-
-def test_get_github_token_falls_back_to_GH_TOKEN(monkeypatch) -> None:
-    monkeypatch.delenv("GITHUB_TOKEN", raising=False)
-    monkeypatch.setenv("GH_TOKEN", "secondary")
-    assert snomed._get_github_token() == "secondary"
-
-
-def test_get_github_token_returns_none_when_unset(monkeypatch) -> None:
-    monkeypatch.delenv("GITHUB_TOKEN", raising=False)
-    monkeypatch.delenv("GH_TOKEN", raising=False)
-    assert snomed._get_github_token() is None
-
-
-def test_is_available_reflects_cache_state(tmp_path, monkeypatch) -> None:
-    monkeypatch.setattr(snomed, "CACHE_DIR", tmp_path)
-    assert snomed.is_available() is False
-    (tmp_path / "CONCEPT.csv").write_text("seeded\n")
-    assert snomed.is_available() is True
-
-
-# ---------------------------------------------------------------------------
-# Live integration — HEAD the real release asset, don't download
-# ---------------------------------------------------------------------------
-
-
-def test_release_asset_url_is_alive() -> None:
-    """HEAD the actual bioDB release URL — verify the asset is reachable
-    without downloading the 29 MB body."""
-    response = requests.head(snomed.SNOMED_RELEASE_URL, timeout=15, allow_redirects=True)
-    assert response.status_code == 200
-    if "content-length" in response.headers:
-        size = int(response.headers["content-length"])
-        # Asset is ~29 MB; anything < 1 MB is an error page.
-        assert size > 1_000_000, f"CONCEPT.csv.gz reports size {size} bytes — suspicious"
-
-
-# ---------------------------------------------------------------------------
-# Per-concept lookups via OLS — argument-normalisation unit tests + live
+# Per-concept lookups via OLS — argument normalisation + live round-trip
 # ---------------------------------------------------------------------------
 
 
@@ -284,12 +250,10 @@ def test_query_concept_hypertensive_disorder_round_trip() -> None:
     record = snomed.query_concept(38341003)
     assert record["obo_id"] == "SNOMED:38341003"
     assert record["label"] == "Hypertensive disorder"
-    # SNOMED concepts always carry an IRI under snomed.info/id/.
     assert record["iri"] == "http://snomed.info/id/38341003"
 
 
 def test_query_concept_accepts_curie_string() -> None:
-    """The exact same lookup, passed as a SNOMED CURIE."""
     record = snomed.query_concept("SNOMED:73211009")  # diabetes mellitus
     assert record["obo_id"] == "SNOMED:73211009"
     assert "diabetes" in record["label"].lower()
@@ -304,9 +268,13 @@ def test_search_concepts_returns_dataframe_of_hits() -> None:
 
 
 def test_get_children_is_one_hop_subset_of_descendants() -> None:
-    """Direct children should be a subset of all descendants — same
-    contract as the OLS test in test_ols.py, but for SNOMED."""
+    """Direct children should be a subset of all descendants."""
     children = snomed.get_children(38341003, size=10)
     descendants = snomed.get_descendants(38341003, size=500)
     assert set(children["obo_id"]) <= set(descendants["obo_id"])
     assert len(children) <= len(descendants)
+
+
+# Silence unused-import warnings — gzip / io are kept around in case
+# additional fixture helpers are added later.
+_ = (gzip, io)
