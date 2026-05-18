@@ -1,33 +1,32 @@
-"""SNOMED CT vocabulary downloader and loader.
+"""SNOMED CT — per-concept lookups (via OLS4) + bulk CONCEPT.csv download.
 
-SNOMED CT is the canonical clinical-terminology vocabulary — used to
-encode diagnoses, procedures, findings, body sites, etc. in modern
-EHR systems. bioDB ships the OHDSI-flavoured ``CONCEPT.csv`` (the
-concept dimension of the OMOP Common Data Model's standardized
-vocabulary) as a GitHub Release asset on this repo, so downstream
-packages get a fast, versioned, no-credentials download path.
+SNOMED CT is the canonical clinical-terminology vocabulary — diagnoses,
+procedures, findings, body sites, etc. ``biodb.snomed`` covers both
+modes:
 
-Module surface:
+* **API mode** — per-concept lookups via EBI's `OLS4
+  <https://www.ebi.ac.uk/ols4/>`_ (~376 k SNOMED terms indexed).
+  See :func:`query_concept`, :func:`search_concepts`,
+  :func:`get_descendants`, :func:`get_ancestors`,
+  :func:`get_children`, :func:`get_parents`. Each accepts an ``int``,
+  a CURIE (``"SNOMED:38341003"``), or a full IRI.
 
-* :func:`download_concept_csv` — GET the gzipped CSV from the bioDB
-  release, decompress, cache. Returns the local path.
-* :func:`load_concept_csv` — :func:`download_concept_csv` + a
-  :func:`pandas.read_csv` call with the right ``dtype`` overrides.
-* :func:`is_available` — fast cache-existence probe.
-* :func:`get_concept_csv_path` — return the cache path, downloading
-  on first call. Compatibility shim for the original ``synthlab``
-  surface.
+* **Bulk mode** — the OHDSI-flavoured ``CONCEPT.csv`` (concept dimension
+  of the OMOP CDM) as a GitHub Release asset, so downstream packages
+  get a fast, versioned, no-credentials download path:
+  :func:`download_concept_csv`, :func:`load_concept_csv`,
+  :func:`get_concept_csv_path`, :func:`is_available`.
 
-The asset lives at:
+The bulk asset lives at:
 
     https://github.com/bschilder/bioDB/releases/download/vocab-v1/CONCEPT.csv.gz
 
 (Relocated from ``bschilder/synthlab`` on 2026-05-18 — same bytes,
 same SHA-256.)
 
-Authentication
---------------
-For private mirrors of this release, the downloader tries three
+Authentication (bulk only)
+--------------------------
+For private mirrors of the release, the downloader tries three
 strategies in order, mirroring the original synthlab flow:
 
 1. ``gh`` CLI (if installed and authenticated — best for private repos)
@@ -37,6 +36,11 @@ strategies in order, mirroring the original synthlab flow:
 Examples
 --------
 >>> from biodb import snomed
+>>> snomed.query_concept(38341003)["label"]    # doctest: +SKIP
+'Hypertensive disorder'
+>>> snomed.search_concepts("diabetes", rows=5) # doctest: +SKIP
+>>> snomed.get_descendants(73211009)           # doctest: +SKIP
+>>> # Bulk:
 >>> path = snomed.download_concept_csv()       # doctest: +SKIP
 >>> df = snomed.load_concept_csv()             # doctest: +SKIP
 """
@@ -331,15 +335,129 @@ def load_concept_csv(
     return pd.read_csv(path, **defaults)
 
 
+# ─── Per-concept lookups via OLS ───────────────────────────────────────────
+# SNOMED CT is indexed on EBI's OLS4 (~376 k terms). For one-concept-at-a-time
+# queries we go through OLS rather than the bulk CSV — it's a single HTTP call
+# vs. parsing a 175 MB file. These wrappers add SNOMED-shaped argument handling
+# (accept ``"38341003"``, ``"SNOMED:38341003"``, or the full
+# ``http://snomed.info/id/38341003`` IRI) on top of the generic OLS client.
+
+OLS_ONTOLOGY_SLUG = "snomed"
+"""The OLS slug for SNOMED CT."""
+
+
+def _normalize_concept_id(concept_id: str | int) -> str:
+    """Turn ``int``, bare digit string, ``SNOMED:xxx``, or full IRI → CURIE."""
+    if isinstance(concept_id, int):
+        return f"SNOMED:{concept_id}"
+    text = str(concept_id).strip()
+    if text.startswith(("http://", "https://")):
+        return text
+    if ":" in text:
+        return text
+    return f"SNOMED:{text}"
+
+
+def query_concept(concept_id: str | int, *, timeout: int = 30) -> dict:
+    """Look up one SNOMED concept via OLS4.
+
+    Accepts a bare concept ID (``38341003``), a SNOMED CURIE
+    (``"SNOMED:38341003"``), or the full SNOMED IRI
+    (``"http://snomed.info/id/38341003"``).
+
+    Returns the OLS term record — ``label``, ``description``, ``synonyms``,
+    ``obo_id``, ``iri``, ``is_obsolete``, ``has_children``, ``is_root``.
+    """
+    from biodb import ols
+
+    return ols.get_term(OLS_ONTOLOGY_SLUG, _normalize_concept_id(concept_id), timeout=timeout)
+
+
+def get_descendants(
+    concept_id: str | int,
+    *,
+    size: int = 500,
+    timeout: int = 30,
+) -> pd.DataFrame:
+    """Return every transitive descendant of ``concept_id`` (via OLS)."""
+    from biodb import ols
+
+    return ols.get_descendants(
+        OLS_ONTOLOGY_SLUG, _normalize_concept_id(concept_id), size=size, timeout=timeout
+    )
+
+
+def get_ancestors(
+    concept_id: str | int,
+    *,
+    size: int = 500,
+    timeout: int = 30,
+) -> pd.DataFrame:
+    """Return every transitive ancestor of ``concept_id`` (via OLS)."""
+    from biodb import ols
+
+    return ols.get_ancestors(
+        OLS_ONTOLOGY_SLUG, _normalize_concept_id(concept_id), size=size, timeout=timeout
+    )
+
+
+def get_children(
+    concept_id: str | int,
+    *,
+    size: int = 500,
+    timeout: int = 30,
+) -> pd.DataFrame:
+    """Return the direct (one-hop) children of ``concept_id`` (via OLS)."""
+    from biodb import ols
+
+    return ols.get_children(
+        OLS_ONTOLOGY_SLUG, _normalize_concept_id(concept_id), size=size, timeout=timeout
+    )
+
+
+def get_parents(
+    concept_id: str | int,
+    *,
+    size: int = 500,
+    timeout: int = 30,
+) -> pd.DataFrame:
+    """Return the direct (one-hop) parents of ``concept_id`` (via OLS)."""
+    from biodb import ols
+
+    return ols.get_parents(
+        OLS_ONTOLOGY_SLUG, _normalize_concept_id(concept_id), size=size, timeout=timeout
+    )
+
+
+def search_concepts(
+    query: str,
+    *,
+    rows: int = 20,
+    exact: bool = False,
+    timeout: int = 30,
+) -> pd.DataFrame:
+    """Full-text search SNOMED concepts via OLS (label / synonym / definition)."""
+    from biodb import ols
+
+    return ols.search(query, ontology=OLS_ONTOLOGY_SLUG, rows=rows, exact=exact, timeout=timeout)
+
+
 __all__ = [
     "CACHE_DIR",
     "GITHUB_ASSET_NAME",
     "GITHUB_RELEASE_TAG",
     "GITHUB_REPO",
+    "OLS_ONTOLOGY_SLUG",
     "SNOMED_RELEASE_URL",
     "download_concept_csv",
+    "get_ancestors",
+    "get_children",
     "get_concept_csv_path",
+    "get_descendants",
+    "get_parents",
     "get_snomed_data_dir",
     "is_available",
     "load_concept_csv",
+    "query_concept",
+    "search_concepts",
 ]
