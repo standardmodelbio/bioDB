@@ -157,7 +157,9 @@ def test_query_disease_normalises_colons() -> None:
 
     client = httpx.Client(transport=httpx.MockTransport(handler))
     gql.query_disease("MONDO:0007254", client=client)
-    assert captured["body"]["variables"] == {"efoId": "MONDO_0007254"}
+    # Only the EFO id is normalized -- other variables (paging sizes for
+    # nested fields) are passed through with their current default values.
+    assert captured["body"]["variables"]["efoId"] == "MONDO_0007254"
 
 
 def test_query_drug_returns_drug_object() -> None:
@@ -205,10 +207,47 @@ def test_query_target_live() -> None:
 
 
 def test_query_disease_live() -> None:
-    """Fetch the real ``MONDO_0007254`` (breast cancer) record."""
-    bc = gql.query_disease("MONDO_0007254")
+    """Fetch the real ``MONDO_0007254`` (breast cancer) record.
+
+    Also exercises the nested fields the deep query now pulls back so we
+    catch upstream schema drift on any of them (every page reload of OT
+    Platform that breaks one of these fields would fail this test).
+    """
+    bc = gql.query_disease("MONDO_0007254", assoc_size=5, pheno_size=5)
     assert bc is not None
     name = (bc.get("name") or "").lower()
     assert "carcinoma" in name or "cancer" in name, (
         f"Got unexpected disease name {bc.get('name')!r} for MONDO_0007254."
     )
+    # The deep query must return populated containers (the wrappers always
+    # exist; their ``rows`` lists hold real data for any well-studied disease).
+    assert isinstance(bc.get("synonyms"), list)
+    assert isinstance(bc.get("therapeuticAreas"), list)
+    at = bc.get("associatedTargets") or {}
+    assert isinstance(at.get("rows"), list)
+    assert at.get("rows"), "associatedTargets rows empty -- field shape changed?"
+    first = at["rows"][0]
+    assert "score" in first
+    assert first.get("target", {}).get("approvedSymbol")
+
+
+def test_query_drug_live() -> None:
+    """Fetch the real ``CHEMBL25`` (aspirin) record + verify deep fields."""
+    aspirin = gql.query_drug("CHEMBL25", ae_size=5)
+    assert aspirin is not None
+    assert (aspirin.get("name") or "").upper() == "ASPIRIN"
+    moa = aspirin.get("mechanismsOfAction") or {}
+    assert isinstance(moa.get("rows"), list)
+    assert moa.get("rows"), "MOA rows empty -- field shape changed?"
+    indications = aspirin.get("indications") or {}
+    assert isinstance(indications.get("rows"), list)
+
+
+def test_query_variant_live() -> None:
+    """Fetch a real LDLR variant + verify the nested fields the deep query exposes."""
+    v = gql.query_variant("19_11100252_C_T")  # rs121908024
+    assert v is not None
+    assert v.get("rsIds") == ["rs121908024"]
+    assert isinstance(v.get("alleleFrequencies"), list)
+    assert isinstance(v.get("transcriptConsequences"), list)
+    assert isinstance(v.get("variantEffect"), list)
