@@ -1,346 +1,186 @@
-"""SNOMED CT — per-concept lookups (via OLS4) + bulk CONCEPT.csv download.
+"""SNOMED CT — per-concept lookups (via OLS4) + local CONCEPT.csv parser.
 
 SNOMED CT is the canonical clinical-terminology vocabulary — diagnoses,
 procedures, findings, body sites, etc. ``biodb.snomed`` covers both
-modes:
+modes, but the bulk path is deliberately **parser-only** because of
+SNOMED CT's licensing posture:
 
 * **API mode** — per-concept lookups via EBI's `OLS4
   <https://www.ebi.ac.uk/ols4/>`_ (~376 k SNOMED terms indexed).
   See :func:`query_concept`, :func:`search_concepts`,
   :func:`get_descendants`, :func:`get_ancestors`,
   :func:`get_children`, :func:`get_parents`. Each accepts an ``int``,
-  a CURIE (``"SNOMED:38341003"``), or a full IRI.
+  a CURIE (``"SNOMED:38341003"``), or a full IRI. EBI handles the
+  SNOMED CT license on their side — no token required.
 
-* **Bulk mode** — the OHDSI-flavoured ``CONCEPT.csv`` (concept dimension
-  of the OMOP CDM) as a GitHub Release asset, so downstream packages
-  get a fast, versioned, no-credentials download path:
-  :func:`download_concept_csv`, :func:`load_concept_csv`,
-  :func:`get_concept_csv_path`, :func:`is_available`.
+* **Bulk mode (parser only)** — :func:`load_concept_csv` and
+  :func:`load_concept_csv_from_zip` parse a CONCEPT.csv that the user
+  obtained themselves from OHDSI Athena. **bioDB does not host or
+  redistribute SNOMED CT bytes**, because SNOMED CT is a controlled
+  vocabulary (free in Member countries via UMLS/IHTSDO license, paid
+  Affiliate license elsewhere — neither permits onward redistribution
+  to unlicensed parties).
 
-The bulk asset lives at:
-
-    https://github.com/bschilder/bioDB/releases/download/vocab-v1/CONCEPT.csv.gz
-
-(Relocated from ``bschilder/synthlab`` on 2026-05-18 — same bytes,
-same SHA-256.)
-
-Authentication (bulk only)
---------------------------
-For private mirrors of the release, the downloader tries three
-strategies in order, mirroring the original synthlab flow:
-
-1. ``gh`` CLI (if installed and authenticated — best for private repos)
-2. ``GITHUB_TOKEN`` / ``GH_TOKEN`` environment variable
-3. Public URL (default; works for this repo since it's public)
+How to get a CONCEPT.csv
+------------------------
+1. Register a free account at https://athena.ohdsi.org.
+2. Open your profile and **accept the SNOMED CT license** (and any
+   other vocabulary licenses you need — RxNorm, CPT, ICD, …).
+3. From the Vocabularies page, select the vocabularies you want and
+   click ``Download``. Athena builds a bundle asynchronously and
+   emails you a download link.
+4. Unzip the bundle locally, or pass the .zip directly to
+   :func:`load_concept_csv_from_zip`.
 
 Examples
 --------
 >>> from biodb import snomed
->>> snomed.query_concept(38341003)["label"]    # doctest: +SKIP
+>>> snomed.query_concept(38341003)["label"]                        # doctest: +SKIP
 'Hypertensive disorder'
->>> snomed.search_concepts("diabetes", rows=5) # doctest: +SKIP
->>> snomed.get_descendants(73211009)           # doctest: +SKIP
->>> # Bulk:
->>> path = snomed.download_concept_csv()       # doctest: +SKIP
->>> df = snomed.load_concept_csv()             # doctest: +SKIP
+>>> snomed.search_concepts("diabetes", rows=5)                     # doctest: +SKIP
+>>> snomed.get_descendants(73211009)                               # doctest: +SKIP
+>>> # Bulk: user obtained the Athena bundle manually
+>>> df = snomed.load_concept_csv("~/Downloads/CONCEPT.csv")        # doctest: +SKIP
+>>> df = snomed.load_concept_csv_from_zip(                         # doctest: +SKIP
+...     "~/Downloads/vocabulary_download_v5_{uuid}_*.zip"
+... )
 """
 
 from __future__ import annotations
 
-import gzip
-import json
 import logging
-import os
-import shutil
-import subprocess
-import sys
-import urllib.request
+import zipfile
 from pathlib import Path
 
 import pandas as pd
-import requests
-
-from biodb._downloads import stream_to_file
 
 logger = logging.getLogger(__name__)
 
-GITHUB_REPO = "bschilder/bioDB"
-"""GitHub repo that hosts the release asset."""
-
-GITHUB_RELEASE_TAG = "vocab-v1"
-"""Release tag for the SNOMED vocabulary."""
-
-GITHUB_ASSET_NAME = "CONCEPT.csv.gz"
-
-SNOMED_RELEASE_URL = (
-    f"https://github.com/{GITHUB_REPO}/releases/download/{GITHUB_RELEASE_TAG}/{GITHUB_ASSET_NAME}"
-)
-"""Public direct-download URL for the asset. Works for this (public) repo."""
-
 CACHE_DIR = Path("~/.cache/biodb/snomed").expanduser()
-"""On-disk cache for the decompressed ``CONCEPT.csv``."""
+"""Optional cache root, only used by callers who want to stash a parsed
+copy of CONCEPT.csv themselves. bioDB does not write to this directory
+automatically — the parser returns the loaded DataFrame from whatever
+path the caller passes."""
+
+ATHENA_DOWNLOAD_PAGE = "https://athena.ohdsi.org/vocabulary/list"
+"""Where users go to obtain a CONCEPT.csv (must accept SNOMED CT terms first)."""
 
 
-# ─── Auth helpers (lifted from synthlab; same behaviour) ───────────────────
+# ─── Bulk parser — operates on user-supplied files ─────────────────────────
 
 
-def _get_github_token() -> str | None:
-    """Return ``GITHUB_TOKEN`` or ``GH_TOKEN`` from the environment, or None."""
-    return os.environ.get("GITHUB_TOKEN") or os.environ.get("GH_TOKEN")
+# OHDSI CDM's CONCEPT.csv schema:
+#   https://ohdsi.github.io/CommonDataModel/cdm54.html#CONCEPT
+_CONCEPT_DTYPES: dict[str, str] = {
+    "concept_id": "Int64",
+    "concept_name": "string",
+    "domain_id": "string",
+    "vocabulary_id": "string",
+    "concept_class_id": "string",
+    "standard_concept": "string",
+    "concept_code": "string",
+}
+"""Sensible dtype overrides for CONCEPT.csv. The date columns are left
+to pandas defaults so callers can choose whether to parse them."""
 
 
-def _find_gh_cli() -> str | None:
-    """Find a ``gh`` CLI binary on PATH or alongside the active Python."""
-    candidates = ["gh", str(Path(sys.executable).parent / "gh")]
-    for candidate in candidates:
-        try:
-            result = subprocess.run(
-                [candidate, "--version"], capture_output=True, timeout=5, check=False
+def load_concept_csv(
+    path: str | Path,
+    *,
+    vocabulary_id: str | None = None,
+    **read_csv_kwargs,
+) -> pd.DataFrame:
+    """Parse an OHDSI ``CONCEPT.csv`` into a DataFrame.
+
+    Parameters
+    ----------
+    path
+        Local path to ``CONCEPT.csv``. Obtain a copy from
+        https://athena.ohdsi.org after accepting the relevant
+        vocabulary licenses (SNOMED CT, RxNorm, CPT, …).
+    vocabulary_id
+        If provided, filter rows down to that vocabulary
+        (e.g. ``"SNOMED"``, ``"RxNorm"``, ``"LOINC"``). The OHDSI
+        bundle mixes many vocabularies into one file; this filter is
+        the fast path when you only care about one.
+    **read_csv_kwargs
+        Forwarded to :func:`pandas.read_csv`. Sensible defaults for
+        ``sep`` (tab) and ``dtype`` are applied first.
+    """
+    path = Path(path).expanduser()
+    if not path.exists():
+        raise FileNotFoundError(
+            f"{path} not found. Download CONCEPT.csv from "
+            f"{ATHENA_DOWNLOAD_PAGE} (accepting the SNOMED CT license "
+            f"and any other vocabulary licenses you need)."
+        )
+    defaults: dict = {"sep": "\t", "dtype": _CONCEPT_DTYPES}
+    defaults.update(read_csv_kwargs)
+    df = pd.read_csv(path, **defaults)
+    if vocabulary_id is not None:
+        df = df[df["vocabulary_id"] == vocabulary_id].reset_index(drop=True)
+    return df
+
+
+def load_concept_csv_from_zip(
+    zip_path: str | Path,
+    *,
+    member: str = "CONCEPT.csv",
+    vocabulary_id: str | None = None,
+    **read_csv_kwargs,
+) -> pd.DataFrame:
+    """Parse ``CONCEPT.csv`` out of an Athena vocabulary bundle ``.zip``.
+
+    Athena's web-UI downloads come as
+    ``vocabulary_download_v5_{uuid}_{ts}.zip`` containing CONCEPT.csv,
+    CONCEPT_RELATIONSHIP.csv, etc. as flat members.
+
+    Parameters
+    ----------
+    zip_path
+        Path to the downloaded zip.
+    member
+        Which member to extract; defaults to ``"CONCEPT.csv"``.
+    vocabulary_id
+        Same as :func:`load_concept_csv`.
+    """
+    zip_path = Path(zip_path).expanduser()
+    if not zip_path.exists():
+        raise FileNotFoundError(
+            f"{zip_path} not found. Download a bundle from {ATHENA_DOWNLOAD_PAGE} first."
+        )
+    with zipfile.ZipFile(zip_path) as zf:
+        members = zf.namelist()
+        target = next((m for m in members if Path(m).name == member), None)
+        if target is None:
+            raise KeyError(
+                f"{member!r} not found in {zip_path}; available members: "
+                f"{[Path(m).name for m in members][:8]}"
             )
-            if result.returncode == 0:
-                return candidate
-        except (subprocess.SubprocessError, FileNotFoundError, OSError):
-            continue
-    return None
-
-
-def _gh_cli_available() -> bool:
-    """Check whether ``gh`` is on PATH **and** an authenticated session exists."""
-    gh_path = _find_gh_cli()
-    if not gh_path:
-        return False
-    try:
-        result = subprocess.run(
-            [gh_path, "auth", "status"],
-            capture_output=True,
-            text=True,
-            timeout=10,
-            check=False,
-        )
-        return result.returncode == 0
-    except (subprocess.SubprocessError, FileNotFoundError):
-        return False
-
-
-def _download_with_gh_cli(output_path: Path) -> bool:
-    """Use ``gh release download`` to fetch the asset. Returns success."""
-    gh_path = _find_gh_cli()
-    if not gh_path:
-        return False
-    try:
-        logger.info("SNOMED: using gh CLI for authenticated download")
-        result = subprocess.run(
-            [
-                gh_path,
-                "release",
-                "download",
-                GITHUB_RELEASE_TAG,
-                "--repo",
-                GITHUB_REPO,
-                "--pattern",
-                GITHUB_ASSET_NAME,
-                "--dir",
-                str(output_path.parent),
-                "--clobber",
-            ],
-            capture_output=True,
-            text=True,
-            timeout=300,
-            check=False,
-        )
-        if result.returncode == 0:
-            return True
-        logger.warning("SNOMED: gh CLI failed: %s", result.stderr.strip())
-        return False
-    except (subprocess.SubprocessError, FileNotFoundError) as exc:
-        logger.warning("SNOMED: gh CLI error: %s", exc)
-        return False
-
-
-def _download_with_token(token: str, output_path: Path, *, progress: bool) -> bool:
-    """Resolve the asset URL via the GitHub API, then GET with token auth."""
-    api_url = f"https://api.github.com/repos/{GITHUB_REPO}/releases/tags/{GITHUB_RELEASE_TAG}"
-    try:
-        logger.info("SNOMED: using token authentication")
-        request = urllib.request.Request(api_url)
-        request.add_header("Authorization", f"token {token}")
-        request.add_header("Accept", "application/vnd.github.v3+json")
-        with urllib.request.urlopen(request, timeout=30) as response:  # noqa: S310
-            release_data = json.loads(response.read().decode())
-        asset_url = next(
-            (a["url"] for a in release_data.get("assets", []) if a["name"] == GITHUB_ASSET_NAME),
-            None,
-        )
-        if not asset_url:
-            logger.warning("SNOMED: asset %s not in release payload", GITHUB_ASSET_NAME)
-            return False
-        stream_to_file(
-            asset_url,
-            output_path,
-            timeout=600,
-            progress=progress,
-            headers={
-                "Authorization": f"token {token}",
-                "Accept": "application/octet-stream",
-            },
-        )
-        return True
-    except (requests.HTTPError, OSError, ValueError) as exc:
-        logger.warning("SNOMED: token auth failed: %s", exc)
-        return False
-
-
-def _download_public(output_path: Path, *, progress: bool) -> bool:
-    """Plain public download — works for the bioDB repo since it's public."""
-    try:
-        logger.info("SNOMED: attempting public download from %s", SNOMED_RELEASE_URL)
-        stream_to_file(
-            SNOMED_RELEASE_URL,
-            output_path,
-            timeout=600,
-            progress=progress,
-        )
-        return True
-    except requests.HTTPError as exc:
-        logger.warning("SNOMED: public download failed: %s", exc)
-        return False
-
-
-# ─── Public API ────────────────────────────────────────────────────────────
+        with zf.open(target) as handle:
+            defaults: dict = {"sep": "\t", "dtype": _CONCEPT_DTYPES}
+            defaults.update(read_csv_kwargs)
+            df = pd.read_csv(handle, **defaults)
+    if vocabulary_id is not None:
+        df = df[df["vocabulary_id"] == vocabulary_id].reset_index(drop=True)
+    return df
 
 
 def get_snomed_data_dir() -> Path:
-    """Return the SNOMED cache directory, creating it on first call."""
+    """Return the SNOMED cache directory (creating it on first call).
+
+    Provided for callers who want to stash their parsed Athena bundle
+    somewhere stable. bioDB itself does not write here automatically.
+    """
     CACHE_DIR.mkdir(parents=True, exist_ok=True)
     return CACHE_DIR
 
 
-def is_available() -> bool:
-    """Cheap check: is ``CONCEPT.csv`` already cached on disk?"""
-    return (CACHE_DIR / "CONCEPT.csv").exists()
-
-
-def get_concept_csv_path(*, progress: bool = True) -> Path:
-    """Return the local ``CONCEPT.csv`` path, downloading on first call."""
-    data_dir = get_snomed_data_dir()
-    concept_path = data_dir / "CONCEPT.csv"
-    if not concept_path.exists():
-        download_concept_csv(progress=progress)
-    return concept_path
-
-
-def download_concept_csv(
-    output_dir: Path | str | None = None,
-    *,
-    force: bool = False,
-    progress: bool = True,
-) -> Path:
-    """Download + decompress the bioDB SNOMED ``CONCEPT.csv`` asset.
-
-    Parameters
-    ----------
-    output_dir
-        Cache root. Defaults to :data:`CACHE_DIR`.
-    force
-        Re-download even if cached.
-    progress
-        Show a tqdm progress bar during the network transfer.
-
-    Returns
-    -------
-    pathlib.Path
-        Absolute path to the decompressed ``CONCEPT.csv``.
-
-    Raises
-    ------
-    RuntimeError
-        If all three download strategies fail.
-    """
-    if output_dir is None:
-        output_dir = get_snomed_data_dir()
-    else:
-        output_dir = Path(output_dir).expanduser()
-        output_dir.mkdir(parents=True, exist_ok=True)
-
-    concept_path = output_dir / "CONCEPT.csv"
-    compressed_path = output_dir / GITHUB_ASSET_NAME
-
-    if concept_path.exists() and not force:
-        logger.info("SNOMED CONCEPT.csv already cached at %s", concept_path)
-        return concept_path
-
-    logger.info("Downloading SNOMED vocabulary from %s", GITHUB_REPO)
-
-    try:
-        download_success = False
-
-        if _gh_cli_available():
-            download_success = _download_with_gh_cli(compressed_path)
-
-        if not download_success:
-            token = _get_github_token()
-            if token:
-                download_success = _download_with_token(token, compressed_path, progress=progress)
-
-        if not download_success:
-            download_success = _download_public(compressed_path, progress=progress)
-
-        if not download_success:
-            raise RuntimeError(
-                "Failed to download SNOMED vocabulary.\n\n"
-                "For private mirrors of the release, ensure one of:\n"
-                "  1. gh CLI is installed and authenticated: `gh auth login`\n"
-                "  2. GITHUB_TOKEN env var is set\n"
-                "  3. GH_TOKEN env var is set\n\n"
-                f"Source: {GITHUB_REPO} (release {GITHUB_RELEASE_TAG})"
-            )
-
-        size_mb = compressed_path.stat().st_size / (1024 * 1024)
-        logger.info("SNOMED: downloaded %.1f MB", size_mb)
-
-        with gzip.open(compressed_path, "rb") as f_in, open(concept_path, "wb") as f_out:
-            shutil.copyfileobj(f_in, f_out)
-
-        compressed_path.unlink()
-
-        size_mb = concept_path.stat().st_size / (1024 * 1024)
-        logger.info("SNOMED CONCEPT.csv saved (%.1f MB) at %s", size_mb, concept_path)
-        return concept_path
-
-    except Exception:
-        if compressed_path.exists():
-            compressed_path.unlink()
-        if concept_path.exists():
-            concept_path.unlink()
-        raise
-
-
-def load_concept_csv(
-    *,
-    progress: bool = True,
-    **read_csv_kwargs,
-) -> pd.DataFrame:
-    """Download + parse ``CONCEPT.csv`` into a DataFrame.
-
-    Forwards ``**read_csv_kwargs`` to :func:`pandas.read_csv`. The
-    OHDSI ``concept_id`` column is integer; the date columns are
-    parsed automatically.
-    """
-    path = get_concept_csv_path(progress=progress)
-    defaults: dict = {
-        "sep": "\t",
-        "dtype": {"concept_id": "Int64", "concept_code": "string"},
-    }
-    defaults.update(read_csv_kwargs)
-    return pd.read_csv(path, **defaults)
-
-
 # ─── Per-concept lookups via OLS ───────────────────────────────────────────
 # SNOMED CT is indexed on EBI's OLS4 (~376 k terms). For one-concept-at-a-time
-# queries we go through OLS rather than the bulk CSV — it's a single HTTP call
-# vs. parsing a 175 MB file. These wrappers add SNOMED-shaped argument handling
-# (accept ``"38341003"``, ``"SNOMED:38341003"``, or the full
-# ``http://snomed.info/id/38341003`` IRI) on top of the generic OLS client.
+# queries we go through OLS — EBI handles their own SNOMED CT licensing on
+# the server side, so callers don't need a UMLS / IHTSDO Affiliate license
+# just to look up a single concept's label.
 
 OLS_ONTOLOGY_SLUG = "snomed"
 """The OLS slug for SNOMED CT."""
@@ -443,21 +283,16 @@ def search_concepts(
 
 
 __all__ = [
+    "ATHENA_DOWNLOAD_PAGE",
     "CACHE_DIR",
-    "GITHUB_ASSET_NAME",
-    "GITHUB_RELEASE_TAG",
-    "GITHUB_REPO",
     "OLS_ONTOLOGY_SLUG",
-    "SNOMED_RELEASE_URL",
-    "download_concept_csv",
     "get_ancestors",
     "get_children",
-    "get_concept_csv_path",
     "get_descendants",
     "get_parents",
     "get_snomed_data_dir",
-    "is_available",
     "load_concept_csv",
+    "load_concept_csv_from_zip",
     "query_concept",
     "search_concepts",
 ]

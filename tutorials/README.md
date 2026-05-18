@@ -26,7 +26,7 @@ jupyter nbconvert --to notebook --execute --inplace tutorials/*.ipynb
 | 09 | [gProfiler](09_gprofiler.ipynb) | `biodb.gprofiler` | REST enrichment — `gost` | Combined per-organism GMT — `download_gmt`, `load_gmt` |
 | 10 | [MSigDB](10_msigdb.ipynb) | `biodb.msigdb` | Per-set JSON — `query_gene_set`, `query_genes` | Per-collection GMT — `download_gmt`, `load_gmt` |
 | 11 | [PubMed](11_pubmed.ipynb) | `biodb.pubmed` | NCBI E-utils — `search`, `query_pmid`, `query_summaries`, `query_abstract` | Annual Baseline + Daily Update XML.gz — `list_baseline_files`, `download_baseline_file`, `parse_pubmed_xml` |
-| 12 | [SNOMED CT](12_snomed.ipynb) | `biodb.snomed` | Per-concept via OLS4 — `query_concept`, `search_concepts`, `get_descendants`, `get_ancestors` | OHDSI CONCEPT.csv via GitHub release — `download_concept_csv`, `load_concept_csv` |
+| 12 | [SNOMED CT](12_snomed.ipynb) | `biodb.snomed` | Per-concept via OLS4 — `query_concept`, `search_concepts`, `get_descendants`, `get_ancestors` | Local CONCEPT.csv parser — `load_concept_csv`, `load_concept_csv_from_zip` (bring your own bundle from Athena) |
 
 Notebooks 02–10 hit real upstream endpoints for the API-mode demos
 (small payloads — fast) and execute bulk-mode calls whenever the
