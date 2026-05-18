@@ -150,9 +150,7 @@ query Drug($chemblId: String!) {
     tradeNames
     synonyms
     drugType
-    isApproved
-    maximumClinicalTrialPhase
-    yearOfFirstApproval
+    maximumClinicalStage
     description
   }
 }

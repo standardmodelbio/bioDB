@@ -1,23 +1,37 @@
 # bioDB tutorials
 
-Rendered `.ipynb` notebooks (with executed outputs — open on
-GitHub / nbviewer / Colab).
+Rendered `.ipynb` notebooks (with executed outputs — open on GitHub /
+nbviewer / Colab). Every per-source tutorial demonstrates **both** the
+targeted API mode and the bulk-download mode.
 
 To re-execute against the current `biodb` install:
 
 ```bash
-pip install "biodb[clinvar,test]" nbconvert ipykernel
+pip install "biodb[clinvar,protein,ontology,mapping,test]" nbconvert ipykernel
 jupyter nbconvert --to notebook --execute --inplace tutorials/*.ipynb
 ```
 
 ## Index
 
-| # | Notebook | Demonstrates |
-|---|----------|--------------|
-| 01 | [Utils quickstart](01_utils_quickstart.ipynb) | Random seeding, similarity helpers, `filter_adaptive`, `create_gene_association_matrix` |
-| 02 | [ClinVar simplification](02_clinvar_simplify.ipynb) | `CLNSIG` long-tail → 6 / 4-class buckets, `filter_df` |
-| 03 | [Ontology expansion](03_ontology_expand.ipynb) | N-hop keyword expansion over a Mondo-like graph |
-| 04 | [Open Targets markdown](04_opentargets_markdown.ipynb) | Markdown rendering + dataset registry |
+| # | Notebook | Source | API mode | Bulk mode |
+|---|----------|--------|----------|-----------|
+| 01 | [Utils quickstart](01_utils_quickstart.ipynb) | (cross-cutting) | — | — |
+| 02 | [Open Targets](02_opentargets.ipynb) | `biodb.opentargets`, `biodb.opentargets_graphql` | GraphQL `query_target` / `query_disease` / `query_drug` | Parquet FTP — `list_datasets`, `get_dataset` |
+| 03 | [Monarch](03_monarch.ipynb) | `biodb.monarch` | BioLink REST + Neo4j Cypher | Per-association TSV readers |
+| 04 | [Ontologies](04_ontology.ipynb) | `biodb.ontology` | owlready2 entity walk | OBO/OWL download + parse, N-hop expansion |
+| 05 | [UniProt](05_uniprot.ipynb) | `biodb.uniprot` | REST — `query_protein`, `get_features`, `get_dbxrefs` | FTP FASTA — `download_swissprot_fasta`, `iter_fasta_records` |
+| 06 | [Harmonizome](06_harmonizome.ipynb) | `biodb.harmonizome` | REST — `list_datasets`, `get_dataset_metadata` | `download_datasets`, `get_gmt`, `load_gene_attribute_matrix` |
+| 07 | [ClinVar](07_clinvar.ipynb) | `biodb.clinvar` | NCBI E-utils — `query_variant`, `query_gene` | VCF — `download_vcf`, `simplify_annotations` (`CLNSIG` long-tail buckets) |
+| 08 | [GWAS Atlas](08_gwas_atlas.ipynb) | `biodb.gwas_atlas` | Cached per-trait `query_trait`, `list_traits` | MAGMA matrix — `download_magma_p`, `load_magma_p`, `melt_magma_p` |
+| 09 | [gProfiler](09_gprofiler.ipynb) | `biodb.gprofiler` | REST enrichment — `gost` | Combined per-organism GMT — `download_gmt`, `load_gmt` |
+| 10 | [MSigDB](10_msigdb.ipynb) | `biodb.msigdb` | Per-set JSON — `query_gene_set`, `query_genes` | Per-collection GMT — `download_gmt`, `load_gmt` |
 
-All four tutorials run offline against synthetic data — they don't hit
-Open Targets / NCBI / Monarch endpoints.
+Notebooks 02–10 hit real upstream endpoints for the API-mode demos
+(small payloads — fast) and execute bulk-mode calls whenever the
+artifact is small enough to download in a tutorial (e.g. MSigDB
+Hallmark ~50 KB). For multi-GB / multi-tens-of-GB artifacts (TrEMBL,
+ClinVar VCF, full Open Targets bulk shards) the calls are shown in
+markdown cells but not executed.
+
+Notebook 01 stays offline against synthetic data — it covers the
+cross-cutting helpers in `biodb.utils`, not any single source.
