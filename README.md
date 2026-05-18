@@ -37,6 +37,7 @@ Each source module aims to provide **both** modes, so you can prototype against 
 | **[gProfiler](https://biit.cs.ut.ee/gprofiler/)** — University of Tartu gene-set library + functional enrichment | [`biodb.gprofiler`](src/biodb/gprofiler.py) | ✅ REST (`gost`) | ✅ Bulk GMT (`download_gmt`, `load_gmt`) |
 | **[MSigDB](https://www.gsea-msigdb.org/gsea/msigdb/)** — Broad Institute Molecular Signatures DB (Hallmark + C1–C8) | [`biodb.msigdb`](src/biodb/msigdb.py) | ✅ Per-set JSON (`query_gene_set`, `query_genes`) | ✅ Bulk GMT (`download_gmt`, `load_gmt` for any collection/version) |
 | **[PubMed](https://pubmed.ncbi.nlm.nih.gov/)** — NLM's 40 M+ biomedical citation database (titles, abstracts, authors, MeSH) | [`biodb.pubmed`](src/biodb/pubmed.py) | ✅ NCBI E-utilities (`search`, `query_pmid`, `query_summaries`, `query_abstract`) | ✅ Annual Baseline + Daily Update XML.gz (`list_baseline_files`, `download_baseline_file`, `parse_pubmed_xml`) |
+| **[SNOMED CT](https://www.snomed.org/)** (OHDSI-flavoured) — clinical terminology: diagnoses, procedures, findings, body sites | [`biodb.snomed`](src/biodb/snomed.py) | 🚧 for per-term lookup use [`biodb.ols`](src/biodb/ols.py)'s SNOMED endpoint | ✅ OHDSI CONCEPT.csv via GitHub release (`download_concept_csv`, `load_concept_csv`, `get_concept_csv_path`, `is_available`) |
 
 ### Cross-cutting helpers
 
