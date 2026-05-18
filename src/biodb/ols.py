@@ -41,6 +41,19 @@ OLS_API_BASE_URL = "https://www.ebi.ac.uk/ols4/api"
 OBO_PURL_BASE = "http://purl.obolibrary.org/obo"
 """PURL root for OBO Foundry ontologies. Used to expand CURIEs."""
 
+NON_OBO_PREFIXES: dict[str, str] = {
+    # Vocabularies whose IRIs *don't* follow ``http://purl.obolibrary.org/obo/{prefix}_{local}``.
+    # OLS indexes them anyway; expand their CURIEs to the right IRI scheme so
+    # ``get_term`` / ``get_descendants`` / etc. work without callers having to
+    # know the per-vocabulary URI grammar.
+    "SNOMED": "http://snomed.info/id/{local}",
+    "SCTID": "http://snomed.info/id/{local}",  # synonym sometimes used in MEDLINE
+    "EFO": "http://www.ebi.ac.uk/efo/EFO_{local}",
+    "ORPHA": "http://www.orpha.net/ORDO/Orphanet_{local}",
+    "ORPHANET": "http://www.orpha.net/ORDO/Orphanet_{local}",
+}
+"""Per-prefix IRI templates for vocabularies that don't use the OBO PURL pattern."""
+
 _DEFAULT_PAGE_SIZE = 500
 """OLS paginates everything. 500 is the largest size that still keeps
 each response well under a megabyte."""
@@ -50,11 +63,15 @@ _TERM_COLUMNS = ("obo_id", "label", "iri", "description", "synonyms", "is_obsole
 
 
 def curie_to_iri(curie_or_iri: str) -> str:
-    """Expand an OBO CURIE (e.g. ``"MONDO:0004975"``) to its PURL IRI.
+    """Expand a CURIE (e.g. ``"MONDO:0004975"``) to its full IRI.
+
+    Most OBO Foundry vocabularies follow the standard PURL pattern
+    ``http://purl.obolibrary.org/obo/{prefix}_{local}``. A small set
+    of high-traffic non-OBO vocabularies (SNOMED, EFO, ORDO) use their
+    own URI schemes — see :data:`NON_OBO_PREFIXES` for the mapping.
 
     Anything that already looks like an IRI (starts with ``http://`` or
-    ``https://``) is returned unchanged — useful for non-OBO ontologies
-    like EFO whose IRIs don't follow the standard PURL pattern.
+    ``https://``) is returned unchanged.
     """
     if curie_or_iri.startswith(("http://", "https://")):
         return curie_or_iri
@@ -63,6 +80,9 @@ def curie_to_iri(curie_or_iri: str) -> str:
             f"{curie_or_iri!r} is neither an IRI nor a CURIE (expected ``PREFIX:local``)."
         )
     prefix, local = curie_or_iri.split(":", 1)
+    template = NON_OBO_PREFIXES.get(prefix.upper())
+    if template is not None:
+        return template.format(local=local)
     return f"{OBO_PURL_BASE}/{prefix}_{local}"
 
 

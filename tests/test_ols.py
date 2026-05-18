@@ -52,6 +52,26 @@ def test_curie_to_iri_handles_curie_with_extra_colons() -> None:
     assert ols.curie_to_iri("FOO:bar:baz") == ("http://purl.obolibrary.org/obo/FOO_bar:baz")
 
 
+def test_curie_to_iri_expands_snomed_via_non_obo_template() -> None:
+    """SNOMED uses ``http://snomed.info/id/<local>``, not the OBO PURL."""
+    assert ols.curie_to_iri("SNOMED:38341003") == "http://snomed.info/id/38341003"
+
+
+def test_curie_to_iri_is_case_insensitive_on_prefix() -> None:
+    """A lower-case ``snomed:`` prefix should still hit the SNOMED template."""
+    assert ols.curie_to_iri("snomed:38341003") == "http://snomed.info/id/38341003"
+
+
+def test_curie_to_iri_expands_efo_to_ebi_url() -> None:
+    """EFO IRIs live under ``ebi.ac.uk/efo/EFO_<local>``."""
+    assert ols.curie_to_iri("EFO:0000400") == "http://www.ebi.ac.uk/efo/EFO_0000400"
+
+
+def test_curie_to_iri_expands_orpha_to_ordo_url() -> None:
+    """Orphanet rare-disease ontology — IRI under orpha.net/ORDO."""
+    assert ols.curie_to_iri("ORPHA:733") == "http://www.orpha.net/ORDO/Orphanet_733"
+
+
 def test_double_quote_iri_uses_percent_25_escape() -> None:
     """OLS routes reject single-encoded IRIs; the second pass is
     load-bearing."""

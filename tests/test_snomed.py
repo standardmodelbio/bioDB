@@ -249,3 +249,64 @@ def test_release_asset_url_is_alive() -> None:
         size = int(response.headers["content-length"])
         # Asset is ~29 MB; anything < 1 MB is an error page.
         assert size > 1_000_000, f"CONCEPT.csv.gz reports size {size} bytes — suspicious"
+
+
+# ---------------------------------------------------------------------------
+# Per-concept lookups via OLS — argument-normalisation unit tests + live
+# ---------------------------------------------------------------------------
+
+
+def test_normalize_concept_id_accepts_int() -> None:
+    assert snomed._normalize_concept_id(38341003) == "SNOMED:38341003"
+
+
+def test_normalize_concept_id_accepts_bare_digit_string() -> None:
+    assert snomed._normalize_concept_id("38341003") == "SNOMED:38341003"
+
+
+def test_normalize_concept_id_passes_curie_through_unchanged() -> None:
+    assert snomed._normalize_concept_id("SNOMED:38341003") == "SNOMED:38341003"
+
+
+def test_normalize_concept_id_passes_iri_through_unchanged() -> None:
+    iri = "http://snomed.info/id/38341003"
+    assert snomed._normalize_concept_id(iri) == iri
+
+
+def test_snomed_ols_slug_is_snomed() -> None:
+    """If someone renames the OLS slug, all the per-concept helpers
+    silently start hitting the wrong ontology — pin it."""
+    assert snomed.OLS_ONTOLOGY_SLUG == "snomed"
+
+
+def test_query_concept_hypertensive_disorder_round_trip() -> None:
+    """Real OLS lookup: 38341003 → 'Hypertensive disorder'."""
+    record = snomed.query_concept(38341003)
+    assert record["obo_id"] == "SNOMED:38341003"
+    assert record["label"] == "Hypertensive disorder"
+    # SNOMED concepts always carry an IRI under snomed.info/id/.
+    assert record["iri"] == "http://snomed.info/id/38341003"
+
+
+def test_query_concept_accepts_curie_string() -> None:
+    """The exact same lookup, passed as a SNOMED CURIE."""
+    record = snomed.query_concept("SNOMED:73211009")  # diabetes mellitus
+    assert record["obo_id"] == "SNOMED:73211009"
+    assert "diabetes" in record["label"].lower()
+
+
+def test_search_concepts_returns_dataframe_of_hits() -> None:
+    hits = snomed.search_concepts("hypertension", rows=5)
+    assert isinstance(hits, pd.DataFrame)
+    assert len(hits) == 5
+    for col in ("obo_id", "label", "iri"):
+        assert col in hits.columns
+
+
+def test_get_children_is_one_hop_subset_of_descendants() -> None:
+    """Direct children should be a subset of all descendants — same
+    contract as the OLS test in test_ols.py, but for SNOMED."""
+    children = snomed.get_children(38341003, size=10)
+    descendants = snomed.get_descendants(38341003, size=500)
+    assert set(children["obo_id"]) <= set(descendants["obo_id"])
+    assert len(children) <= len(descendants)
