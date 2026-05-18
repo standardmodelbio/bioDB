@@ -36,6 +36,7 @@ Each source module aims to provide **both** modes, so you can prototype against 
 | **[GWAS Atlas](https://atlas.ctglab.nl/)** — Watanabe et al. per-study gene-level MAGMA p-values across ~4k GWAS summary stats | [`biodb.gwas_atlas`](src/biodb/gwas_atlas.py) | ✅ Per-trait lookup via cached metadata (`query_trait`, `list_traits`) | ✅ Bulk download (`download_magma_p`, `load_magma_p`, `load_metadata`, `melt_magma_p`) |
 | **[gProfiler](https://biit.cs.ut.ee/gprofiler/)** — University of Tartu gene-set library + functional enrichment | [`biodb.gprofiler`](src/biodb/gprofiler.py) | ✅ REST (`gost`) | ✅ Bulk GMT (`download_gmt`, `load_gmt`) |
 | **[MSigDB](https://www.gsea-msigdb.org/gsea/msigdb/)** — Broad Institute Molecular Signatures DB (Hallmark + C1–C8) | [`biodb.msigdb`](src/biodb/msigdb.py) | ✅ Per-set JSON (`query_gene_set`, `query_genes`) | ✅ Bulk GMT (`download_gmt`, `load_gmt` for any collection/version) |
+| **[PubMed](https://pubmed.ncbi.nlm.nih.gov/)** — NLM's 40 M+ biomedical citation database (titles, abstracts, authors, MeSH) | [`biodb.pubmed`](src/biodb/pubmed.py) | ✅ NCBI E-utilities (`search`, `query_pmid`, `query_summaries`, `query_abstract`) | ✅ Annual Baseline + Daily Update XML.gz (`list_baseline_files`, `download_baseline_file`, `parse_pubmed_xml`) |
 
 ### Cross-cutting helpers
 

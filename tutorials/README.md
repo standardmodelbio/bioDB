@@ -25,6 +25,7 @@ jupyter nbconvert --to notebook --execute --inplace tutorials/*.ipynb
 | 08 | [GWAS Atlas](08_gwas_atlas.ipynb) | `biodb.gwas_atlas` | Cached per-trait `query_trait`, `list_traits` | MAGMA matrix — `download_magma_p`, `load_magma_p`, `melt_magma_p` |
 | 09 | [gProfiler](09_gprofiler.ipynb) | `biodb.gprofiler` | REST enrichment — `gost` | Combined per-organism GMT — `download_gmt`, `load_gmt` |
 | 10 | [MSigDB](10_msigdb.ipynb) | `biodb.msigdb` | Per-set JSON — `query_gene_set`, `query_genes` | Per-collection GMT — `download_gmt`, `load_gmt` |
+| 11 | [PubMed](11_pubmed.ipynb) | `biodb.pubmed` | NCBI E-utils — `search`, `query_pmid`, `query_summaries`, `query_abstract` | Annual Baseline + Daily Update XML.gz — `list_baseline_files`, `download_baseline_file`, `parse_pubmed_xml` |
 
 Notebooks 02–10 hit real upstream endpoints for the API-mode demos
 (small payloads — fast) and execute bulk-mode calls whenever the
