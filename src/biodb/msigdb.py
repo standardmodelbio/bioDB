@@ -125,11 +125,90 @@ def load_gmt(
     return read_gmt(path, return_format=return_format)
 
 
+# ─── Per-set targeted REST lookup ───────────────────────────────────────────
+# MSigDB serves a per-set JSON endpoint at
+# ``/gsea/msigdb/<organism>/geneset/<SET_NAME>.json``. Use this to pull
+# one gene set with its full metadata (PMID, exact source, gene symbols)
+# without downloading the entire collection GMT.
+
+MSIGDB_GENESET_URL_TEMPLATE = (
+    "https://www.gsea-msigdb.org/gsea/msigdb/{organism}/geneset/{set_name}.json"
+)
+"""URL template for the MSigDB per-set JSON endpoint."""
+
+
+def query_gene_set(
+    set_name: str,
+    *,
+    organism: str = "human",
+    timeout: int = 30,
+) -> dict:
+    """Fetch one MSigDB gene set by name and return its full metadata.
+
+    Parameters
+    ----------
+    set_name : str
+        MSigDB set name (e.g. ``"HALLMARK_APOPTOSIS"``,
+        ``"KEGG_MEDICUS_PATHWAY_OF_GENE_EXPRESSION_BY_TYPE_I_INTERFERON"``).
+    organism : str, default ``"human"``
+        One of ``"human"`` / ``"mouse"`` (case-sensitive in the URL).
+    timeout : int, default 30
+
+    Returns
+    -------
+    dict
+        The unwrapped set record: keys include ``systematicName``,
+        ``pmid``, ``exactSource``, ``geneSymbols`` (list of strings),
+        ``description``.
+
+    Raises
+    ------
+    KeyError
+        If MSigDB returns a payload without the requested set.
+    requests.HTTPError
+        On non-2xx response (typically 404 for unknown set names).
+    """
+    url = MSIGDB_GENESET_URL_TEMPLATE.format(organism=organism, set_name=set_name)
+    response = requests.get(url, timeout=timeout)
+    response.raise_for_status()
+    # MSigDB serves an HTML error page (with status 200) for unknown sets
+    # — we have to sniff the response shape rather than trust the status.
+    ctype = response.headers.get("content-type", "")
+    if "application/json" not in ctype:
+        raise KeyError(
+            f"Set {set_name!r} not found — MSigDB returned a non-JSON page "
+            f"(content-type={ctype!r})."
+        )
+    payload = response.json()
+    # The MSigDB JSON endpoint nests the record under the set name.
+    if set_name not in payload:
+        # Some endpoints wrap in {"<systematicName>": {...}} instead;
+        # surface whichever single entry is present.
+        if len(payload) == 1:
+            return next(iter(payload.values()))
+        raise KeyError(f"Set {set_name!r} not found in MSigDB response (keys: {list(payload)[:5]})")
+    return payload[set_name]
+
+
+def query_genes(
+    set_name: str,
+    *,
+    organism: str = "human",
+    timeout: int = 30,
+) -> list[str]:
+    """Convenience: return just the gene-symbol list from a MSigDB set."""
+    record = query_gene_set(set_name, organism=organism, timeout=timeout)
+    return list(record.get("geneSymbols", []))
+
+
 __all__ = [
     "CACHE_DIR",
     "DEFAULT_VERSION",
     "KNOWN_COLLECTIONS",
     "MSIGDB_BASE_URL",
+    "MSIGDB_GENESET_URL_TEMPLATE",
     "download_gmt",
     "load_gmt",
+    "query_gene_set",
+    "query_genes",
 ]

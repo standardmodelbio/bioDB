@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-import io
-import zipfile
 from unittest import mock
 
 import pandas as pd
@@ -26,12 +24,10 @@ def _gmt_text() -> str:
     )
 
 
-def _gmt_zip_bytes() -> bytes:
-    """A zip archive containing exactly one .gmt entry — mirrors upstream."""
-    buf = io.BytesIO()
-    with zipfile.ZipFile(buf, "w") as zf:
-        zf.writestr("gprofiler_full_hsapiens.name.gmt", _gmt_text())
-    return buf.getvalue()
+def _gmt_bytes() -> bytes:
+    """Plain ``.gmt`` body — gProfiler stopped zipping the combined file
+    when they migrated the static-asset URL pattern in 2026."""
+    return _gmt_text().encode("utf-8")
 
 
 # ---------------------------------------------------------------------------
@@ -44,7 +40,7 @@ def test_module_imports_offline() -> None:
 
 
 def test_constants_present() -> None:
-    assert gprofiler.GPROFILER_GMT_URL_TEMPLATE.endswith(".gmt.zip")
+    assert gprofiler.GPROFILER_GMT_URL_TEMPLATE.endswith(".gmt")
     assert "{organism}" in gprofiler.GPROFILER_GMT_URL_TEMPLATE
     assert gprofiler.GPROFILER_REST_API.endswith("/gost/profile/")
     assert gprofiler.CACHE_DIR.exists()
@@ -63,7 +59,7 @@ def test_public_api_signatures_stable() -> None:
 def test_download_gmt_writes_unzipped_file(tmp_path) -> None:
     url = gprofiler.GPROFILER_GMT_URL_TEMPLATE.format(organism="hsapiens")
     with responses.RequestsMock() as mock_resp:
-        mock_resp.add(responses.GET, url, body=_gmt_zip_bytes(), status=200)
+        mock_resp.add(responses.GET, url, body=_gmt_bytes(), status=200)
         path = gprofiler.download_gmt(organism="hsapiens", cache_dir=tmp_path)
     assert path.exists()
     assert path.name == "gprofiler_full_hsapiens.name.gmt"
@@ -84,7 +80,7 @@ def test_download_gmt_force_overrides_cache(tmp_path) -> None:
     cached.write_text("OLD CONTENTS")
     url = gprofiler.GPROFILER_GMT_URL_TEMPLATE.format(organism="hsapiens")
     with responses.RequestsMock() as mock_resp:
-        mock_resp.add(responses.GET, url, body=_gmt_zip_bytes(), status=200)
+        mock_resp.add(responses.GET, url, body=_gmt_bytes(), status=200)
         path = gprofiler.download_gmt(organism="hsapiens", cache_dir=tmp_path, force=True)
     assert path.read_text().startswith("GO:")
 
@@ -97,22 +93,10 @@ def test_download_gmt_propagates_http_error(tmp_path) -> None:
             gprofiler.download_gmt(organism="hsapiens", cache_dir=tmp_path)
 
 
-def test_download_gmt_raises_when_archive_has_no_gmt(tmp_path) -> None:
-    """Mirror an upstream archive shape change — no ``.gmt`` entry inside the zip."""
-    buf = io.BytesIO()
-    with zipfile.ZipFile(buf, "w") as zf:
-        zf.writestr("readme.txt", "no gmt here")
-    url = gprofiler.GPROFILER_GMT_URL_TEMPLATE.format(organism="hsapiens")
-    with responses.RequestsMock() as mock_resp:
-        mock_resp.add(responses.GET, url, body=buf.getvalue(), status=200)
-        with pytest.raises(RuntimeError, match="No .gmt entry"):
-            gprofiler.download_gmt(organism="hsapiens", cache_dir=tmp_path)
-
-
 def test_download_gmt_organism_argument_threads_through(tmp_path) -> None:
     url = gprofiler.GPROFILER_GMT_URL_TEMPLATE.format(organism="mmusculus")
     with responses.RequestsMock() as mock_resp:
-        mock_resp.add(responses.GET, url, body=_gmt_zip_bytes(), status=200)
+        mock_resp.add(responses.GET, url, body=_gmt_bytes(), status=200)
         path = gprofiler.download_gmt(organism="mmusculus", cache_dir=tmp_path)
     assert path.name == "gprofiler_full_mmusculus.name.gmt"
 
@@ -121,7 +105,7 @@ def test_download_gmt_falls_back_to_default_cache(monkeypatch, tmp_path) -> None
     monkeypatch.setattr(gprofiler, "CACHE_DIR", tmp_path)
     url = gprofiler.GPROFILER_GMT_URL_TEMPLATE.format(organism="hsapiens")
     with responses.RequestsMock() as mock_resp:
-        mock_resp.add(responses.GET, url, body=_gmt_zip_bytes(), status=200)
+        mock_resp.add(responses.GET, url, body=_gmt_bytes(), status=200)
         path = gprofiler.download_gmt(organism="hsapiens")
     assert path.parent == tmp_path
 
@@ -239,25 +223,20 @@ def test_gost_against_live_server() -> None:
     assert (result["p_value"] < 0.05).all()
 
 
-@pytest.mark.xfail(
-    reason=(
-        "The legacy gprofiler GMT URL pattern "
-        "``biit.cs.ut.ee/gprofiler/static/gprofiler_full_<organism>.name.gmt.zip`` "
-        "now returns 404 — gProfiler migrated to a Vue SPA in 2026 and "
-        "the bulk-download path needs rediscovery. Tracked as a follow-up; "
-        "the test stays so we notice the day they restore (or we fix) the URL."
-    ),
-    strict=False,
-)
 def test_download_gmt_live(tmp_path) -> None:
-    """Download the per-organism GMT and verify it parses. **Currently xfailed**
-    because the upstream URL pattern is dead — see the marker above."""
+    """Download the real combined per-organism ``.gmt`` from g:Profiler's
+    new (post-2026 SPA migration) URL pattern.
+
+    hsapiens is ~41 MB; we accept the per-CI cost because this is the
+    only test that proves the download flow still works end-to-end.
+    """
     path = gprofiler.download_gmt(organism="hsapiens", cache_dir=tmp_path, force=True)
     assert path.exists()
     size = path.stat().st_size
-    assert size > 100_000, (
+    # Real combined GMT is tens of MB; anything < 1 MB is an error page.
+    assert size > 1_000_000, (
         f"GMT file is only {size} bytes — upstream probably returned an error page."
     )
     assert path.suffix == ".gmt"
     first_line = path.read_text(encoding="utf-8").splitlines()[0]
-    assert "\t" in first_line
+    assert "\t" in first_line, f"GMT first line doesn't look tab-separated: {first_line!r}"

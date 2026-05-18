@@ -631,14 +631,149 @@ def count_sites_per_gene(
     return vpd
 
 
+# ─── ClinVar per-variant REST lookup (NCBI E-utilities) ─────────────────────
+# Targeted-query "API mode" complementing the bulk-VCF flow above. Wraps
+# NCBI's E-utilities at https://eutils.ncbi.nlm.nih.gov/entrez/eutils/ —
+# ``esearch`` for resolving terms → ClinVar UIDs and ``esummary`` for
+# pulling per-variant records.
+#
+# Requests are intentionally rate-limit-friendly: each call is a single
+# HTTP GET, no pagination by default. Set ``api_key`` to your NCBI E-utils
+# key to lift the 3 req/sec limit to 10 req/sec.
+
+import time as _ncbi_time
+
+import requests as _ncbi_requests  # alias avoids the lazy genoray import below
+
+NCBI_EUTILS_BASE_URL = "https://eutils.ncbi.nlm.nih.gov/entrez/eutils"
+"""NCBI E-utilities root for ClinVar lookups."""
+
+_NCBI_RATE_LIMIT_SLEEP_S = 0.34
+"""Per-request sleep that keeps us under the no-API-key cap of 3 req/sec."""
+
+
+def _ncbi_get(path: str, params: dict, *, timeout: int = 30) -> _ncbi_requests.Response:
+    """GET an NCBI E-utilities endpoint with polite-rate-limit handling.
+
+    Sleeps ~340 ms between calls so we stay under the 3-req/sec cap that
+    NCBI imposes on un-keyed traffic, and retries once on a 429 response.
+    """
+    url = f"{NCBI_EUTILS_BASE_URL}/{path.lstrip('/')}"
+    for attempt in range(2):
+        response = _ncbi_requests.get(url, params=params, timeout=timeout)
+        if response.status_code != 429:
+            response.raise_for_status()
+            _ncbi_time.sleep(_NCBI_RATE_LIMIT_SLEEP_S)
+            return response
+        # Rate-limited: back off and retry once.
+        _ncbi_time.sleep(1.0 + attempt)
+    response.raise_for_status()  # raises HTTPError on the second 429
+    return response  # pragma: no cover  -- unreachable; raise_for_status raises
+
+
+def _esearch(
+    term: str,
+    *,
+    retmax: int = 20,
+    api_key: str | None = None,
+    timeout: int = 30,
+) -> list[str]:
+    """Resolve a ClinVar search term to a list of ClinVar UIDs."""
+    params = {"db": "clinvar", "term": term, "retmode": "json", "retmax": retmax}
+    if api_key:
+        params["api_key"] = api_key
+    response = _ncbi_get("esearch.fcgi", params, timeout=timeout)
+    return response.json().get("esearchresult", {}).get("idlist", [])
+
+
+def query_variant(
+    variant_id: str | int,
+    *,
+    api_key: str | None = None,
+    timeout: int = 30,
+) -> dict:
+    """Fetch one ClinVar variant by Entrez UID (or VCV / RCV accession).
+
+    Parameters
+    ----------
+    variant_id : str or int
+        Either:
+
+        * a ClinVar Entrez UID (e.g. ``12345`` or ``"12345"``), or
+        * a VCV/RCV accession (e.g. ``"VCV000012345"``) — esearch resolves
+          it to a UID first.
+    api_key : str, optional
+        NCBI E-utilities API key.
+    timeout : int, default 30
+
+    Returns
+    -------
+    dict
+        The ESummary record for the variant: ``accession``,
+        ``accession_version``, ``title`` (HGVS-like coordinate +
+        protein-change), ``obj_type`` (e.g. ``"single nucleotide variant"``),
+        ``variation_set`` (cross-references), ``germline_classification``,
+        ``clinical_significance``, ``gene_sort`` (gene symbol), and more.
+
+    Raises
+    ------
+    KeyError
+        If the variant_id can't be resolved.
+    requests.HTTPError
+        On HTTP failure.
+
+    Examples
+    --------
+    >>> variant = query_variant(12345)  # doctest: +SKIP
+    >>> variant["accession"]  # doctest: +SKIP
+    'VCV000012345'
+    """
+    str_id = str(variant_id).strip()
+    if not str_id.isdigit():
+        # Treat as VCV / RCV accession — resolve to UID first.
+        hits = _esearch(str_id, retmax=1, api_key=api_key, timeout=timeout)
+        if not hits:
+            raise KeyError(f"ClinVar accession {variant_id!r} not found")
+        str_id = hits[0]
+
+    params = {"db": "clinvar", "id": str_id, "retmode": "json"}
+    if api_key:
+        params["api_key"] = api_key
+    response = _ncbi_get("esummary.fcgi", params, timeout=timeout)
+    result = response.json().get("result", {})
+    if str_id not in result:
+        raise KeyError(f"ClinVar UID {str_id} not in esummary response")
+    return result[str_id]
+
+
+def query_gene(
+    gene_symbol: str,
+    *,
+    retmax: int = 100,
+    api_key: str | None = None,
+    timeout: int = 30,
+) -> list[str]:
+    """Return ClinVar UIDs for variants in a given gene.
+
+    Convenience over :func:`_esearch`. Use the returned UIDs with
+    :func:`query_variant` to pull individual records.
+    """
+    return _esearch(
+        f"{gene_symbol}[gene]", retmax=retmax, api_key=api_key, timeout=timeout
+    )
+
+
 __all__ = [
     "INFO_COLS_SELECT",
+    "NCBI_EUTILS_BASE_URL",
     "bed_to_sites",
     "count_sites_per_gene",
     "df_to_bed",
     "df_to_sites",
     "download_vcf",
     "filter_df",
+    "query_gene",
+    "query_variant",
     "read_bed",
     "simplify_annotations",
     "vcf_to_df",

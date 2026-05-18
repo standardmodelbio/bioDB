@@ -766,3 +766,131 @@ def get_gene_associations(
         logger.info(f"Unique targetIds: {monarch_associations['targetId'].nunique():,}")
     
     return monarch_associations
+
+
+# ─── Monarch BioLink v3 REST API (targeted lookups) ────────────────────────
+# Complements the bulk TSV readers above with one-record-at-a-time
+# queries against ``api-v3.monarchinitiative.org``. Use this when you need
+# a fresh single-entity payload (gene, disease, phenotype) without
+# downloading a whole Monarch KG dump.
+
+MONARCH_API_BASE_URL = "https://api-v3.monarchinitiative.org/v3/api"
+"""Monarch v3 BioLink REST API root."""
+
+
+def _monarch_get(path: str, params: Optional[Dict] = None, timeout: int = 30):
+    """GET ``MONARCH_API_BASE_URL/path`` and return the JSON body.
+
+    Raises
+    ------
+    requests.HTTPError
+        on non-2xx response.
+    """
+    url = f"{MONARCH_API_BASE_URL}/{path.lstrip('/')}"
+    response = requests.get(url, params=params, timeout=timeout)
+    response.raise_for_status()
+    return response.json()
+
+
+def query_entity(entity_id: str, *, timeout: int = 30) -> Dict:
+    """Fetch one entity (gene, disease, phenotype, …) by CURIE.
+
+    Parameters
+    ----------
+    entity_id : str
+        Entity identifier in CURIE form, e.g. ``"HGNC:1100"`` (BRCA1),
+        ``"MONDO:0007254"`` (breast cancer), ``"HP:0001250"`` (seizure).
+    timeout : int, default 30
+
+    Returns
+    -------
+    dict
+        The Monarch BioLink entity payload: ``id``, ``name``, ``category``,
+        ``description``, ``xref``, ``synonym``, ``in_taxon``, …
+
+    Examples
+    --------
+    >>> brca1 = query_entity("HGNC:1100")  # doctest: +SKIP
+    >>> brca1["name"]  # doctest: +SKIP
+    'BRCA1'
+    """
+    return _monarch_get(f"entity/{entity_id}", timeout=timeout)
+
+
+def query_associations(
+    subject: Optional[str] = None,
+    object: Optional[str] = None,
+    predicate: Optional[str] = None,
+    category: Optional[str] = None,
+    limit: int = 20,
+    offset: int = 0,
+    timeout: int = 30,
+) -> Dict:
+    """Fetch BioLink associations from the Monarch v3 REST API.
+
+    Parameters
+    ----------
+    subject : str, optional
+        Subject CURIE filter (e.g. ``"HGNC:1100"``).
+    object : str, optional
+        Object CURIE filter.
+    predicate : str, optional
+        BioLink predicate (e.g. ``"biolink:causes"``).
+    category : str, optional
+        BioLink association category.
+    limit, offset : int
+        Pagination knobs.
+    timeout : int, default 30
+
+    Returns
+    -------
+    dict
+        ``{"limit", "offset", "total", "items": [association, …]}``.
+        Each item carries ``subject`` / ``predicate`` / ``object`` triples
+        plus rich label/closure/taxon metadata.
+
+    Examples
+    --------
+    >>> hits = query_associations(subject="HGNC:1100", limit=5)  # doctest: +SKIP
+    >>> hits["total"]  # doctest: +SKIP
+    2352
+    """
+    params = {"limit": limit, "offset": offset}
+    if subject is not None:
+        params["subject"] = subject
+    if object is not None:
+        params["object"] = object
+    if predicate is not None:
+        params["predicate"] = predicate
+    if category is not None:
+        params["category"] = category
+    return _monarch_get("association", params=params, timeout=timeout)
+
+
+def query_gene_associations(gene_id: str, *, limit: int = 100) -> pd.DataFrame:
+    """Convenience: every association whose subject is ``gene_id``.
+
+    Parameters
+    ----------
+    gene_id : str
+        Gene CURIE, e.g. ``"HGNC:1100"`` for BRCA1.
+    limit : int, default 100
+        Max rows per response page; the function paginates internally
+        until ``total`` is exhausted (or ``limit * pages_seen`` reaches
+        ~1000, whichever comes first — keeps response size bounded).
+
+    Returns
+    -------
+    pandas.DataFrame
+        Columns mirror the BioLink association schema.
+    """
+    rows: list[Dict] = []
+    offset = 0
+    for _ in range(10):  # cap at 10 pages = ~1000 rows
+        page = query_associations(subject=gene_id, limit=limit, offset=offset)
+        items = page.get("items", [])
+        rows.extend(items)
+        if len(rows) >= page.get("total", 0) or not items:
+            break
+        offset += limit
+    return pd.DataFrame(rows)
