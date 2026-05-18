@@ -5,7 +5,39 @@ one-record-at-a-time GraphQL lookups. Use this when you need a fresh
 single-target / single-disease / single-drug / single-variant payload and
 don't want to download an entire Parquet release.
 
-Endpoint: https://api.platform.opentargets.org/api/v4/graphql
+The ``query_*`` wrappers issue deep, multi-level GraphQL queries that pull
+back the rich nested payload OT exposes (associated targets, drug
+candidates, HPO phenotypes, MoA / indications, ClinVar + UniProt
+evidence, credible sets, pharmacogenomics, literature occurrences, ...)
+-- not just the shallow top-level scalars. Each wrapper exposes
+size knobs (``assoc_size``, ``ae_size``, ``ev_size``, ``cs_size``,
+``lit_size``) for the per-section pagination caps.
+
+Endpoint
+--------
+- GraphQL endpoint: https://api.platform.opentargets.org/api/v4/graphql
+- Raw SDL schema (text): https://api.platform.opentargets.org/api/v4/graphql/schema
+- GraphQL Playground: https://api.platform.opentargets.org/api/v4/graphql/playground
+
+OpenTargets docs and AI tooling
+-------------------------------
+- GraphQL API user guide: https://platform-docs.opentargets.org/data-access/graphql-api
+- Official OT Platform MCP server (https://mcp.platform.opentargets.org/mcp)
+  -- exposes schema-introspection + query tools so LLMs can craft well-formed
+  queries directly. See https://platform-docs.opentargets.org/data-access/model-context-protocol
+  and source at https://github.com/opentargets/open-targets-platform-mcp.
+
+Identifier formats
+------------------
+- **Targets / Genes**: Ensembl IDs (e.g. ``"ENSG00000012048"`` for BRCA1).
+- **Diseases**: EFO / MONDO / HP IDs in underscored form
+  (``"EFO_0004911"``, ``"MONDO_0007254"``).
+  Colon-form (``"MONDO:0007254"``) is auto-normalised.
+- **Drugs**: ChEMBL drug IDs (``"CHEMBL25"``). Parent / child molecules
+  available via ``parentMolecule`` / ``childMolecules``.
+- **Variants**: OT variant IDs in ``"chr_pos_ref_alt"`` format
+  (``"19_11100252_C_T"``). For rsID → OT-id resolution use a top-level
+  ``search`` query.
 
 Examples
 --------
@@ -131,33 +163,126 @@ query Target($ensemblId: String!) {
 # field here keeps the query well-formed against the current schema.
 
 _DISEASE_QUERY = """
-query Disease($efoId: String!) {
+query Disease($efoId: String!, $assocSize: Int!, $phenoSize: Int!) {
   disease(efoId: $efoId) {
     id
     name
     description
+    isTherapeuticArea
+    dbXRefs
     synonyms { terms relation }
     therapeuticAreas { id name }
+    ancestors
+    descendants
+    parents { id name }
+    children { id name }
+    phenotypes(page: {index: 0, size: $phenoSize}) {
+      count
+      rows {
+        phenotypeHPO { id name description namespace }
+        evidence {
+          aspect
+          frequency
+          evidenceType
+          resource
+          bioCuration
+          diseaseFromSource
+        }
+      }
+    }
+    associatedTargets(page: {index: 0, size: $assocSize}) {
+      count
+      rows {
+        score
+        noveltyDirect
+        noveltyIndirect
+        datatypeScores { id score }
+        target { id approvedSymbol approvedName biotype }
+      }
+    }
+    drugAndClinicalCandidates {
+      count
+      rows {
+        id
+        maxClinicalStage
+        drug { id name drugType maximumClinicalStage }
+      }
+    }
+    literatureOcurrences {
+      count
+      rows { pmid pmcid publicationDate }
+    }
   }
 }
 """
 
 _DRUG_QUERY = """
-query Drug($chemblId: String!) {
+query Drug($chemblId: String!, $aeSize: Int!) {
   drug(chemblId: $chemblId) {
     id
     name
-    tradeNames
-    synonyms
+    description
     drugType
     maximumClinicalStage
-    description
+    tradeNames
+    synonyms
+    crossReferences { source ids }
+    drugWarnings {
+      id
+      warningType
+      description
+      toxicityClass
+      country
+      year
+      efoTerm
+      efoId
+      chemblIds
+      references { source url }
+    }
+    mechanismsOfAction {
+      uniqueActionTypes
+      uniqueTargetTypes
+      rows {
+        mechanismOfAction
+        actionType
+        targetName
+        targets { id approvedSymbol approvedName }
+        references { source ids urls }
+      }
+    }
+    indications {
+      count
+      rows {
+        id
+        maxClinicalStage
+        disease { id name therapeuticAreas { id name } }
+        clinicalReports {
+          id
+          trialPhase
+          trialOverallStatus
+          trialStudyType
+          source
+          url
+          year
+          title
+        }
+      }
+    }
+    adverseEvents(page: {index: 0, size: $aeSize}) {
+      count
+      criticalValue
+      rows { name meddraCode count logLR }
+    }
+    literatureOcurrences {
+      count
+      rows { pmid pmcid publicationDate }
+    }
   }
 }
 """
 
 _VARIANT_QUERY = """
-query Variant($variantId: String!) {
+query Variant($variantId: String!, $evSize: Int!, $csSize: Int!) {
   variant(variantId: $variantId) {
     id
     chromosome
@@ -165,7 +290,89 @@ query Variant($variantId: String!) {
     referenceAllele
     alternateAllele
     rsIds
-    mostSevereConsequence
+    hgvsId
+    variantDescription
+    mostSevereConsequence { id label }
+    alleleFrequencies { populationName alleleFrequency }
+    variantEffect {
+      method
+      assessment
+      assessmentFlag
+      score
+      normalisedScore
+      target { id approvedSymbol }
+    }
+    transcriptConsequences {
+      transcriptId
+      isEnsemblCanonical
+      impact
+      aminoAcidChange
+      consequenceScore
+      codons
+      lofteePrediction
+      siftPrediction
+      polyphenPrediction
+      uniprotAccessions
+      target { id approvedSymbol biotype }
+      variantConsequences { id label }
+    }
+    proteinCodingCoordinates(page: {index: 0, size: 25}) {
+      count
+      rows {
+        referenceAminoAcid
+        alternateAminoAcid
+        aminoAcidPosition
+        uniprotAccessions
+        target { id approvedSymbol }
+      }
+    }
+    pharmacogenomics {
+      drugs { drugFromSource drugId }
+      phenotypeText
+      genotypeAnnotationText
+      pgxCategory
+      evidenceLevel
+      genotype
+      variantRsId
+      variantFunctionalConsequence { id label }
+    }
+    credibleSets(page: {index: 0, size: $csSize}) {
+      count
+      rows {
+        studyId
+        studyType
+        beta
+        standardError
+        pValueMantissa
+        pValueExponent
+        qtlGeneId
+        confidence
+        finemappingMethod
+        study { traitFromSource projectId studyType }
+      }
+    }
+    evidences(
+      datasourceIds: ["eva", "eva_somatic", "uniprot_variants", "uniprot_literature"]
+      size: $evSize
+    ) {
+      count
+      rows {
+        datasourceId
+        datatypeId
+        clinicalSignificances
+        confidence
+        diseaseFromSource
+        diseaseFromSourceId
+        studyId
+        allelicRequirements
+        literature
+        urls { niceName url }
+        targetFromSourceId
+        disease { id name }
+        target { id approvedSymbol }
+        variantFunctionalConsequence { id label }
+      }
+    }
   }
 }
 """
@@ -203,15 +410,26 @@ def query_target(
 def query_disease(
     efo_id: str,
     *,
+    assoc_size: int = 25,
+    pheno_size: int = 25,
     client: httpx.Client | None = None,
 ) -> dict[str, Any] | None:
-    """Fetch a single disease by EFO/MONDO ID.
+    """Fetch a single disease by EFO/MONDO ID with full nested context.
+
+    The payload now includes ontology relatives (parents/children/ancestors/
+    descendants), HPO phenotypes (with evidence rows), genetically-associated
+    targets (with datatype-broken-down scores), and clinical drug candidates
+    -- not just the name/description/synonyms a shallow query would return.
 
     Parameters
     ----------
     efo_id : str
         Disease ID in OT's internal underscored form (``"EFO_0000305"``,
         ``"MONDO_0007254"``, etc.). Colons are accepted and normalized.
+    assoc_size : int, default 25
+        Page size for ``associatedTargets``. OT caps at 100.
+    pheno_size : int, default 25
+        Page size for ``phenotypes``. OT caps at 100.
     client : httpx.Client, optional
 
     Returns
@@ -223,23 +441,38 @@ def query_disease(
     >>> bc = query_disease("MONDO_0007254")  # doctest: +SKIP
     >>> bc["name"]  # doctest: +SKIP
     'breast carcinoma'
+    >>> len(bc["associatedTargets"]["rows"])  # doctest: +SKIP
+    25
     """
     efo_id = efo_id.replace(":", "_")
-    data = graphql_post(_DISEASE_QUERY, {"efoId": efo_id}, client=client)
+    data = graphql_post(
+        _DISEASE_QUERY,
+        {"efoId": efo_id, "assocSize": assoc_size, "phenoSize": pheno_size},
+        client=client,
+    )
     return data.get("disease")
 
 
 def query_drug(
     chembl_id: str,
     *,
+    ae_size: int = 25,
     client: httpx.Client | None = None,
 ) -> dict[str, Any] | None:
-    """Fetch a single drug by ChEMBL ID.
+    """Fetch a single drug by ChEMBL ID with full nested context.
+
+    The payload now includes mechanisms of action (with target rows),
+    indications (with linked diseases + max clinical stage), adverse events
+    (with logLR + counts), drug warnings, and cross-references -- not just
+    the shallow ``name``/``description``/``drugType`` block a minimal query
+    would return.
 
     Parameters
     ----------
     chembl_id : str
         ChEMBL drug ID (``"CHEMBL25"``).
+    ae_size : int, default 25
+        Page size for ``adverseEvents``. OT caps at 100.
     client : httpx.Client, optional
 
     Returns
@@ -251,22 +484,41 @@ def query_drug(
     >>> aspirin = query_drug("CHEMBL25")  # doctest: +SKIP
     >>> aspirin["name"]  # doctest: +SKIP
     'ASPIRIN'
+    >>> aspirin["mechanismsOfAction"]["rows"][0]["mechanismOfAction"]  # doctest: +SKIP
+    'Cyclooxygenase inhibitor'
     """
-    data = graphql_post(_DRUG_QUERY, {"chemblId": chembl_id}, client=client)
+    data = graphql_post(
+        _DRUG_QUERY,
+        {"chemblId": chembl_id, "aeSize": ae_size},
+        client=client,
+    )
     return data.get("drug")
 
 
 def query_variant(
     variant_id: str,
     *,
+    ev_size: int = 50,
+    cs_size: int = 25,
     client: httpx.Client | None = None,
 ) -> dict[str, Any] | None:
-    """Fetch a single variant by OT variant ID.
+    """Fetch a single variant by OT variant ID with full nested context.
+
+    The payload now includes ClinVar + UniProt evidence rows (via
+    ``evidences(datasourceIds: ["eva", "uniprot_variants", "uniprot_literature"])``),
+    pharmacogenomics rows, and GWAS / molQTL credible sets containing
+    this variant -- not just the bare allele / consequence block.
 
     Parameters
     ----------
     variant_id : str
-        OT variant ID (``"chr1_55039774_T_C"``).
+        OT variant ID in ``"chr_pos_ref_alt"`` format (``"19_11100252_C_T"``).
+        Use :func:`biodb.opentargets_graphql.graphql_post` with the OT
+        ``search`` query to resolve from rsId.
+    ev_size : int, default 50
+        Page size for ``evidences``. OT caps at 100.
+    cs_size : int, default 25
+        Page size for ``credibleSets``. OT caps at 100.
     client : httpx.Client, optional
 
     Returns
@@ -275,7 +527,13 @@ def query_variant(
 
     Examples
     --------
-    >>> v = query_variant("chr1_55039774_T_C")  # doctest: +SKIP
+    >>> v = query_variant("19_11100252_C_T")  # doctest: +SKIP
+    >>> v["rsIds"]  # doctest: +SKIP
+    ['rs121908024']
     """
-    data = graphql_post(_VARIANT_QUERY, {"variantId": variant_id}, client=client)
+    data = graphql_post(
+        _VARIANT_QUERY,
+        {"variantId": variant_id, "evSize": ev_size, "csSize": cs_size},
+        client=client,
+    )
     return data.get("variant")
