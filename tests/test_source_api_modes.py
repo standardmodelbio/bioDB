@@ -12,6 +12,25 @@ from __future__ import annotations
 import pandas as pd
 import pytest
 
+# ─── biodb.opentargets_graphql.query_drug — schema-drift canary ─────────────
+# The other OT query helpers (query_target, query_disease) are exercised in
+# test_opentargets.py; query_drug is the field most prone to schema rename
+# (we lost ``isApproved`` and ``maximumClinicalTrialPhase`` in a 2026 schema
+# bump). Hit the live endpoint so CI fails fast on the next rename.
+
+
+def test_opentargets_query_drug_returns_known_chembl_record() -> None:
+    """Aspirin (CHEMBL25) is the canonical "is the drug field set up
+    properly" probe — small, public, never going away."""
+    from biodb import opentargets_graphql as otg
+
+    aspirin = otg.query_drug("CHEMBL25")
+    assert aspirin["id"] == "CHEMBL25"
+    assert aspirin["name"].lower() == "aspirin"
+    # ``drugType`` is "Small molecule" or similar — just make sure it exists.
+    assert aspirin.get("drugType")
+
+
 # ─── biodb.monarch.query_* (BioLink v3 REST) ────────────────────────────────
 
 
