@@ -93,24 +93,63 @@ def __getattr__(name: str) -> Any:
 # ─── Bulk download ──────────────────────────────────────────────────────────
 
 
-def _download_file(response: requests.Response, filename: Path) -> None:
+def _download_file(response: requests.Response, filename: Path, *, progress: bool = True) -> None:
+    """Stream ``response`` to ``filename`` with a tqdm progress bar.
+
+    Uses the same shared helper as the rest of biodb's bulk downloads
+    so per-file progress is consistent across sources.
+    """
+    from tqdm import tqdm
+
     filename.parent.mkdir(parents=True, exist_ok=True)
-    with open(filename, "wb") as f:
-        for chunk in response.iter_content(chunk_size=1024):
+    total = int(response.headers.get("content-length") or 0) or None
+    with (
+        open(filename, "wb") as f,
+        tqdm(
+            total=total,
+            unit="B",
+            unit_scale=True,
+            unit_divisor=1024,
+            desc=filename.name,
+            disable=not progress,
+            leave=False,
+        ) as bar,
+    ):
+        for chunk in response.iter_content(chunk_size=1 << 16):
+            if not chunk:
+                continue
             f.write(chunk)
+            bar.update(len(chunk))
 
 
-def _download_and_decompress_file(response: requests.Response, filename: Path) -> None:
-    """Stream a gzip response to disk, decompressed in-place."""
+def _download_and_decompress_file(
+    response: requests.Response, filename: Path, *, progress: bool = True
+) -> None:
+    """Stream a gzip response to disk, decompressed in-place, with tqdm."""
+    from tqdm import tqdm
+
     filename.parent.mkdir(parents=True, exist_ok=True)
     decompressor = zlib.decompressobj(16 + zlib.MAX_WBITS)
     output_filename = filename.with_suffix("") if isinstance(filename, Path) else filename[:-3]
-    with open(output_filename, "wb") as f:
+    total = int(response.headers.get("content-length") or 0) or None
+    with (
+        open(output_filename, "wb") as f,
+        tqdm(
+            total=total,
+            unit="B",
+            unit_scale=True,
+            unit_divisor=1024,
+            desc=Path(output_filename).name,
+            disable=not progress,
+            leave=False,
+        ) as bar,
+    ):
         while True:
             chunk = response.raw.read(1024)
             if not chunk:
                 break
             f.write(decompressor.decompress(chunk))
+            bar.update(len(chunk))
 
 
 def download_datasets(

@@ -185,18 +185,15 @@ def _download_to_cache(url: str, cache_dir: Path, force: bool = False) -> Path:
     """Download ``url`` into ``cache_dir`` if not already cached."""
     from urllib.parse import urlparse
 
+    from biodb._downloads import stream_to_file
+
     cache_dir.mkdir(parents=True, exist_ok=True)
     fname = Path(urlparse(url).path).name
     out = cache_dir / fname
     if out.exists() and not force:
         return out
     logger.info("Downloading %s -> %s", url, out)
-    with requests.get(url, stream=True, timeout=60) as resp:
-        resp.raise_for_status()
-        with open(out, "wb") as fh:
-            for chunk in resp.iter_content(chunk_size=1 << 20):
-                fh.write(chunk)
-    return out
+    return stream_to_file(url, out, timeout=60, chunk_size=1 << 20)
 
 
 def ensure_cached_shards(

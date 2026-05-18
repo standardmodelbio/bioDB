@@ -52,6 +52,8 @@ from typing import IO
 import pandas as pd
 import requests
 
+from biodb._downloads import stream_to_file
+
 logger = logging.getLogger(__name__)
 
 NCBI_EUTILS_BASE_URL = "https://eutils.ncbi.nlm.nih.gov/entrez/eutils"
@@ -284,6 +286,7 @@ def _download_xml_gz(
     force: bool,
     verify_md5: bool,
     timeout: int,
+    progress: bool = True,
 ) -> Path:
     if not filename.endswith(".xml.gz"):
         raise ValueError(f"{filename!r} doesn't look like a PubMed XML gzip filename")
@@ -294,14 +297,13 @@ def _download_xml_gz(
         return dst
     url = f"{PUBMED_FTP_BASE_URL}/{directory}/{filename}"
     logger.info("Downloading PubMed %s/%s -> %s", directory, filename, dst)
-    with requests.get(
-        url, stream=True, timeout=timeout, headers={"User-Agent": _USER_AGENT}
-    ) as response:
-        response.raise_for_status()
-        with open(dst, "wb") as f:
-            for chunk in response.iter_content(chunk_size=1 << 16):
-                if chunk:
-                    f.write(chunk)
+    stream_to_file(
+        url,
+        dst,
+        headers={"User-Agent": _USER_AGENT},
+        timeout=timeout,
+        progress=progress,
+    )
     if verify_md5:
         _verify_md5(dst, f"{url}.md5", timeout=timeout)
     return dst
@@ -314,12 +316,13 @@ def download_baseline_file(
     force: bool = False,
     verify_md5: bool = True,
     timeout: int = 600,
+    progress: bool = True,
 ) -> Path:
     """Download one baseline ``pubmed{YY}n####.xml.gz`` shard.
 
     Cached at ``~/.cache/biodb/pubmed/baseline/<filename>`` by default.
     The companion ``.md5`` file is fetched and checked unless
-    ``verify_md5=False``.
+    ``verify_md5=False``. ``progress=False`` silences the tqdm bar.
     """
     return _download_xml_gz(
         "baseline",
@@ -328,6 +331,7 @@ def download_baseline_file(
         force=force,
         verify_md5=verify_md5,
         timeout=timeout,
+        progress=progress,
     )
 
 
@@ -338,6 +342,7 @@ def download_update_file(
     force: bool = False,
     verify_md5: bool = True,
     timeout: int = 600,
+    progress: bool = True,
 ) -> Path:
     """Download one daily-update ``pubmed{YY}n####.xml.gz`` shard."""
     return _download_xml_gz(
@@ -347,6 +352,7 @@ def download_update_file(
         force=force,
         verify_md5=verify_md5,
         timeout=timeout,
+        progress=progress,
     )
 
 

@@ -181,6 +181,7 @@ def download_swissprot_fasta(
     cache_dir: str | Path | None = None,
     force: bool = False,
     timeout_s: float = 600.0,
+    progress: bool = True,
 ) -> Path:
     """Download the manually reviewed Swiss-Prot FASTA bundle (~90 MB gzipped).
 
@@ -193,9 +194,15 @@ def download_swissprot_fasta(
         Re-download even if cached.
     timeout_s : float, default 600
         Per-chunk timeout. Swiss-Prot is ~90 MB; allow plenty.
+    progress : bool, default True
+        Show a tqdm download bar.
     """
     return _download_uniprot_fasta(
-        SWISSPROT_FASTA_FILENAME, cache_dir=cache_dir, force=force, timeout_s=timeout_s
+        SWISSPROT_FASTA_FILENAME,
+        cache_dir=cache_dir,
+        force=force,
+        timeout_s=timeout_s,
+        progress=progress,
     )
 
 
@@ -204,6 +211,7 @@ def download_trembl_fasta(
     cache_dir: str | Path | None = None,
     force: bool = False,
     timeout_s: float = 3600.0,
+    progress: bool = True,
 ) -> Path:
     """Download the auto-annotated TrEMBL FASTA bundle.
 
@@ -213,7 +221,11 @@ def download_trembl_fasta(
        loading the file into memory.
     """
     return _download_uniprot_fasta(
-        TREMBL_FASTA_FILENAME, cache_dir=cache_dir, force=force, timeout_s=timeout_s
+        TREMBL_FASTA_FILENAME,
+        cache_dir=cache_dir,
+        force=force,
+        timeout_s=timeout_s,
+        progress=progress,
     )
 
 
@@ -223,8 +235,11 @@ def _download_uniprot_fasta(
     cache_dir: str | Path | None,
     force: bool,
     timeout_s: float,
+    progress: bool = True,
 ) -> Path:
     """Stream ``<UNIPROT_FTP_BASE_URL>/<filename>`` to ``cache_dir/<filename>``."""
+    from biodb._downloads import stream_to_file
+
     root = Path(cache_dir).expanduser() if cache_dir else UNIPROT_FASTA_CACHE_DIR
     root.mkdir(parents=True, exist_ok=True)
     dst = root / filename
@@ -233,13 +248,13 @@ def _download_uniprot_fasta(
 
     url = f"{UNIPROT_FTP_BASE_URL}/{filename}"
     logger.info("Downloading %s", url)
-    with requests.get(url, stream=True, timeout=timeout_s) as response:
-        response.raise_for_status()
-        with open(dst, "wb") as f:
-            for chunk in response.iter_content(chunk_size=1 << 20):  # 1 MB chunks
-                if chunk:
-                    f.write(chunk)
-    return dst
+    return stream_to_file(
+        url,
+        dst,
+        timeout=int(timeout_s),
+        progress=progress,
+        chunk_size=1 << 20,  # UniProt FASTA bundles are large; 1 MiB chunks reduce syscalls
+    )
 
 
 def iter_fasta_records(

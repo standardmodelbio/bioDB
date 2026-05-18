@@ -29,6 +29,8 @@ from typing import Any
 import pandas as pd
 import requests
 
+from biodb._downloads import stream_to_file
+
 logger = logging.getLogger(__name__)
 
 GPROFILER_GMT_URL_TEMPLATE = (
@@ -54,6 +56,7 @@ def download_gmt(
     organism: str = "hsapiens",
     cache_dir: str | Path | None = None,
     force: bool = False,
+    progress: bool = True,
 ) -> Path:
     """Download ``gprofiler_full_<organism>.name.gmt`` (unzipped) and return path.
 
@@ -65,6 +68,8 @@ def download_gmt(
         Cache root. Defaults to :data:`CACHE_DIR`.
     force : bool, default False
         Re-download even if cached.
+    progress : bool, default True
+        Show a tqdm download bar (~41 MB for hsapiens).
 
     Returns
     -------
@@ -79,12 +84,7 @@ def download_gmt(
 
     url = GPROFILER_GMT_URL_TEMPLATE.format(organism=organism)
     logger.info("Downloading %s", url)
-    response = requests.get(url, stream=True, timeout=120)
-    response.raise_for_status()
-    with open(gmt_path, "wb") as f:
-        for chunk in response.iter_content(chunk_size=1 << 16):
-            f.write(chunk)
-    return gmt_path
+    return stream_to_file(url, gmt_path, timeout=120, progress=progress)
 
 
 def load_gmt(
