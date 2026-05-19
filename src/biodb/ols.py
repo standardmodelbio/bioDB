@@ -179,16 +179,51 @@ def _get(
     raise last_exc
 
 
-def _paginate(url: str, params: dict | None = None, timeout: int = 30) -> Iterator[dict]:
-    """Walk OLS's HAL-style paginated endpoints (yielding each term)."""
+def _paginate(
+    url: str,
+    params: dict | None = None,
+    timeout: int = 30,
+    *,
+    progress: bool = False,
+    desc: str | None = None,
+) -> Iterator[dict]:
+    """Walk OLS's HAL-style paginated endpoints (yielding each term).
+
+    Parameters
+    ----------
+    url, params, timeout
+        Forwarded to :func:`_get`.
+    progress : bool, default False
+        When True, show a tqdm progress bar keyed on ``page.totalPages``
+        from the first response. Caller-facing wrappers
+        (:func:`list_terms`, :func:`iter_terms`) opt in by default
+        because their walks can take many minutes; the per-term
+        relationship wrappers (descendants / ancestors / children /
+        parents) leave it off because they're usually fast and the
+        bar would be noise.
+    desc : str or None
+        Description shown on the tqdm bar. Ignored when ``progress=False``.
+    """
+    from tqdm.auto import tqdm
+
     next_url: str | None = url
     next_params: dict | None = params
-    while next_url is not None:
-        payload = _get(next_url, params=next_params, timeout=timeout)
-        yield from (payload.get("_embedded") or {}).get("terms") or []
-        next_url = (payload.get("_links") or {}).get("next", {}).get("href")
-        # The `next` href already carries pagination params; don't duplicate.
-        next_params = None
+    pbar: Any = None
+    try:
+        while next_url is not None:
+            payload = _get(next_url, params=next_params, timeout=timeout)
+            if progress and pbar is None:
+                total_pages = (payload.get("page") or {}).get("totalPages")
+                pbar = tqdm(total=total_pages, desc=desc or "OLS pages", unit="page")
+            yield from (payload.get("_embedded") or {}).get("terms") or []
+            if pbar is not None:
+                pbar.update(1)
+            next_url = (payload.get("_links") or {}).get("next", {}).get("href")
+            # The `next` href already carries pagination params; don't duplicate.
+            next_params = None
+    finally:
+        if pbar is not None:
+            pbar.close()
 
 
 def _terms_to_dataframe(terms: list[dict]) -> pd.DataFrame:
@@ -251,6 +286,7 @@ def iter_terms(
     *,
     size: int = _DEFAULT_PAGE_SIZE,
     timeout: int = 60,
+    progress: bool = True,
 ) -> Iterator[dict]:
     """Yield every term in ``ontology_id`` one row at a time.
 
@@ -263,6 +299,11 @@ def iter_terms(
     very large ontologies (SNOMED-CT has ~376k terms across ~750
     pages of 500) without materialising the whole list in memory.
 
+    A tqdm page-counter is shown by default so multi-minute walks
+    don't look like the process is hung; pass ``progress=False`` to
+    suppress (e.g. inside pipelines that already have their own
+    progress reporting).
+
     Use :func:`list_terms` instead when you want a DataFrame keyed on
     the canonical biodb columns (``obo_id``, ``label``, ``iri``,
     ``description``, ``synonyms``, ``is_obsolete``).
@@ -274,8 +315,12 @@ def iter_terms(
     size : int, default 500
         Per-page size sent to OLS. Larger values cut round-trip count
         but each page is heavier; 500 is the OLS-recommended max.
-    timeout : int, default 30
+    timeout : int, default 60
         Per-request timeout in seconds.
+    progress : bool, default True
+        Show a tqdm page-counter on stderr while walking. Set False
+        to silence (caller has its own progress UX, or you're piping
+        to a log file where the bar is noise).
 
     Yields
     ------
@@ -289,7 +334,13 @@ def iter_terms(
     ...     print(t["obo_id"], t["label"])
     """
     url = f"{OLS_API_BASE_URL}/ontologies/{ontology_id}/terms"
-    yield from _paginate(url, params={"size": size}, timeout=timeout)
+    yield from _paginate(
+        url,
+        params={"size": size},
+        timeout=timeout,
+        progress=progress,
+        desc=f"OLS {ontology_id} terms",
+    )
 
 
 _VERSION_TOKEN_RE = re.compile(r"[^0-9A-Za-z._-]+")
@@ -347,6 +398,7 @@ def list_terms(
     include_obsolete: bool = False,
     cache_dir: str | Path | None = None,
     refresh: bool = False,
+    progress: bool = True,
 ) -> pd.DataFrame:
     """Materialise every term in ``ontology_id`` as a DataFrame, with
     version-aware on-disk caching.
@@ -390,6 +442,9 @@ def list_terms(
         regressions; never needed in normal operation because the
         version-token logic already busts the cache on upstream
         releases.
+    progress : bool, default True
+        Show a tqdm page-counter while walking. Suppressed
+        automatically on cache hits (no walk happens).
 
     Returns
     -------
@@ -423,7 +478,7 @@ def list_terms(
         version_token,
         size,
     )
-    terms = list(iter_terms(ontology_id, size=size, timeout=timeout))
+    terms = list(iter_terms(ontology_id, size=size, timeout=timeout, progress=progress))
     df = _terms_to_dataframe(terms)
     if not include_obsolete and "is_obsolete" in df.columns:
         df = df[~df["is_obsolete"].fillna(False)].reset_index(drop=True)

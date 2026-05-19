@@ -498,6 +498,80 @@ def test_list_terms_refresh_forces_walk_even_with_cache(tmp_path) -> None:
         assert len(mock_resp.calls) == 2
 
 
+def test_iter_terms_progress_emits_tqdm_bar(monkeypatch) -> None:
+    """When ``progress=True``, ``iter_terms`` must hand the page count
+    to tqdm and call ``.update(1)`` per page -- otherwise long walks
+    look hung to the user. Stub tqdm so the test doesn't depend on
+    the bar's rendering."""
+    base = f"{ols.OLS_API_BASE_URL}/ontologies/mondo/terms"
+    page2_url = f"{base}?page=1&size=500"
+    page1 = {
+        "_embedded": {"terms": [_term_record("MONDO:1", "x")]},
+        "_links": {"next": {"href": page2_url}},
+        "page": {"size": 500, "totalElements": 2, "totalPages": 2, "number": 0},
+    }
+    page2 = {
+        "_embedded": {"terms": [_term_record("MONDO:2", "y")]},
+        "_links": {},
+        "page": {"size": 500, "totalElements": 2, "totalPages": 2, "number": 1},
+    }
+
+    captured: dict = {"total": None, "updates": 0, "closed": False, "desc": None}
+
+    class _StubTqdm:
+        def __init__(self, *, total, desc, unit):
+            captured["total"] = total
+            captured["desc"] = desc
+
+        def update(self, n: int = 1) -> None:
+            captured["updates"] += n
+
+        def close(self) -> None:
+            captured["closed"] = True
+
+    import tqdm.auto
+
+    monkeypatch.setattr(tqdm.auto, "tqdm", _StubTqdm)
+
+    with responses.RequestsMock() as mock_resp:
+        mock_resp.add(responses.GET, base, json=page1, status=200)
+        mock_resp.add(responses.GET, page2_url, json=page2, status=200)
+        terms = list(ols.iter_terms("mondo", progress=True))
+
+    assert len(terms) == 2
+    assert captured["total"] == 2  # page.totalPages from the first response
+    assert captured["updates"] == 2  # one update per page
+    assert captured["closed"] is True
+    assert captured["desc"] == "OLS mondo terms"
+
+
+def test_iter_terms_progress_off_does_not_construct_tqdm(monkeypatch) -> None:
+    """``progress=False`` must skip tqdm entirely -- important for
+    pipelines that pipe to log files where the bar would be noise."""
+    base = f"{ols.OLS_API_BASE_URL}/ontologies/mondo/terms"
+    page = {
+        "_embedded": {"terms": [_term_record("MONDO:1", "x")]},
+        "_links": {},
+        "page": {"size": 500, "totalElements": 1, "totalPages": 1, "number": 0},
+    }
+
+    constructed = {"count": 0}
+
+    class _BoomTqdm:
+        def __init__(self, *a, **kw):
+            constructed["count"] += 1
+
+    import tqdm.auto
+
+    monkeypatch.setattr(tqdm.auto, "tqdm", _BoomTqdm)
+
+    with responses.RequestsMock() as mock_resp:
+        mock_resp.add(responses.GET, base, json=page, status=200)
+        list(ols.iter_terms("mondo", progress=False))
+
+    assert constructed["count"] == 0
+
+
 def test_get_retries_on_transient_5xx(monkeypatch) -> None:
     """``_get`` must retry on transient 5xx / connection errors -- a
     long paginated walk hits enough flakes that no retries means the

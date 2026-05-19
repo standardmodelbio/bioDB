@@ -285,10 +285,11 @@ def search_concepts(
 def bulk_concepts(
     *,
     size: int = 500,
-    timeout: int = 30,
+    timeout: int = 60,
     include_obsolete: bool = False,
     cache_dir: str | Path | None = None,
     refresh: bool = False,
+    progress: bool = True,
 ) -> pd.DataFrame:
     """Return every SNOMED CT concept indexed by OLS, as a DataFrame.
 
@@ -354,6 +355,7 @@ def bulk_concepts(
         include_obsolete=include_obsolete,
         cache_dir=cache_dir,
         refresh=refresh,
+        progress=progress,
     )
 
 
