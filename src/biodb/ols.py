@@ -25,8 +25,11 @@ Examples
 
 from __future__ import annotations
 
+import hashlib
 import logging
+import re
 from collections.abc import Iterator
+from pathlib import Path
 from typing import Any
 from urllib.parse import quote
 
@@ -37,6 +40,13 @@ logger = logging.getLogger(__name__)
 
 OLS_API_BASE_URL = "https://www.ebi.ac.uk/ols4/api"
 """OLS4 REST API root."""
+
+DEFAULT_CACHE_DIR = Path("~/.cache/biodb/ols").expanduser()
+"""Default on-disk cache root for :func:`list_terms`. One subdir per
+ontology id, one parquet per OLS-reported version inside it. Lets a
+:func:`list_terms` call survive process / kernel restarts without
+re-walking the OLS pagination, and lets you keep a paper-trail of
+every ontology release you've ever queried."""
 
 OBO_PURL_BASE = "http://purl.obolibrary.org/obo"
 """PURL root for OBO Foundry ontologies. Used to expand CURIEs."""
@@ -169,6 +179,194 @@ def _walk_relationship(
     return _terms_to_dataframe(terms)
 
 
+def iter_terms(
+    ontology_id: str,
+    *,
+    size: int = _DEFAULT_PAGE_SIZE,
+    timeout: int = 30,
+) -> Iterator[dict]:
+    """Yield every term in ``ontology_id`` one row at a time.
+
+    Walks OLS4's ``GET /ontologies/{ontology_id}/terms`` paginated
+    endpoint. Each yielded dict carries the full per-term metadata OLS
+    returns -- ``iri``, ``label``, ``description``, ``synonyms``,
+    ``obo_id``, ``is_obsolete``, ``has_children``, ``is_root``, plus
+    the HATEOAS ``_links`` block for fetching parents / children /
+    descendants on demand. Generator-shaped so the caller can stream
+    very large ontologies (SNOMED-CT has ~376k terms across ~750
+    pages of 500) without materialising the whole list in memory.
+
+    Use :func:`list_terms` instead when you want a DataFrame keyed on
+    the canonical biodb columns (``obo_id``, ``label``, ``iri``,
+    ``description``, ``synonyms``, ``is_obsolete``).
+
+    Parameters
+    ----------
+    ontology_id : str
+        Lowercase OLS slug, e.g. ``"snomed"``, ``"mondo"``, ``"hp"``.
+    size : int, default 500
+        Per-page size sent to OLS. Larger values cut round-trip count
+        but each page is heavier; 500 is the OLS-recommended max.
+    timeout : int, default 30
+        Per-request timeout in seconds.
+
+    Yields
+    ------
+    dict
+        One raw OLS term payload per yielded record.
+
+    Examples
+    --------
+    >>> from biodb.ols import iter_terms
+    >>> for t in iter_terms("mondo"):  # doctest: +SKIP
+    ...     print(t["obo_id"], t["label"])
+    """
+    url = f"{OLS_API_BASE_URL}/ontologies/{ontology_id}/terms"
+    yield from _paginate(url, params={"size": size}, timeout=timeout)
+
+
+_VERSION_TOKEN_RE = re.compile(r"[^0-9A-Za-z._-]+")
+
+
+def _ontology_version_token(ontology_id: str, *, timeout: int = 30) -> tuple[str, dict]:
+    """Return ``(version_token, raw_metadata_dict)`` for ``ontology_id``.
+
+    The token is a filesystem-safe slug derived from whichever of
+    ``config.versionIri`` / ``config.version`` / ``updated`` /
+    ``fileHash`` OLS exposes for the ontology -- prefer the most
+    semantic one available so a SNOMED CT release tag survives in
+    the cache filename, but always degrade to a hash if nothing
+    structured is present. Never raises on missing fields: the
+    fallback to a hash of the raw payload guarantees a token.
+    """
+    meta = get_ontology(ontology_id, timeout=timeout)
+    cfg = meta.get("config") or {}
+    candidates: list[str] = []
+    if cfg.get("versionIri"):
+        # SNOMED CT et al. -- this carries the upstream release id, the
+        # most semantically meaningful version signal OLS exposes.
+        candidates.append(str(cfg["versionIri"]))
+    if cfg.get("version"):
+        candidates.append(str(cfg["version"]))
+    if meta.get("version"):
+        candidates.append(str(meta["version"]))
+    if meta.get("updated"):
+        # OLS's own load timestamp -- a fair last-resort signal that
+        # the indexed payload changed.
+        candidates.append(str(meta["updated"]))
+    if meta.get("fileHash"):
+        candidates.append(str(meta["fileHash"]))
+
+    if candidates:
+        raw_token = candidates[0]
+        # Filesystem-safe slug: replace anything that isn't [A-Za-z0-9._-]
+        # with a dash, and cap length so very long IRIs don't blow up the
+        # filename. Append an 8-char hash of the full raw_token to keep
+        # the slug uniquely identifying even after truncation.
+        slug = _VERSION_TOKEN_RE.sub("-", raw_token).strip("-")[:80]
+        digest = hashlib.sha256(raw_token.encode("utf-8")).hexdigest()[:8]
+        return f"{slug}.{digest}", meta
+    # No version signal at all -- hash the whole payload so we still
+    # cache, but bust the cache the moment OLS changes anything.
+    fallback = hashlib.sha256(repr(sorted(meta.items())).encode("utf-8")).hexdigest()[:16]
+    return f"unknown-{fallback}", meta
+
+
+def list_terms(
+    ontology_id: str,
+    *,
+    size: int = _DEFAULT_PAGE_SIZE,
+    timeout: int = 30,
+    include_obsolete: bool = False,
+    cache_dir: str | Path | None = None,
+    refresh: bool = False,
+) -> pd.DataFrame:
+    """Materialise every term in ``ontology_id`` as a DataFrame, with
+    version-aware on-disk caching.
+
+    The OMOP-CONCEPT.csv alternative for any OLS-indexed ontology:
+    paginates ``GET /ontologies/{ontology}/terms`` and collects every
+    page into a single DataFrame keyed on the canonical biodb columns
+    (``obo_id``, ``label``, ``iri``, ``description``, ``synonyms``,
+    ``is_obsolete``).
+
+    **Caching is automatic** -- on first call the result is written to
+    ``{cache_dir}/{ontology_id}/{version_token}.parquet`` (default
+    ``cache_dir = ~/.cache/biodb/ols``). Subsequent calls in the same
+    or another Python session re-read the parquet without hitting OLS,
+    until OLS reports a new ontology version -- detected via
+    ``config.versionIri`` / ``config.version`` / ``updated`` /
+    ``fileHash`` (in priority order). A new version writes alongside
+    the old one in the cache dir, so callers can rebuild from any
+    historical release if they need to (e.g. for reproducibility on
+    a paper).
+
+    Parameters
+    ----------
+    ontology_id : str
+        Lowercase OLS slug (e.g. ``"snomed"``, ``"mondo"``, ``"hp"``).
+    size : int, default 500
+        Per-page size sent to OLS. Larger values cut round-trip count
+        but each page is heavier; 500 is the OLS-recommended max.
+    timeout : int, default 30
+    include_obsolete : bool, default False
+        When False, deprecated / obsolete terms are dropped from the
+        returned DataFrame. Flip this if you specifically need
+        lifecycle bookkeeping.
+    cache_dir : str or Path or None
+        Cache root. ``None`` (default) uses :data:`DEFAULT_CACHE_DIR`
+        (``~/.cache/biodb/ols``). Pass an explicit path to keep the
+        cache somewhere project-local, or use a tmpdir in tests.
+    refresh : bool, default False
+        Force a fresh OLS walk even when a current-version parquet
+        is already on disk. Useful for debugging OLS pagination
+        regressions; never needed in normal operation because the
+        version-token logic already busts the cache on upstream
+        releases.
+
+    Returns
+    -------
+    pd.DataFrame
+        One row per term, columns ``obo_id``, ``label``, ``iri``,
+        ``description``, ``synonyms``, ``is_obsolete``.
+
+    Examples
+    --------
+    >>> from biodb.ols import list_terms
+    >>> mondo = list_terms("mondo")        # first call: walks OLS  # doctest: +SKIP
+    >>> mondo_again = list_terms("mondo")  # second call: ~ms from parquet  # doctest: +SKIP
+    >>> snomed = list_terms("snomed")      # ~5-10 min first run, then cached  # doctest: +SKIP
+    """
+    cache_root = Path(cache_dir).expanduser() if cache_dir is not None else DEFAULT_CACHE_DIR
+    ontology_dir = cache_root / ontology_id
+    version_token, _ = _ontology_version_token(ontology_id, timeout=timeout)
+    # Encode include_obsolete in the filename so the two variants don't
+    # collide (the underlying OLS data is the same, but the served
+    # DataFrame differs).
+    suffix = "-with-obsolete" if include_obsolete else ""
+    cache_path = ontology_dir / f"{version_token}{suffix}.parquet"
+
+    if cache_path.exists() and not refresh:
+        logger.info("Loading cached %s terms from %s", ontology_id, cache_path)
+        return pd.read_parquet(cache_path)
+
+    logger.info(
+        "Walking OLS4 /ontologies/%s/terms (version=%s, size=%d)",
+        ontology_id,
+        version_token,
+        size,
+    )
+    terms = list(iter_terms(ontology_id, size=size, timeout=timeout))
+    df = _terms_to_dataframe(terms)
+    if not include_obsolete and "is_obsolete" in df.columns:
+        df = df[~df["is_obsolete"].fillna(False)].reset_index(drop=True)
+
+    ontology_dir.mkdir(parents=True, exist_ok=True)
+    df.to_parquet(cache_path, index=False)
+    logger.info("Cached %d %s terms -> %s", len(df), ontology_id, cache_path)
+    return df
+
+
 def get_descendants(
     ontology_id: str,
     term: str,
@@ -272,5 +470,7 @@ __all__ = [
     "get_ontology",
     "get_parents",
     "get_term",
+    "iter_terms",
+    "list_terms",
     "search",
 ]

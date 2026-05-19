@@ -282,10 +282,86 @@ def search_concepts(
     return ols.search(query, ontology=OLS_ONTOLOGY_SLUG, rows=rows, exact=exact, timeout=timeout)
 
 
+def bulk_concepts(
+    *,
+    size: int = 500,
+    timeout: int = 30,
+    include_obsolete: bool = False,
+    cache_dir: str | Path | None = None,
+    refresh: bool = False,
+) -> pd.DataFrame:
+    """Return every SNOMED CT concept indexed by OLS, as a DataFrame.
+
+    The OMOP-CONCEPT.csv alternative: walks OLS4's paginated
+    ``/api/ontologies/snomed/terms`` endpoint and materialises every
+    active SNOMED CT concept (~376 k as of 2026-05) as a single
+    DataFrame keyed on the canonical biodb columns -- ``obo_id``,
+    ``label``, ``iri``, ``description``, ``synonyms``, ``is_obsolete``.
+
+    Auto-caches per :func:`biodb.ols.list_terms`: first call walks
+    OLS (5-10 minutes wall-clock); subsequent calls re-read the
+    parquet in <1 s until OLS reports a new SNOMED CT release, at
+    which point the cache busts automatically via ``versionIri``.
+
+    What you do *not* get vs OMOP CONCEPT.csv:
+
+    * OMOP ``concept_id`` (integer) -- OLS only exposes the SNOMED
+      CT code via ``obo_id`` (e.g. ``SNOMED:38341003``). If you need
+      OMOP joins, keep using :func:`load_concept_csv`.
+    * ``domain_id`` / ``standard_concept`` -- OMOP-specific curation
+      that OLS doesn't carry. Approximate via SNOMED top-level
+      hierarchy if needed.
+    * ``valid_start_date`` / ``valid_end_date`` / ``invalid_reason``
+      -- OMOP version-bookkeeping that OLS doesn't expose.
+    * Cross-vocabulary mappings (SNOMED ↔ ICD-10 / RxNorm) --
+      OMOP-only.
+
+    What you *do* get vs OMOP CONCEPT.csv:
+
+    * Same labels + codes for downstream lookups.
+    * **Richer** descriptions / definitions (OLS preserves OWL
+      axioms + textual definitions that OMOP often drops).
+    * **Richer** synonyms (with type qualifiers: FSN vs preferred
+      vs acceptable).
+    * No SNOMED CT licensing dance on the user side -- OLS handles
+      that with the IHTSDO upstream.
+
+    Parameters
+    ----------
+    size, timeout, include_obsolete, cache_dir, refresh
+        Forwarded to :func:`biodb.ols.list_terms` -- see that function
+        for details. Defaults are good for the typical case.
+
+    Returns
+    -------
+    pd.DataFrame
+        Columns: ``obo_id``, ``label``, ``iri``, ``description``,
+        ``synonyms``, ``is_obsolete``.
+
+    Examples
+    --------
+    >>> from biodb import snomed
+    >>> df = snomed.bulk_concepts()  # first call: ~5-10 min  # doctest: +SKIP
+    >>> df = snomed.bulk_concepts()  # subsequent: ~ms from parquet  # doctest: +SKIP
+    >>> df[df["label"].str.contains("diabetes", case=False)].head()  # doctest: +SKIP
+    """
+    from biodb import ols
+
+    return ols.list_terms(
+        OLS_ONTOLOGY_SLUG,
+        size=size,
+        timeout=timeout,
+        include_obsolete=include_obsolete,
+        cache_dir=cache_dir,
+        refresh=refresh,
+    )
+
+
 __all__ = [
     "ATHENA_DOWNLOAD_PAGE",
     "CACHE_DIR",
     "OLS_ONTOLOGY_SLUG",
+    "bulk_concepts",
     "get_ancestors",
     "get_children",
     "get_descendants",
