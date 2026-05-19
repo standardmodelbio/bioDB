@@ -28,6 +28,7 @@ from __future__ import annotations
 import hashlib
 import logging
 import re
+import time
 from collections.abc import Iterator
 from pathlib import Path
 from typing import Any
@@ -106,10 +107,76 @@ def _double_quote_iri(iri: str) -> str:
     return quote(quote(iri, safe=""), safe="")
 
 
-def _get(url: str, params: dict | None = None, timeout: int = 30) -> dict:
-    response = requests.get(url, params=params, timeout=timeout)
-    response.raise_for_status()
-    return response.json()
+def _get(
+    url: str,
+    params: dict | None = None,
+    timeout: int = 30,
+    *,
+    max_retries: int = 5,
+    backoff_s: float = 1.0,
+) -> dict:
+    """GET ``url`` with exponential-backoff retries on transient failures.
+
+    OLS occasionally drops connections mid-stream or 5xx's under load --
+    the per-request error rate is low (sub-percent) but adds up across
+    long paginated walks: at 753 pages even a 99% success rate gives
+    only a ~0.05% chance of completing without retries. We retry on
+    ``requests.RequestException`` (covers timeouts + connection resets
+    + 5xx) with exponential backoff; 4xx errors short-circuit immediately.
+
+    Parameters
+    ----------
+    url : str
+    params : dict, optional
+    timeout : int, default 30
+        Per-attempt timeout (not cumulative).
+    max_retries : int, default 5
+        Total attempts including the first. ``1`` disables retry (the
+        legacy behavior).
+    backoff_s : float, default 1.0
+        Initial backoff; doubles on every retry.
+
+    Returns
+    -------
+    dict
+        The parsed JSON body.
+
+    Raises
+    ------
+    requests.HTTPError
+        On 4xx (immediate) or 5xx after retries are exhausted.
+    requests.RequestException
+        On connection-level errors after retries are exhausted.
+    """
+    last_exc: Exception | None = None
+    for attempt in range(max_retries):
+        try:
+            response = requests.get(url, params=params, timeout=timeout)
+            # 4xx aren't worth retrying -- the request is wrong, not flaky.
+            if 400 <= response.status_code < 500:
+                response.raise_for_status()
+            response.raise_for_status()
+            return response.json()
+        except requests.RequestException as exc:
+            last_exc = exc
+            is_4xx = (
+                isinstance(exc, requests.HTTPError)
+                and exc.response is not None
+                and 400 <= exc.response.status_code < 500
+            )
+            if is_4xx or attempt == max_retries - 1:
+                raise
+            sleep_s = backoff_s * (2**attempt)
+            logger.warning(
+                "OLS GET failed (attempt %d/%d): %s; retrying in %.1fs",
+                attempt + 1,
+                max_retries,
+                exc,
+                sleep_s,
+            )
+            time.sleep(sleep_s)
+    assert last_exc is not None
+    raise last_exc
 
 
 def _paginate(url: str, params: dict | None = None, timeout: int = 30) -> Iterator[dict]:
@@ -183,7 +250,7 @@ def iter_terms(
     ontology_id: str,
     *,
     size: int = _DEFAULT_PAGE_SIZE,
-    timeout: int = 30,
+    timeout: int = 60,
 ) -> Iterator[dict]:
     """Yield every term in ``ontology_id`` one row at a time.
 
@@ -276,7 +343,7 @@ def list_terms(
     ontology_id: str,
     *,
     size: int = _DEFAULT_PAGE_SIZE,
-    timeout: int = 30,
+    timeout: int = 60,
     include_obsolete: bool = False,
     cache_dir: str | Path | None = None,
     refresh: bool = False,

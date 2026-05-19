@@ -498,6 +498,43 @@ def test_list_terms_refresh_forces_walk_even_with_cache(tmp_path) -> None:
         assert len(mock_resp.calls) == 2
 
 
+def test_get_retries_on_transient_5xx(monkeypatch) -> None:
+    """``_get`` must retry on transient 5xx / connection errors -- a
+    long paginated walk hits enough flakes that no retries means the
+    walk effectively never completes."""
+    import time as _time
+
+    monkeypatch.setattr(_time, "sleep", lambda _s: None)
+    base = f"{ols.OLS_API_BASE_URL}/ontologies/mondo"
+    with responses.RequestsMock() as mock_resp:
+        # First two attempts: 503; third: 200.
+        mock_resp.add(responses.GET, base, status=503)
+        mock_resp.add(responses.GET, base, status=503)
+        mock_resp.add(responses.GET, base, json={"ontologyId": "mondo"}, status=200)
+        out = ols._get(base, max_retries=5, backoff_s=0)
+    assert out == {"ontologyId": "mondo"}
+
+
+def test_get_does_not_retry_on_4xx(monkeypatch) -> None:
+    """A 4xx is a request error, not flakiness -- retrying just burns
+    network. The first 4xx must raise immediately."""
+    import time as _time
+
+    calls = {"n": 0}
+
+    def _fake_sleep(_s):
+        calls["n"] += 1
+
+    monkeypatch.setattr(_time, "sleep", _fake_sleep)
+    base = f"{ols.OLS_API_BASE_URL}/ontologies/notreal"
+    with responses.RequestsMock() as mock_resp:
+        mock_resp.add(responses.GET, base, status=404)
+        with pytest.raises(requests.HTTPError):
+            ols._get(base, max_retries=5, backoff_s=0)
+    # ``time.sleep`` never called -- no backoff happened.
+    assert calls["n"] == 0
+
+
 def test_list_terms_drops_obsolete_terms_by_default(tmp_path) -> None:
     base = f"{ols.OLS_API_BASE_URL}/ontologies/mondo/terms"
     onto = {"ontologyId": "mondo", "config": {"versionIri": "vobsolete"}}
