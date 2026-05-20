@@ -333,3 +333,310 @@ def test_ols_search_alzheimer_finds_canonical_term() -> None:
     hits = ols.search("alzheimer", ontology="mondo", rows=5)
     assert len(hits) == 5
     assert "MONDO:0004975" in set(hits["obo_id"])
+
+
+# ---------------------------------------------------------------------------
+# iter_terms + list_terms (the "every term in this ontology" path)
+# ---------------------------------------------------------------------------
+
+
+def test_iter_terms_walks_pagination_to_completion() -> None:
+    """Two pages of two terms each → four yielded dicts."""
+    base = f"{ols.OLS_API_BASE_URL}/ontologies/mondo/terms"
+    page2_url = f"{base}?page=1&size=500"
+    page1 = {
+        "_embedded": {
+            "terms": [
+                _term_record("MONDO:1000001", "alpha"),
+                _term_record("MONDO:1000002", "beta"),
+            ]
+        },
+        "_links": {"next": {"href": page2_url}},
+        "page": {"size": 500, "totalElements": 4, "totalPages": 2, "number": 0},
+    }
+    page2 = {
+        "_embedded": {
+            "terms": [
+                _term_record("MONDO:1000003", "gamma"),
+                _term_record("MONDO:1000004", "delta"),
+            ]
+        },
+        "_links": {},
+        "page": {"size": 500, "totalElements": 4, "totalPages": 2, "number": 1},
+    }
+    with responses.RequestsMock() as mock_resp:
+        mock_resp.add(responses.GET, base, json=page1, status=200)
+        mock_resp.add(responses.GET, page2_url, json=page2, status=200)
+        terms = list(ols.iter_terms("mondo"))
+    assert [t["obo_id"] for t in terms] == [
+        "MONDO:1000001",
+        "MONDO:1000002",
+        "MONDO:1000003",
+        "MONDO:1000004",
+    ]
+
+
+def test_list_terms_caches_to_versioned_parquet(tmp_path) -> None:
+    """A first call walks OLS + writes a parquet; a second call must
+    re-read the parquet without hitting OLS at all."""
+    base = f"{ols.OLS_API_BASE_URL}/ontologies/mondo/terms"
+    onto_meta = {
+        "ontologyId": "mondo",
+        "config": {
+            "versionIri": "http://purl.obolibrary.org/obo/mondo/releases/2026-05-05/mondo.owl",
+            "version": None,
+        },
+        "updated": "2026-05-05T00:00:00",
+        "fileHash": "abc123",
+        "numberOfTerms": 2,
+    }
+    page1 = {
+        "_embedded": {
+            "terms": [
+                _term_record("MONDO:1", "first"),
+                _term_record("MONDO:2", "second"),
+            ]
+        },
+        "_links": {},
+        "page": {"size": 500, "totalElements": 2, "totalPages": 1, "number": 0},
+    }
+    with responses.RequestsMock(assert_all_requests_are_fired=False) as mock_resp:
+        mock_resp.add(
+            responses.GET, f"{ols.OLS_API_BASE_URL}/ontologies/mondo", json=onto_meta, status=200
+        )
+        mock_resp.add(responses.GET, base, json=page1, status=200)
+        df1 = ols.list_terms("mondo", cache_dir=tmp_path)
+        first_call_count = len(mock_resp.calls)
+        # The second call should NOT consume the still-registered mocks
+        # (i.e. should not hit OLS at all -- pure parquet read).
+        df2 = ols.list_terms("mondo", cache_dir=tmp_path)
+        # The ontology-metadata endpoint is still consulted (cheap;
+        # needed to compute the version token), but the /terms walk
+        # must NOT re-run. So total calls is exactly first_call_count + 1.
+        assert len(mock_resp.calls) == first_call_count + 1, (
+            "second list_terms call re-walked /terms; cache not honored"
+        )
+    assert len(df1) == 2
+    pd.testing.assert_frame_equal(df1, df2)
+
+    # Cache file lands under {cache_dir}/{ontology}/{version_token}.parquet.
+    files = list((tmp_path / "mondo").glob("*.parquet"))
+    assert len(files) == 1
+    # The 2026-05-05 release tag must end up in the filename so a
+    # human inspecting the cache dir can see which version they have.
+    assert "2026-05-05" in files[0].name
+
+
+def test_list_terms_busts_cache_on_new_ontology_version(tmp_path) -> None:
+    """Two list_terms calls with different OLS-reported versionIri
+    must end up with two parquets in the cache dir -- the old version
+    is preserved (paper-trail / reproducibility) and the new release
+    triggers a fresh walk."""
+    base = f"{ols.OLS_API_BASE_URL}/ontologies/mondo/terms"
+    onto_v1 = {
+        "ontologyId": "mondo",
+        "config": {
+            "versionIri": "http://purl.obolibrary.org/obo/mondo/releases/2026-05-05/mondo.owl",
+        },
+    }
+    onto_v2 = {
+        "ontologyId": "mondo",
+        "config": {
+            "versionIri": "http://purl.obolibrary.org/obo/mondo/releases/2026-06-01/mondo.owl",
+        },
+    }
+    page = {
+        "_embedded": {"terms": [_term_record("MONDO:1", "x")]},
+        "_links": {},
+        "page": {"size": 500, "totalElements": 1, "totalPages": 1, "number": 0},
+    }
+    with responses.RequestsMock() as mock_resp:
+        mock_resp.add(
+            responses.GET, f"{ols.OLS_API_BASE_URL}/ontologies/mondo", json=onto_v1, status=200
+        )
+        mock_resp.add(responses.GET, base, json=page, status=200)
+        ols.list_terms("mondo", cache_dir=tmp_path)
+    with responses.RequestsMock() as mock_resp:
+        mock_resp.add(
+            responses.GET, f"{ols.OLS_API_BASE_URL}/ontologies/mondo", json=onto_v2, status=200
+        )
+        mock_resp.add(responses.GET, base, json=page, status=200)
+        ols.list_terms("mondo", cache_dir=tmp_path)
+
+    files = sorted(p.name for p in (tmp_path / "mondo").glob("*.parquet"))
+    assert len(files) == 2
+    assert any("2026-05-05" in n for n in files)
+    assert any("2026-06-01" in n for n in files)
+
+
+def test_list_terms_refresh_forces_walk_even_with_cache(tmp_path) -> None:
+    """``refresh=True`` should hit OLS again even when a current-version
+    parquet is already on disk -- escape hatch for debugging pagination
+    regressions."""
+    base = f"{ols.OLS_API_BASE_URL}/ontologies/mondo/terms"
+    onto = {"ontologyId": "mondo", "config": {"versionIri": "v1"}}
+    page = {
+        "_embedded": {"terms": [_term_record("MONDO:1", "x")]},
+        "_links": {},
+        "page": {"size": 500, "totalElements": 1, "totalPages": 1, "number": 0},
+    }
+    with responses.RequestsMock() as mock_resp:
+        mock_resp.add(
+            responses.GET, f"{ols.OLS_API_BASE_URL}/ontologies/mondo", json=onto, status=200
+        )
+        mock_resp.add(responses.GET, base, json=page, status=200)
+        ols.list_terms("mondo", cache_dir=tmp_path)
+
+    # With refresh=True we must call BOTH endpoints again.
+    with responses.RequestsMock() as mock_resp:
+        mock_resp.add(
+            responses.GET, f"{ols.OLS_API_BASE_URL}/ontologies/mondo", json=onto, status=200
+        )
+        mock_resp.add(responses.GET, base, json=page, status=200)
+        ols.list_terms("mondo", cache_dir=tmp_path, refresh=True)
+        # Both calls landed -- responses raises on any unconsumed mock.
+        assert len(mock_resp.calls) == 2
+
+
+def test_iter_terms_progress_emits_tqdm_bar(monkeypatch) -> None:
+    """When ``progress=True``, ``iter_terms`` must hand the page count
+    to tqdm and call ``.update(1)`` per page -- otherwise long walks
+    look hung to the user. Stub tqdm so the test doesn't depend on
+    the bar's rendering."""
+    base = f"{ols.OLS_API_BASE_URL}/ontologies/mondo/terms"
+    page2_url = f"{base}?page=1&size=500"
+    page1 = {
+        "_embedded": {"terms": [_term_record("MONDO:1", "x")]},
+        "_links": {"next": {"href": page2_url}},
+        "page": {"size": 500, "totalElements": 2, "totalPages": 2, "number": 0},
+    }
+    page2 = {
+        "_embedded": {"terms": [_term_record("MONDO:2", "y")]},
+        "_links": {},
+        "page": {"size": 500, "totalElements": 2, "totalPages": 2, "number": 1},
+    }
+
+    captured: dict = {"total": None, "updates": 0, "closed": False, "desc": None}
+
+    class _StubTqdm:
+        def __init__(self, *, total, desc, unit):
+            captured["total"] = total
+            captured["desc"] = desc
+
+        def update(self, n: int = 1) -> None:
+            captured["updates"] += n
+
+        def close(self) -> None:
+            captured["closed"] = True
+
+    import tqdm.auto
+
+    monkeypatch.setattr(tqdm.auto, "tqdm", _StubTqdm)
+
+    with responses.RequestsMock() as mock_resp:
+        mock_resp.add(responses.GET, base, json=page1, status=200)
+        mock_resp.add(responses.GET, page2_url, json=page2, status=200)
+        terms = list(ols.iter_terms("mondo", progress=True))
+
+    assert len(terms) == 2
+    assert captured["total"] == 2  # page.totalPages from the first response
+    assert captured["updates"] == 2  # one update per page
+    assert captured["closed"] is True
+    assert captured["desc"] == "OLS mondo terms"
+
+
+def test_iter_terms_progress_off_does_not_construct_tqdm(monkeypatch) -> None:
+    """``progress=False`` must skip tqdm entirely -- important for
+    pipelines that pipe to log files where the bar would be noise."""
+    base = f"{ols.OLS_API_BASE_URL}/ontologies/mondo/terms"
+    page = {
+        "_embedded": {"terms": [_term_record("MONDO:1", "x")]},
+        "_links": {},
+        "page": {"size": 500, "totalElements": 1, "totalPages": 1, "number": 0},
+    }
+
+    constructed = {"count": 0}
+
+    class _BoomTqdm:
+        def __init__(self, *a, **kw):
+            constructed["count"] += 1
+
+    import tqdm.auto
+
+    monkeypatch.setattr(tqdm.auto, "tqdm", _BoomTqdm)
+
+    with responses.RequestsMock() as mock_resp:
+        mock_resp.add(responses.GET, base, json=page, status=200)
+        list(ols.iter_terms("mondo", progress=False))
+
+    assert constructed["count"] == 0
+
+
+def test_get_retries_on_transient_5xx(monkeypatch) -> None:
+    """``_get`` must retry on transient 5xx / connection errors -- a
+    long paginated walk hits enough flakes that no retries means the
+    walk effectively never completes."""
+    import time as _time
+
+    monkeypatch.setattr(_time, "sleep", lambda _s: None)
+    base = f"{ols.OLS_API_BASE_URL}/ontologies/mondo"
+    with responses.RequestsMock() as mock_resp:
+        # First two attempts: 503; third: 200.
+        mock_resp.add(responses.GET, base, status=503)
+        mock_resp.add(responses.GET, base, status=503)
+        mock_resp.add(responses.GET, base, json={"ontologyId": "mondo"}, status=200)
+        out = ols._get(base, max_retries=5, backoff_s=0)
+    assert out == {"ontologyId": "mondo"}
+
+
+def test_get_does_not_retry_on_4xx(monkeypatch) -> None:
+    """A 4xx is a request error, not flakiness -- retrying just burns
+    network. The first 4xx must raise immediately."""
+    import time as _time
+
+    calls = {"n": 0}
+
+    def _fake_sleep(_s):
+        calls["n"] += 1
+
+    monkeypatch.setattr(_time, "sleep", _fake_sleep)
+    base = f"{ols.OLS_API_BASE_URL}/ontologies/notreal"
+    with responses.RequestsMock() as mock_resp:
+        mock_resp.add(responses.GET, base, status=404)
+        with pytest.raises(requests.HTTPError):
+            ols._get(base, max_retries=5, backoff_s=0)
+    # ``time.sleep`` never called -- no backoff happened.
+    assert calls["n"] == 0
+
+
+def test_list_terms_drops_obsolete_terms_by_default(tmp_path) -> None:
+    base = f"{ols.OLS_API_BASE_URL}/ontologies/mondo/terms"
+    onto = {"ontologyId": "mondo", "config": {"versionIri": "vobsolete"}}
+    obsolete = _term_record("MONDO:DEAD", "deprecated")
+    obsolete["is_obsolete"] = True
+    page = {
+        "_embedded": {
+            "terms": [_term_record("MONDO:1", "alive"), obsolete],
+        },
+        "_links": {},
+        "page": {"size": 500, "totalElements": 2, "totalPages": 1, "number": 0},
+    }
+    with responses.RequestsMock() as mock_resp:
+        mock_resp.add(
+            responses.GET, f"{ols.OLS_API_BASE_URL}/ontologies/mondo", json=onto, status=200
+        )
+        mock_resp.add(responses.GET, base, json=page, status=200)
+        df = ols.list_terms("mondo", cache_dir=tmp_path)
+    assert set(df["obo_id"]) == {"MONDO:1"}
+
+    # ``include_obsolete=True`` keeps both rows -- and writes to a
+    # separate cache file so the two variants don't collide.
+    with responses.RequestsMock() as mock_resp:
+        mock_resp.add(
+            responses.GET, f"{ols.OLS_API_BASE_URL}/ontologies/mondo", json=onto, status=200
+        )
+        mock_resp.add(responses.GET, base, json=page, status=200)
+        df_all = ols.list_terms("mondo", cache_dir=tmp_path, include_obsolete=True)
+    assert set(df_all["obo_id"]) == {"MONDO:1", "MONDO:DEAD"}
+    # Two distinct parquets on disk -- active-only vs with-obsolete.
+    assert len(list((tmp_path / "mondo").glob("*.parquet"))) == 2
