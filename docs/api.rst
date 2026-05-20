@@ -16,6 +16,7 @@ API Reference
    clinvar
    gwas_atlas
    aou_allxall
+   omicspred
    gprofiler
    msigdb
    mapping

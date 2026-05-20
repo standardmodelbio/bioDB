@@ -27,6 +27,11 @@ the full All-of-Us pipeline.
   ingest across the full variant grid (pLoF / missenseLC / synonymous,
   three MAF buckets, Burden / SKAT / SKAT-O), no Researcher Workbench
   enrollment required.
+- **`omicspred`** — OmicsPred molecular-trait PRS atlas client. REST
+  API + Box.com archive downloads for ~17k+ Bayesian-Ridge polygenic
+  scores across proteins (Olink + SomaScan), metabolites (Metabolon +
+  Nightingale), and RNA expression — each pre-mapped to its cis
+  Ensembl gene / UniProt protein.
 
 ## Quickstart
 

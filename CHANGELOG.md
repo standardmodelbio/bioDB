@@ -20,6 +20,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `iter_signature_variants` helper that yields one melted long-frame
   per facet. 28 offline tests + 3 network-tagged live integration
   tests.
+* `omicspred` module — [OmicsPred](https://www.omicspred.org/) client
+  for the INTERVAL-trained Bayesian-Ridge molecular-trait PRS atlas
+  (Xu et al. *Nature* 2023, PMID 36991119). Public REST API wrapper
+  (`list_platforms`, `list_datasets`, `get_dataset`, `get_score`,
+  `search_scores`, `get_performance`) + Box.com bulk-archive downloader
+  for per-dataset metadata Excel and PGS Catalog-format scoring files
+  (`download_metadata_excel`, `load_scores_metadata`,
+  `load_performances_metadata`, `download_scoring_files`,
+  `read_scoring_file`). Includes `melt_scores_to_gene_table` for
+  reshaping the cis-gene-labeled scores into a long
+  `(OPGS, gene, R²)` frame suitable for downstream gene-association
+  matrix builders. 31 offline tests + 2 network-tagged live schema-drift
+  tests. Optional `[omicspred]` extra: `pip install biodb[omicspred]`
+  pulls in `openpyxl` for the Excel parser.
 * `clinvar` module — ClinVar VCF download (via `pooch`), parsing
   (via `genoray`), CLNSIG long-tail → 6-class simplification, BED /
   sites format converters. Adapted from `bschilder/VEP_protein`.
