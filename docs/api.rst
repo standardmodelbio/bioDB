@@ -15,6 +15,7 @@ API Reference
    harmonizome
    clinvar
    gwas_atlas
+   aou_allxall
    gprofiler
    msigdb
    mapping

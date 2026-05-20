@@ -23,6 +23,10 @@ Module map:
   ``get_gmt``, ``load_gene_attribute_matrix``, ``get_dataset_metadata``).
 * :mod:`biodb.clinvar` -- ClinVar VCF download + parsing, CLNSIG
   long-tail → 6-class simplification, BED / sites format converters.
+* :mod:`biodb.aou_allxall` -- All of Us *All-by-All* PheWAS atlas
+  (~3,600 phenotypes × ~414k WGS participants); public-API client for
+  per-phenotype gene-burden tables (pLoF/missenseLC/synonymous) with
+  concurrent bulk download + consolidated Parquet output.
 
 Shared utilities live in :mod:`biodb.utils` (random seeding,
 similarity helpers, token counting, ``create_gene_association_matrix``,
@@ -30,6 +34,7 @@ similarity helpers, token counting, ``create_gene_association_matrix``,
 """
 
 from biodb import (
+    aou_allxall,
     clinvar,
     gprofiler,
     gwas_atlas,
@@ -122,6 +127,7 @@ __version__ = "0.1.0"
 
 __all__ = [
     "RANDOM_SEED",
+    "aou_allxall",
     "bed_to_sites",
     "clinvar",
     "cosine_similarity",

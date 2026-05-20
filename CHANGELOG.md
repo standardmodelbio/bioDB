@@ -9,6 +9,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+* `aou_allxall` module — All of Us *All-by-All* PheWAS atlas client
+  (~3,602 META phenotypes × ~414k WGS participants, CDR v8 / Feb 2025).
+  Public-API REST wrapper for the unauthenticated browser backend at
+  https://allbyall.researchallofus.org, captures the full gene-burden
+  variant grid (`pLoF` / `missenseLC` / `pLoF;missenseLC` /
+  `synonymous` × `0.01` / `0.001` / `0.0001` MAF × Burden / SKAT /
+  SKAT-O). Concurrent bulk downloader, per-(phenotype, ancestry,
+  max_maf) Parquet cache, consolidated bulk Parquet, and a
+  `iter_signature_variants` helper that yields one melted long-frame
+  per facet. 28 offline tests + 3 network-tagged live integration
+  tests.
 * `clinvar` module — ClinVar VCF download (via `pooch`), parsing
   (via `genoray`), CLNSIG long-tail → 6-class simplification, BED /
   sites format converters. Adapted from `bschilder/VEP_protein`.

@@ -19,6 +19,14 @@ the full All-of-Us pipeline.
   phenotype matrices, ontological similarity.
 - **`clinvar`** — ClinVar VCF download / parse, CLNSIG long-tail to
   6-class simplification, BED + sites format converters.
+- **`gwas_atlas`** — Watanabe et al. GWAS Atlas per-study gene-level
+  MAGMA p-values across ~4k summary stats; per-trait lookup +
+  (gene × study) MAGMA-P matrix.
+- **`aou_allxall`** — All of Us *All-by-All* PheWAS atlas client
+  (~3,600 phenotypes × ~414k WGS participants). Public-API gene-burden
+  ingest across the full variant grid (pLoF / missenseLC / synonymous,
+  three MAF buckets, Burden / SKAT / SKAT-O), no Researcher Workbench
+  enrollment required.
 
 ## Quickstart
 
