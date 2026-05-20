@@ -116,6 +116,43 @@ _USER_AGENT = "biodb/0.1 (+https://github.com/bschilder/bioDB)"
 _DEFAULT_TIMEOUT = 60
 _RETRY_STATUSES = frozenset({429, 500, 502, 503, 504})
 
+_API_ROW_LIMIT = 50_000
+"""Hard row cap baked into the upstream Rust server's gene-burden endpoint.
+
+See ``broadinstitute/all-by-all-aou-browser`` ``axaou-server/src/api.rs``:
+``let limit = params.limit.unwrap_or(50000) as u64;``. A response that
+returns *exactly* this many rows is almost certainly truncated — high-N
+phenotypes (lab measurements, common phecodes) routinely hit it. We
+warn so silent truncation doesn't slip through to downstream pipelines.
+"""
+
+EXPECTED_GENE_BURDEN_COLUMNS: frozenset[str] = frozenset(
+    {
+        "gene_id",
+        "gene_symbol",
+        "annotation",
+        "max_maf",
+        "analysis_id",
+        "ancestry_group",
+        "pvalue",
+        "neg_log10_p",
+        "pvalue_burden",
+        "neg_log10_p_burden",
+        "pvalue_skat",
+        "neg_log10_p_skat",
+        "beta_burden",
+        "mac",
+        "contig",
+        "gene_start_position",
+    }
+)
+"""Columns this module assumes the gene-burden endpoint returns.
+
+Used by :func:`get_gene_burden` for upstream-schema-drift detection
+and by the live integration tests as the canonical column set —
+keep in sync with the fixture in ``tests/test_aou_allxall.py``.
+"""
+
 
 # ─── HTTP plumbing ──────────────────────────────────────────────────────────
 
@@ -334,8 +371,42 @@ def get_gene_burden(
         params["ancestry_group"] = ancestry
     payload = _request_json(f"/phenotype/{aid}/genes", params=params, session=session)
     df = pd.DataFrame(payload)
+    _warn_if_row_limit_hit(df, aid, ancestry=ancestry, max_maf=max_maf)
     df.to_parquet(dst, index=False)
     return df
+
+
+def _warn_if_row_limit_hit(
+    df: pd.DataFrame,
+    analysis_id: str,
+    *,
+    ancestry: str | None,
+    max_maf: float,
+) -> None:
+    """Emit a ``RuntimeWarning`` when a fetch returned exactly :data:`_API_ROW_LIMIT` rows.
+
+    The upstream Rust server caps each ``/phenotype/.../genes`` response
+    at 50,000 rows. Phenotypes with more significant gene-burden tests
+    are silently truncated. Loud failure here is much cheaper than a
+    ranking pipeline that misses ~10% of a high-N phenotype's signal.
+    """
+    if len(df) == _API_ROW_LIMIT:
+        import warnings
+
+        msg = (
+            f"AoU All-by-All gene-burden response for analysis_id={analysis_id} "
+            f"(ancestry={ancestry!r}, max_maf={max_maf}) returned exactly "
+            f"{_API_ROW_LIMIT:,} rows — this matches the upstream server cap "
+            f"(`broadinstitute/all-by-all-aou-browser`, "
+            f"axaou-server/src/api.rs#list_gene_associations), so the "
+            f"response is almost certainly truncated. Downstream gene-vector "
+            f"signatures for this phenotype will miss the lowest-ranked "
+            f"surviving tests. There is currently no public API path to "
+            f"raise the cap; either accept the truncation or use the "
+            f"Researcher-Workbench Hail-Table route."
+        )
+        warnings.warn(msg, RuntimeWarning, stacklevel=3)
+        logger.warning(msg)
 
 
 def download_all_gene_burden(

@@ -9,6 +9,7 @@ catch upstream schema drift.
 from __future__ import annotations
 
 import json
+import warnings
 
 import pandas as pd
 import polars as pl
@@ -114,6 +115,47 @@ _FAKE_GENE_BURDEN = [
         "gene_start_position": 3000000,
     },
 ]
+
+
+def _make_multi_maf_burden(analysis_id: str = "100001") -> list[dict]:
+    """Realistic multi-(burden_set × max_maf) gene-burden fixture for one phenotype.
+
+    The single-MAF ``_FAKE_GENE_BURDEN`` above is sufficient for the
+    ``melt_gene_burden`` unit logic, but
+    :func:`aou_allxall.iter_signature_variants` enumerates ~36 facets
+    and the single-MAF fixture leaves 32 of them empty — so a test
+    against it only proves the loop ran, not that the cross-facet
+    selection works. This fixture populates every (annotation, max_maf)
+    cell so the enumeration test catches a real bug if one of the
+    facet filters silently drops everything.
+    """
+    rows: list[dict] = []
+    for maf in aou_allxall.MAF_THRESHOLDS:
+        # Skip the joint pLoF;missenseLC mask — keeps the fixture small;
+        # it shares the filter path with single-mask annotations.
+        for annot in ("pLoF", "missenseLC", "synonymous"):
+            for gene_idx in range(2):
+                rows.append(
+                    {
+                        "gene_id": f"ENSG{annot}{maf}{gene_idx:05d}",
+                        "gene_symbol": f"G{annot[:3]}{maf}{gene_idx}",
+                        "annotation": annot,
+                        "max_maf": maf,
+                        "analysis_id": analysis_id,
+                        "ancestry_group": "meta",
+                        "pvalue": 1e-5,
+                        "neg_log10_p": 5.0,
+                        "pvalue_burden": 1e-6,
+                        "neg_log10_p_burden": 6.0 + gene_idx,
+                        "pvalue_skat": 1e-4,
+                        "neg_log10_p_skat": 4.0 + gene_idx,
+                        "beta_burden": 1.5 if annot == "pLoF" else -0.7,
+                        "mac": 100,
+                        "contig": "chr1",
+                        "gene_start_position": 1_000_000 + gene_idx,
+                    }
+                )
+    return rows
 
 
 @pytest.fixture(autouse=True)
@@ -432,6 +474,45 @@ def test_iter_signature_variants_respects_custom_grid() -> None:
     assert len(long) == 2
 
 
+def test_iter_signature_variants_realistic_multi_maf_grid() -> None:
+    """Against a realistic fixture spanning all MAFs and 3 burden sets, every
+    (test × burden_set × max_maf) cell that the fixture populates must yield
+    non-empty rows.
+
+    The single-MAF ``_FAKE_GENE_BURDEN`` doesn't catch a bug where the MAF
+    filter silently drops everything — only this realistic fixture does.
+    """
+    df = pd.DataFrame(_make_multi_maf_burden())
+    variants = list(
+        aou_allxall.iter_signature_variants(
+            df,
+            burden_sets=("pLoF", "missenseLC", "synonymous"),  # match fixture
+        )
+    )
+    # 3 tests × 3 burden_sets × 3 MAFs = 27 cells.
+    assert len(variants) == 27
+
+    # EVERY cell should produce non-empty rows (2 genes per cell in the fixture).
+    empties = [f for f, long in variants if long.empty]
+    assert not empties, f"unexpectedly-empty facet cells: {empties}"
+
+    # And the scores must reflect the test axis: SKAT scores differ from
+    # burden scores (different neg_log10_p_* column under the hood).
+    burden_rows = next(
+        long
+        for facet, long in variants
+        if facet == {"test": "burden", "burden_set": "pLoF", "max_maf": 0.001}
+    )
+    skat_rows = next(
+        long
+        for facet, long in variants
+        if facet == {"test": "skat", "burden_set": "pLoF", "max_maf": 0.001}
+    )
+    assert not burden_rows["score"].equals(skat_rows["score"]), (
+        "Burden and SKAT pulled identical scores — likely a column-mapping bug."
+    )
+
+
 # ---------------------------------------------------------------------------
 # query_phenotype
 # ---------------------------------------------------------------------------
@@ -476,6 +557,203 @@ def test_query_phenotype_unknown_column_raises(isolated_cache) -> None:
 
 
 # ---------------------------------------------------------------------------
+# API row-limit silent-truncation guard
+# ---------------------------------------------------------------------------
+
+
+def _make_n_burden_rows(n: int, analysis_id: str = "100001") -> list[dict]:
+    """Build ``n`` synthetic gene-burden rows for row-limit testing."""
+    return [
+        {
+            "gene_id": f"ENSG{i:09d}",
+            "gene_symbol": f"G{i}",
+            "annotation": "pLoF",
+            "max_maf": 0.001,
+            "analysis_id": analysis_id,
+            "ancestry_group": "meta",
+            "pvalue": 1e-5,
+            "neg_log10_p": 5.0,
+            "pvalue_burden": 1e-6,
+            "neg_log10_p_burden": 6.0,
+            "pvalue_skat": 1e-4,
+            "neg_log10_p_skat": 4.0,
+            "beta_burden": 1.0,
+            "mac": 100,
+            "contig": "chr1",
+            "gene_start_position": i,
+        }
+        for i in range(n)
+    ]
+
+
+def test_get_gene_burden_warns_on_50k_row_response(isolated_cache) -> None:
+    """A fetch returning exactly 50,000 rows almost certainly hit the API cap.
+
+    The upstream Rust server hard-codes ``limit = 50000`` in
+    ``axaou-server/src/api.rs#list_gene_associations``. We MUST warn
+    so silent truncation doesn't propagate into ranking pipelines.
+    """
+    capped_payload = _make_n_burden_rows(aou_allxall._API_ROW_LIMIT)
+    with responses.RequestsMock() as mock:
+        mock.add(
+            responses.GET,
+            f"{aou_allxall.API_URL}/phenotype/200001/genes",
+            json=capped_payload,
+            status=200,
+        )
+        with warnings.catch_warnings(record=True) as caught:
+            warnings.simplefilter("always")
+            df = aou_allxall.get_gene_burden("200001")
+
+    assert len(df) == aou_allxall._API_ROW_LIMIT
+    truncation_warnings = [
+        w
+        for w in caught
+        if issubclass(w.category, RuntimeWarning) and "truncated" in str(w.message)
+    ]
+    assert len(truncation_warnings) == 1, (
+        f"expected exactly one RuntimeWarning about truncation, got {len(truncation_warnings)}; "
+        f"all warnings: {[str(w.message) for w in caught]}"
+    )
+
+
+def test_get_gene_burden_no_warning_when_under_cap(isolated_cache) -> None:
+    """A fetch with fewer than 50,000 rows must not emit the truncation warning."""
+    payload = _make_n_burden_rows(49_999)
+    with responses.RequestsMock() as mock:
+        mock.add(
+            responses.GET,
+            f"{aou_allxall.API_URL}/phenotype/200002/genes",
+            json=payload,
+            status=200,
+        )
+        with warnings.catch_warnings(record=True) as caught:
+            warnings.simplefilter("always")
+            aou_allxall.get_gene_burden("200002")
+    truncation_warnings = [
+        w
+        for w in caught
+        if issubclass(w.category, RuntimeWarning) and "truncated" in str(w.message)
+    ]
+    assert truncation_warnings == []
+
+
+# ---------------------------------------------------------------------------
+# download_all_gene_burden — concurrent bulk pull + consolidation
+# ---------------------------------------------------------------------------
+
+
+def test_download_all_gene_burden_happy_path(isolated_cache, monkeypatch) -> None:
+    """Two phenotypes × two MAFs → 4 fetches → 4 shards → one consolidated parquet."""
+    # Patch get_gene_burden so we can avoid the responses library across threads.
+    call_log: list[tuple[str, float]] = []
+
+    def fake_get(analysis_id, ancestry=None, max_maf=0.001, *, force=False, session=None):
+        call_log.append((analysis_id, max_maf))
+        df = pd.DataFrame(_make_n_burden_rows(3, analysis_id=str(analysis_id)))
+        df["max_maf"] = max_maf
+        # Mirror the cache-write behavior so consolidation finds the shards.
+        shard = isolated_cache / "gene_burden" / f"{analysis_id}_{ancestry}_maf{max_maf}.parquet"
+        shard.parent.mkdir(parents=True, exist_ok=True)
+        df.to_parquet(shard, index=False)
+        return df
+
+    monkeypatch.setattr(aou_allxall, "get_gene_burden", fake_get)
+
+    analyses = pd.DataFrame(_FAKE_ANALYSES)
+    consolidated = aou_allxall.download_all_gene_burden(
+        ancestry="meta",
+        max_mafs=(0.01, 0.001),
+        analyses=analyses,
+        max_workers=2,
+        progress=False,
+    )
+    assert consolidated.exists()
+    # 2 phenotypes × 2 MAFs = 4 jobs.
+    assert len(call_log) == 4
+    # Consolidated parquet has all 4 × 3 = 12 rows.
+    df = pl.read_parquet(consolidated)
+    assert df.height == 12
+    assert set(df["max_maf"].unique().to_list()) == {0.01, 0.001}
+
+
+def test_download_all_gene_burden_tolerates_failures(isolated_cache, monkeypatch, caplog) -> None:
+    """One phenotype always fails; the other succeeds → consolidated parquet contains only the successes."""
+
+    def fake_get(analysis_id, ancestry=None, max_maf=0.001, *, force=False, session=None):
+        if analysis_id == "200002":
+            raise RuntimeError("simulated upstream failure")
+        df = pd.DataFrame(_make_n_burden_rows(2, analysis_id=str(analysis_id)))
+        df["max_maf"] = max_maf
+        shard = isolated_cache / "gene_burden" / f"{analysis_id}_{ancestry}_maf{max_maf}.parquet"
+        shard.parent.mkdir(parents=True, exist_ok=True)
+        df.to_parquet(shard, index=False)
+        return df
+
+    monkeypatch.setattr(aou_allxall, "get_gene_burden", fake_get)
+    analyses = pd.DataFrame(_FAKE_ANALYSES)
+    with caplog.at_level("WARNING"):
+        consolidated = aou_allxall.download_all_gene_burden(
+            ancestry="meta",
+            max_mafs=(0.001,),
+            analyses=analyses,
+            max_workers=2,
+            progress=False,
+        )
+    df = pl.read_parquet(consolidated)
+    # Only the 100001 phenotype's 2 rows; 200002 failed.
+    assert df.height == 2
+    assert set(df["analysis_id"].unique().to_list()) == {"100001"}
+    # And we logged the failure.
+    assert any("simulated upstream failure" in r.message for r in caplog.records)
+
+
+def test_download_all_gene_burden_respects_analyses_filter(isolated_cache, monkeypatch) -> None:
+    """Passing ``analyses=`` should limit the job set to that subset."""
+    calls: list[str] = []
+
+    def fake_get(analysis_id, ancestry=None, max_maf=0.001, *, force=False, session=None):
+        calls.append(str(analysis_id))
+        df = pd.DataFrame(_make_n_burden_rows(1, analysis_id=str(analysis_id)))
+        df["max_maf"] = max_maf
+        shard = isolated_cache / "gene_burden" / f"{analysis_id}_{ancestry}_maf{max_maf}.parquet"
+        shard.parent.mkdir(parents=True, exist_ok=True)
+        df.to_parquet(shard, index=False)
+        return df
+
+    monkeypatch.setattr(aou_allxall, "get_gene_burden", fake_get)
+
+    # Only ask for the first analysis.
+    analyses = pd.DataFrame(_FAKE_ANALYSES[:1])
+    aou_allxall.download_all_gene_burden(
+        ancestry="meta",
+        max_mafs=(0.001,),
+        analyses=analyses,
+        max_workers=1,
+        progress=False,
+    )
+    assert calls == ["100001"]
+
+
+def test_download_all_gene_burden_consolidate_false_returns_dir(
+    isolated_cache, monkeypatch
+) -> None:
+    monkeypatch.setattr(
+        aou_allxall, "get_gene_burden", lambda *a, **kw: pd.DataFrame(_make_n_burden_rows(0))
+    )
+    result = aou_allxall.download_all_gene_burden(
+        ancestry="meta",
+        max_mafs=(0.001,),
+        analyses=pd.DataFrame(_FAKE_ANALYSES),
+        max_workers=1,
+        progress=False,
+        consolidate=False,
+    )
+    # Returns the directory, not a consolidated parquet.
+    assert result == isolated_cache / "gene_burden"
+
+
+# ---------------------------------------------------------------------------
 # Live integration tests — gated behind --run-network in CI
 # ---------------------------------------------------------------------------
 
@@ -501,9 +779,61 @@ def test_live_list_analyses_returns_expected_scale(isolated_cache) -> None:
 @pytest.mark.network
 @pytest.mark.slow
 def test_live_get_gene_burden_for_first_analysis(isolated_cache) -> None:
+    """Schema-drift detector: assert ALL ``EXPECTED_GENE_BURDEN_COLUMNS`` are present.
+
+    The earlier version only spot-checked a handful of columns and would
+    silently pass an upstream rename (e.g. ``pvalue_burden`` →
+    ``burden_pvalue``). That schema drift would later surface as empty
+    ``melt_gene_burden`` outputs deep in a ranking pipeline. This test
+    catches it at the source.
+    """
     analyses = aou_allxall.list_analyses(ancestry="meta", force=True)
     aid = analyses.iloc[0]["analysis_id"]
     df = aou_allxall.get_gene_burden(aid, force=True)
     assert len(df) > 0
-    for col in ("gene_id", "gene_symbol", "annotation", "neg_log10_p_burden", "beta_burden"):
-        assert col in df.columns, f"missing column {col}"
+    missing = aou_allxall.EXPECTED_GENE_BURDEN_COLUMNS - set(df.columns)
+    assert not missing, (
+        f"Live gene-burden response is missing expected columns {missing}. "
+        f"Got columns: {sorted(df.columns)}. "
+        f"Update aou_allxall.EXPECTED_GENE_BURDEN_COLUMNS only after confirming "
+        f"the change is intentional upstream."
+    )
+
+
+@pytest.mark.network
+@pytest.mark.slow
+def test_live_burden_set_filter_actually_changes_signal(isolated_cache) -> None:
+    """Negative control: pLoF and synonymous masks must produce different gene rankings.
+
+    The unit tests confirm that ``melt_gene_burden(burden_set="pLoF")``
+    *runs* and that the right column-mapping is used; this test confirms
+    that the filter actually selects different biology. If pLoF and
+    synonymous returned identical gene lists, the data pipeline would
+    have a serious bug invisible to any of the mocked tests above.
+
+    For a single phenotype we expect the top-10 burden-test gene sets
+    under pLoF vs. synonymous to differ — synonymous is a designed
+    negative control mask and should rarely share top hits with the
+    deleterious-mask result.
+    """
+    analyses = aou_allxall.list_analyses(ancestry="meta", force=True)
+    aid = analyses.iloc[0]["analysis_id"]
+    df = aou_allxall.get_gene_burden(aid, force=True)
+
+    plof = aou_allxall.melt_gene_burden(df, burden_set="pLoF", max_maf=0.001)
+    syn = aou_allxall.melt_gene_burden(df, burden_set="synonymous", max_maf=0.001)
+
+    # If either branch has no rows, the upstream phenotype just doesn't
+    # have results for that mask — skip rather than fail.
+    if plof.empty or syn.empty:
+        pytest.skip(f"phenotype {aid} lacks gene-burden rows for one of pLoF/synonymous")
+
+    # Top-10 by absolute score for each mask should be substantially different.
+    top_plof = set(plof.nlargest(10, "score", keep="all")["targetId"])
+    top_syn = set(syn.nlargest(10, "score", keep="all")["targetId"])
+    overlap = top_plof & top_syn
+    # We allow some overlap (housekeeping-gene noise) but not identical lists.
+    assert len(overlap) < len(top_plof), (
+        f"Top-10 pLoF and synonymous gene sets for analysis {aid} are identical "
+        f"({sorted(top_plof)}) — burden_set filter is likely a no-op."
+    )
