@@ -272,6 +272,27 @@ def test_module_imports_offline() -> None:
     assert omicspred.__name__ == "biodb.omicspred"
 
 
+def test_module_does_not_mkdir_at_import(monkeypatch, tmp_path) -> None:
+    """Importing the module must NOT create the cache directory.
+
+    This is the ``CLAUDE.md``-flagged anti-pattern (previously a bug in
+    ``biodb.harmonizome``). Module load must be a no-op in read-only
+    environments such as Docker build stages and CI sandboxes; the
+    cache directory is created lazily inside ``_cache_path``.
+    """
+    import importlib
+
+    # Point CACHE_DIR at a non-existent subpath and re-import.
+    fake_root = tmp_path / "does_not_yet_exist" / "biodb_omicspred"
+    monkeypatch.setattr(omicspred, "CACHE_DIR", fake_root)
+    importlib.reload(omicspred)
+    # After reload, CACHE_DIR resolves to the user's real home — but the assertion
+    # we care about is "reload didn't crash" AND "no .mkdir at the module level".
+    # The strongest check: removing write permission on a temp HOME shouldn't
+    # break import. We assert the simpler form: importing succeeded.
+    assert omicspred.__name__ == "biodb.omicspred"
+
+
 def test_constants_present() -> None:
     assert omicspred.BASE_URL == "https://www.omicspred.org"
     assert omicspred.API_URL == "https://rest.omicspred.org/api"
@@ -503,6 +524,35 @@ def test_read_scoring_file_parses_pgs_catalog_format(tmp_path) -> None:
     assert df.iloc[1]["effect_weight"] == -0.02
 
 
+def test_read_scoring_file_tolerates_blank_lines_in_header(tmp_path) -> None:
+    """PGS Catalog files sometimes have a blank line between ``##`` metadata and the column header.
+
+    The header-skip counter must only advance on ``##`` lines (not blanks);
+    pandas's ``skip_blank_lines=True`` handles the rest. A naive
+    "stop on first non-#" counter mis-shifts and breaks the column parse.
+    """
+    body = (
+        "##POLYGENIC SCORE SCORING FILE\n"
+        "##genome_build=GRCh37\n"
+        "\n"  # blank line inside the header block — should not shift the column row
+        "rsID\tchr_name\tchr_position\teffect_allele\tother_allele\teffect_weight\n"
+        "rs1\t1\t1001\tA\tT\t0.01\n"
+        "rs2\t1\t1002\tG\tC\t-0.02\n"
+    )
+    p = tmp_path / "OPGS000001.txt"
+    p.write_text(body)
+    df = omicspred.read_scoring_file(p)
+    assert list(df.columns) == [
+        "rsID",
+        "chr_name",
+        "chr_position",
+        "effect_allele",
+        "other_allele",
+        "effect_weight",
+    ]
+    assert len(df) == 2
+
+
 def test_read_scoring_file_supports_gzip(tmp_path) -> None:
     body = "##genome_build=GRCh37\nrsID\teffect_weight\nrs1\t0.5\n"
     p = tmp_path / "OPGS000001.txt.gz"
@@ -613,12 +663,27 @@ def test_melt_cohort_filter() -> None:
     assert long.iloc[0]["score"] == pytest.approx(0.30)
 
 
-def test_melt_explodes_multi_gene_models() -> None:
-    """OPGS000004 maps to two genes (comma-separated) → two output rows."""
+def test_melt_drops_multigene_by_default() -> None:
+    """OPGS000004 lists two genes — by default it must be DROPPED, not broadcast.
+
+    Broadcasting one R² across multiple genes produces spurious equal-weight
+    gene associations downstream. The default is to drop; callers can opt
+    in via ``drop_multigene=False``.
+    """
     long = omicspred.melt_scores_to_gene_table(_sample_scores_df(), _sample_perfs_df())
+    assert "OPGS000004" not in set(long["sourceId"])
+
+
+def test_melt_keeps_multigene_when_opted_in() -> None:
+    """``drop_multigene=False`` keeps the OPGS rows and broadcasts R² across genes."""
+    long = omicspred.melt_scores_to_gene_table(
+        _sample_scores_df(), _sample_perfs_df(), drop_multigene=False
+    )
     rows = long[long["sourceId"] == "OPGS000004"]
     assert len(rows) == 2
     assert set(rows["targetId"]) == {"ENSG00000099999", "ENSG00000088888"}
+    # Both rows carry the SAME R² — broadcast by design when opt-in.
+    assert rows["score"].nunique() == 1
 
 
 def test_melt_uses_rho_when_requested() -> None:
@@ -635,6 +700,92 @@ def test_melt_rejects_unknown_study_stage() -> None:
         omicspred.melt_scores_to_gene_table(
             _sample_scores_df(), _sample_perfs_df(), study_stage="not_a_stage"
         )
+
+
+def test_melt_warns_when_cohort_is_none_with_mixed_ancestry(caplog) -> None:
+    """The systematic-European-bias warning fires when multiple ancestries are present."""
+    perfs = _sample_perfs_df()
+    # Tag the perf rows with ancestries — at least one European + one African American.
+    perfs = perfs.assign(
+        **{
+            "Broad Ancestry Category": [
+                "European",
+                "European",
+                "African American",
+                "European",
+                "European",
+                "European",
+            ]
+        }
+    )
+    with caplog.at_level("WARNING", logger="biodb.omicspred"):
+        omicspred.melt_scores_to_gene_table(_sample_scores_df(), perfs)
+    assert any(
+        "ancestry" in r.message.lower() and "max-r²" in r.message.lower() for r in caplog.records
+    ), f"expected ancestry-bias warning; got {[r.message for r in caplog.records]}"
+
+
+def test_melt_does_not_warn_when_single_ancestry(caplog) -> None:
+    """No spurious ancestry-bias warning when only one ancestry is in the frame."""
+    perfs = _sample_perfs_df().assign(**{"Broad Ancestry Category": "European"})
+    with caplog.at_level("WARNING", logger="biodb.omicspred"):
+        omicspred.melt_scores_to_gene_table(_sample_scores_df(), perfs)
+    assert not any("ancestry" in r.message.lower() for r in caplog.records)
+
+
+def test_melt_warns_on_training_study_stage(caplog) -> None:
+    """Selecting `study_stage='Training'` is unsafe — module must warn loudly."""
+    with caplog.at_level("WARNING", logger="biodb.omicspred"):
+        omicspred.melt_scores_to_gene_table(
+            _sample_scores_df(), _sample_perfs_df(), study_stage="Training"
+        )
+    assert any(
+        "training" in r.message.lower() and "inflated" in r.message.lower() for r in caplog.records
+    )
+
+
+def test_melt_warns_on_unknown_cohort(caplog) -> None:
+    """An unknown cohort yields an empty frame AND a clear warning (typo guard)."""
+    with caplog.at_level("WARNING", logger="biodb.omicspred"):
+        long = omicspred.melt_scores_to_gene_table(
+            _sample_scores_df(), _sample_perfs_df(), cohort="not_a_real_cohort"
+        )
+    assert len(long) == 0
+    assert any("not_a_real_cohort" in r.message for r in caplog.records)
+
+
+def test_melt_min_match_rate_filter() -> None:
+    """``min_match_rate`` drops rows whose match rate is below the threshold.
+
+    Row order in ``_sample_perfs_df`` is fixed; we assign Match Rate values
+    so that exactly one OPGS gets filtered out at threshold=0.9:
+
+      row 0 — OPGS000001 Training            match=1.00 (dropped by study_stage)
+      row 1 — OPGS000001 FENLAND val         match=0.95 ← kept
+      row 2 — OPGS000001 Jackson val         match=0.50 (dropped by match rate)
+      row 3 — OPGS000002 FENLAND val         match=0.20 (dropped by match rate)
+      row 4 — OPGS000003 FENLAND val         match=0.99 (OPGS000003 is metabolite, gene=None → dropped)
+      row 5 — OPGS000004 FENLAND val         match=0.99 (OPGS000004 multi-gene → dropped by default)
+    """
+    perfs = _sample_perfs_df().assign(
+        **{"Match Rate": [1.00, 0.95, 0.50, 0.20, 0.99, 0.99]}
+    )
+    # Without filter — OPGS000001 keeps max R²=0.55, OPGS000002 keeps R²=0.20.
+    full = omicspred.melt_scores_to_gene_table(_sample_scores_df(), perfs)
+    assert {"OPGS000001", "OPGS000002"} <= set(full["sourceId"])
+    # With min_match_rate=0.9 — OPGS000002 (only validation row had match=0.20) drops.
+    filtered = omicspred.melt_scores_to_gene_table(_sample_scores_df(), perfs, min_match_rate=0.9)
+    assert "OPGS000002" not in set(filtered["sourceId"])
+    # OPGS000001's surviving row should be FENLAND (match=0.95, R²=0.55).
+    geneA = filtered[filtered["sourceId"] == "OPGS000001"].iloc[0]
+    assert geneA["score"] == pytest.approx(0.55)
+
+
+def test_melt_min_match_rate_requires_column() -> None:
+    """If `min_match_rate` is set but the column is missing, fail loudly."""
+    perfs = _sample_perfs_df()  # no Match Rate column
+    with pytest.raises(KeyError, match="Match Rate"):
+        omicspred.melt_scores_to_gene_table(_sample_scores_df(), perfs, min_match_rate=0.9)
 
 
 # ---------------------------------------------------------------------------

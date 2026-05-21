@@ -63,7 +63,13 @@ DEFAULT_VERSION = "v1"
 """OmicsPred snapshot tag. Bump after testing against a new catalog refresh."""
 
 CACHE_DIR = Path("~/.cache/biodb/omicspred").expanduser() / DEFAULT_VERSION
-CACHE_DIR.mkdir(parents=True, exist_ok=True)
+"""Local cache root. Directory creation is lazy in :func:`_cache_path`.
+
+Importing ``biodb.omicspred`` must NOT create directories at module-load
+time — that breaks read-only environments (Docker build stages, CI
+sandboxes) and was previously a bug in ``biodb.harmonizome`` (called
+out in ``CLAUDE.md``).
+"""
 
 PLATFORMS: tuple[str, ...] = (
     "Metabolon",
@@ -428,17 +434,29 @@ def read_scoring_file(path: str | Path) -> pd.DataFrame:
     ``rsID``, ``chr_name``, ``chr_position``, ``effect_allele``,
     ``other_allele``, and ``effect_weight``. See
     https://www.pgscatalog.org/downloads/#scoring_columns for the full spec.
+
+    The header counter only advances on ``##``-prefixed lines; blank lines
+    within the header block are passed through to pandas which strips them
+    via ``skip_blank_lines=True``. This avoids miscounting if the upstream
+    Box.com archive ever inserts a blank line between the metadata block
+    and the column header.
     """
     p = Path(path)
-    # Find header end by sniffing the first non-``##`` line.
     opener = _maybe_gzip_opener(p)
     header_rows = 0
     with opener(p, "rt") as fh:
         for line in fh:
-            if not line.startswith("#"):
-                break
-            header_rows += 1
-    return pd.read_csv(p, sep="\t", skiprows=header_rows, comment="#")
+            stripped = line.strip()
+            if stripped.startswith("##"):
+                header_rows += 1
+                continue
+            if stripped == "":
+                # Blank lines inside header don't shift the column-row index;
+                # pandas will skip them via skip_blank_lines=True.
+                continue
+            # First non-## non-blank line is the column header.
+            break
+    return pd.read_csv(p, sep="\t", skiprows=header_rows, skip_blank_lines=True)
 
 
 def _maybe_gzip_opener(path: Path):
@@ -469,6 +487,8 @@ def melt_scores_to_gene_table(
     study_stage: str = "External Validation",
     cohort: str | None = None,
     score_column: str = "R2",
+    min_match_rate: float | None = None,
+    drop_multigene: bool = True,
 ) -> pd.DataFrame:
     """Reshape OmicsPred metadata into a long ``(sourceId=OPGS, targetId=gene, score=R²)`` frame.
 
@@ -479,6 +499,17 @@ def melt_scores_to_gene_table(
     want trans signal should run :func:`read_scoring_file` and aggregate
     explicitly.
 
+    Two caveats this function will warn about at runtime (not raise):
+
+    * **Ancestry bias** — with ``cohort=None`` and multiple ancestries
+      present in the External Validation rows, the max-R² pick is
+      systematically European-favored because Jackson-Heart-Study /
+      East-Asian / South-Asian R² is consistently attenuated for
+      INTERVAL-trained models (Xu et al. *Nature* 2023, Fig. 3).
+    * **Training R² inflation** — with ``study_stage="Training"``, the
+      R² values reflect the same cohort the model was tuned on and are
+      not a valid generalization estimate.
+
     Parameters
     ----------
     scores : pd.DataFrame
@@ -488,16 +519,36 @@ def melt_scores_to_gene_table(
         OPGS are reduced by selecting one ``study_stage`` and (optionally)
         one cohort.
     study_stage : str, default ``"External Validation"``
-        One of :data:`STUDY_STAGES`. Defaults to the external-validation
-        R² because the training-stage R² is inflated.
+        One of :data:`STUDY_STAGES`. Defaults to external validation
+        because training-stage R² is inflated.
     cohort : str, optional
         Filter to one validation cohort (e.g. ``"FENLAND"``,
-        ``"Jackson Heart Study"``). ``None`` keeps all and picks the
-        max R² per OPGS — useful when you want a *best-case* signal.
+        ``"Jackson Heart Study"``). ``None`` keeps all rows after
+        ``study_stage`` filtering and picks max R² per OPGS — see the
+        ancestry-bias caveat above.
     score_column : str, default ``"R2"``
         Which performance column to use as the gene-weight magnitude.
         ``"Rho"`` is the Spearman correlation; ``"R2"`` is the squared
         Pearson — both are populated.
+    min_match_rate : float, optional
+        If set, drop rows where the ``Match Rate`` column is below this
+        threshold. ``Match Rate`` is the fraction of model SNPs that
+        were found in the validation cohort's genotype data; models
+        with low match rate have under-counted, downward-biased R²
+        and should be filtered for serious downstream use. Try ``0.9``.
+    drop_multigene : bool, default ``True``
+        Drop OPGS scores whose ``Gene ID(s)`` lists more than one gene.
+        These are typically RNA-splicing isoforms that share variants
+        across overlapping transcripts; broadcasting one R² to each
+        gene would create spurious equal-weight gene associations.
+        Set to ``False`` to keep them (each gene gets the same R²).
+
+    Returns
+    -------
+    pd.DataFrame
+        Long frame with columns ``sourceId`` (=``OPGS ID``),
+        ``targetId`` (=Ensembl gene), ``score`` (=R² or chosen metric),
+        and ``trait`` (the reported molecular trait name).
     """
     if study_stage not in STUDY_STAGES:
         raise ValueError(f"study_stage={study_stage!r} not in {STUDY_STAGES}")
@@ -510,9 +561,47 @@ def melt_scores_to_gene_table(
     if score_column not in performances.columns:
         raise KeyError(f"score_column={score_column!r} not in performances frame.")
 
+    if study_stage == "Training":
+        logger.warning(
+            "study_stage='Training' selected — Training R² is INFLATED (computed on "
+            "the same cohort the model was tuned on, INTERVAL) and is not a valid "
+            "generalization estimate. For most downstream pipelines you want "
+            "study_stage='External Validation'."
+        )
+
     perf = performances[performances["Study stage"] == study_stage]
     if cohort is not None:
+        if "Cohort(s)" in perf.columns:
+            known_cohorts = set(perf["Cohort(s)"].dropna().unique())
+            if cohort not in known_cohorts:
+                logger.warning(
+                    "cohort=%r not present in performances for study_stage=%r. "
+                    "Known cohorts: %s. Returning empty frame.",
+                    cohort,
+                    study_stage,
+                    sorted(known_cohorts),
+                )
         perf = perf[perf["Cohort(s)"] == cohort]
+    elif "Broad Ancestry Category" in perf.columns:
+        # Warn about ancestry bias when picking max R² across multiple ancestries.
+        ancestries = set(perf["Broad Ancestry Category"].dropna().unique())
+        if len(ancestries) > 1:
+            logger.warning(
+                "cohort=None with multiple ancestries present (%s); the max-R² pick "
+                "systematically prefers European-validated performance because "
+                "Jackson-Heart-Study and APAC cohort R² is consistently attenuated. "
+                "Pass `cohort='FENLAND'` for European-only or stratify by ancestry "
+                "downstream to avoid baking in this bias.",
+                sorted(ancestries),
+            )
+
+    if min_match_rate is not None:
+        if "Match Rate" not in perf.columns:
+            raise KeyError(
+                "min_match_rate was passed but 'Match Rate' is not in the performances frame."
+            )
+        perf = perf[perf["Match Rate"].fillna(0) >= min_match_rate]
+
     perf_best = (
         perf.dropna(subset=[score_column])
         .sort_values(score_column, ascending=False)
@@ -521,7 +610,18 @@ def melt_scores_to_gene_table(
     )
     gene_col = "Gene ID(s)"
     sc = scores[["OmicsPred ID", "Reported Trait", gene_col]].dropna(subset=[gene_col])
-    # ``Gene ID(s)`` is sometimes a comma-separated list — explode into rows.
+    # Multi-gene OPGS rows are typically RNA-splicing isoforms whose component
+    # genes share variants. Dropping by default is more honest than broadcasting
+    # one R² across them — set `drop_multigene=False` to opt out.
+    is_multi = sc[gene_col].astype(str).str.contains(r"[,;]")
+    if drop_multigene:
+        if is_multi.any():
+            logger.info(
+                "Dropping %d multi-gene OPGS rows (set drop_multigene=False to keep).",
+                int(is_multi.sum()),
+            )
+        sc = sc[~is_multi]
+    # Explode the (possibly singleton) gene list into one row per gene.
     sc = sc.assign(**{gene_col: sc[gene_col].astype(str).str.split(r"[,;]\s*")}).explode(gene_col)
     long = sc.merge(perf_best, on="OmicsPred ID", how="inner").rename(
         columns={
