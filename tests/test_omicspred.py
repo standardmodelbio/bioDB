@@ -767,9 +767,7 @@ def test_melt_min_match_rate_filter() -> None:
       row 4 — OPGS000003 FENLAND val         match=0.99 (OPGS000003 is metabolite, gene=None → dropped)
       row 5 — OPGS000004 FENLAND val         match=0.99 (OPGS000004 multi-gene → dropped by default)
     """
-    perfs = _sample_perfs_df().assign(
-        **{"Match Rate": [1.00, 0.95, 0.50, 0.20, 0.99, 0.99]}
-    )
+    perfs = _sample_perfs_df().assign(**{"Match Rate": [1.00, 0.95, 0.50, 0.20, 0.99, 0.99]})
     # Without filter — OPGS000001 keeps max R²=0.55, OPGS000002 keeps R²=0.20.
     full = omicspred.melt_scores_to_gene_table(_sample_scores_df(), perfs)
     assert {"OPGS000001", "OPGS000002"} <= set(full["sourceId"])
