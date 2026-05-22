@@ -13,6 +13,7 @@ from __future__ import annotations
 import inspect
 
 import pandas as pd
+import pytest
 
 from biodb import opentargets
 
@@ -257,3 +258,77 @@ def test_variants_for_target_column_projection(tmp_path) -> None:
         columns=["variantId", "chromosome"],
     )
     assert set(df.columns) == {"variantId", "chromosome"}
+
+
+# ---------------------------------------------------------------------------
+# Configurable default datasets (DEFAULT_GENE_ASSOCIATION_DATASETS +
+# BIODB_OT_GENE_ASSOC_DATASETS env var + validation)
+# ---------------------------------------------------------------------------
+
+
+def test_supported_gene_association_datasets_is_authoritative_allowlist() -> None:
+    """The supported set names every dataset ``get_gene_associations`` has
+    a ``_prepare_*`` handler for. Drift here means silently-dropped rows
+    or runtime crashes -- pin it explicitly."""
+    assert (
+        frozenset(
+            {
+                "disease-to-gene",
+                "known_drug",
+                "pharmacogenomics",
+                "mouse_phenotype",
+                "target_essentiality",
+                "expression",
+            }
+        )
+        == opentargets.SUPPORTED_GENE_ASSOCIATION_DATASETS
+    )
+
+
+def test_default_gene_association_datasets_subset_of_supported() -> None:
+    """The default list MUST be a subset of the allow-list; otherwise
+    calling ``get_gene_associations()`` with no args would raise."""
+    assert set(opentargets.DEFAULT_GENE_ASSOCIATION_DATASETS) <= (
+        opentargets.SUPPORTED_GENE_ASSOCIATION_DATASETS
+    )
+
+
+def test_resolve_gene_association_datasets_caller_kwarg_wins(monkeypatch) -> None:
+    """Explicit kwarg overrides both the env var and the module default."""
+    monkeypatch.setenv("BIODB_OT_GENE_ASSOC_DATASETS", "known_drug")
+    out = opentargets._resolve_gene_association_datasets(["expression"])
+    assert out == ["expression"]
+
+
+def test_resolve_gene_association_datasets_env_var_wins_over_default(monkeypatch) -> None:
+    """When the caller passes ``None``, ``BIODB_OT_GENE_ASSOC_DATASETS``
+    overrides the module-level constant."""
+    monkeypatch.setenv("BIODB_OT_GENE_ASSOC_DATASETS", "known_drug, expression")
+    out = opentargets._resolve_gene_association_datasets(None)
+    assert out == ["known_drug", "expression"]
+
+
+def test_resolve_gene_association_datasets_falls_back_to_module_default(monkeypatch) -> None:
+    """No kwarg + no env var -> the module-level
+    ``DEFAULT_GENE_ASSOCIATION_DATASETS``."""
+    monkeypatch.delenv("BIODB_OT_GENE_ASSOC_DATASETS", raising=False)
+    out = opentargets._resolve_gene_association_datasets(None)
+    assert out == opentargets.DEFAULT_GENE_ASSOCIATION_DATASETS
+
+
+def test_resolve_gene_association_datasets_module_override(monkeypatch) -> None:
+    """Users can override ``DEFAULT_GENE_ASSOCIATION_DATASETS`` at module
+    level for a session-wide change -- the resolver picks it up because
+    it reads the attribute live, not at function-definition time."""
+    monkeypatch.delenv("BIODB_OT_GENE_ASSOC_DATASETS", raising=False)
+    monkeypatch.setattr(opentargets, "DEFAULT_GENE_ASSOCIATION_DATASETS", ["known_drug"])
+    assert opentargets._resolve_gene_association_datasets(None) == ["known_drug"]
+
+
+def test_resolve_gene_association_datasets_raises_on_unknown(monkeypatch) -> None:
+    """Unknown dataset names previously silently produced no rows (the
+    function looped through ``if "X" in datasets:`` checks; nothing
+    matched, no error). Now they raise with a list of supported names."""
+    monkeypatch.delenv("BIODB_OT_GENE_ASSOC_DATASETS", raising=False)
+    with pytest.raises(ValueError, match="Unknown OT gene-association dataset"):
+        opentargets._resolve_gene_association_datasets(["known_drug", "made_up_dataset"])
