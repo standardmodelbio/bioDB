@@ -270,7 +270,7 @@ def test_supported_gene_association_datasets_is_authoritative_allowlist() -> Non
     """The supported set names every dataset ``get_gene_associations`` has
     a ``_prepare_*`` handler for. Drift here means silently-dropped rows
     or runtime crashes -- pin it explicitly."""
-    assert opentargets.SUPPORTED_GENE_ASSOCIATION_DATASETS == frozenset(
+    assert frozenset(
         {
             "disease-to-gene",
             "known_drug",
@@ -279,7 +279,7 @@ def test_supported_gene_association_datasets_is_authoritative_allowlist() -> Non
             "target_essentiality",
             "expression",
         }
-    )
+    ) == opentargets.SUPPORTED_GENE_ASSOCIATION_DATASETS
 
 
 def test_default_gene_association_datasets_subset_of_supported() -> None:
