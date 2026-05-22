@@ -51,8 +51,105 @@ CACHE_DIR.mkdir(parents=True, exist_ok=True)
 
 DEFAULT_SCORE = 0.5
 
+# ---------------------------------------------------------------------------
+# Gene-association dataset defaults.
+#
+# ``get_gene_associations(datasets=None)`` falls back to this list. Each
+# entry must have a corresponding ``_prepare_<name>_associations``
+# function below (otherwise the dataset is silently a no-op -- the
+# function validates the input against ``SUPPORTED_GENE_ASSOCIATION_DATASETS``
+# and raises a ``ValueError`` for unknown names).
+#
+# Overriding the default
+# ----------------------
+# Three precedence layers (highest wins):
+#
+# 1. ``datasets=[...]`` kwarg on the call site.
+# 2. ``BIODB_OT_GENE_ASSOC_DATASETS`` env var -- comma-separated list,
+#    parsed at function call time so changes take effect without
+#    re-importing the module.
+# 3. ``DEFAULT_GENE_ASSOCIATION_DATASETS`` module-level constant,
+#    which a user can override globally via e.g.::
+#
+#        import biodb.opentargets as ot
+#        ot.DEFAULT_GENE_ASSOCIATION_DATASETS = ["disease-to-gene", "known_drug"]
+#
+# Adding a new dataset
+# --------------------
+# Adding to this list alone won't make ``get_gene_associations`` pick
+# up rows from it. You must also (i) implement
+# ``_prepare_<name>_associations`` and (ii) wire a new ``if <name> in
+# datasets:`` branch in ``get_gene_associations``. The
+# ``SUPPORTED_GENE_ASSOCIATION_DATASETS`` set is the authoritative
+# allow-list for what the function actually knows how to load -- new
+# entries land there too.
+# ---------------------------------------------------------------------------
+SUPPORTED_GENE_ASSOCIATION_DATASETS: frozenset[str] = frozenset(
+    {
+        "disease-to-gene",
+        "known_drug",
+        "pharmacogenomics",
+        "mouse_phenotype",
+        "target_essentiality",
+        "expression",
+    }
+)
+"""Authoritative allow-list for ``get_gene_associations``'s ``datasets``
+kwarg. Adding a new entry here requires a matching
+``_prepare_<name>_associations`` function and dispatch branch."""
+
+DEFAULT_GENE_ASSOCIATION_DATASETS: list[str] = [
+    "disease-to-gene",
+    "known_drug",
+    "pharmacogenomics",
+    "mouse_phenotype",
+    "target_essentiality",
+    "expression",
+]
+"""Default OT association datasets pulled by ``get_gene_associations``
+when ``datasets`` is ``None`` and the env-var override is unset. A
+list (not a set) so the column order in the concatenated output is
+stable across runs. Override at module-level for a session-wide
+change or via ``BIODB_OT_GENE_ASSOC_DATASETS`` for a process-local
+override."""
+
 # OT release directory names look like ``25.12/``, ``26.03/``, etc.
 _VERSION_RE = re.compile(r"^\d{2}\.\d{2}$")
+
+
+def _resolve_gene_association_datasets(
+    datasets: list[str] | None,
+) -> list[str]:
+    """Resolve the dataset list, applying the env-var override + validation.
+
+    Precedence: caller kwarg > env var > module-level default. Validates
+    that every requested dataset has a known ``_prepare_*`` handler;
+    raises a clear ``ValueError`` for anything else (previously such
+    unknown names silently produced no rows, which is the kind of
+    quiet-corruption bug that's hard to spot from the outside).
+    """
+    import os
+
+    if datasets is not None:
+        chosen = list(datasets)
+    else:
+        env = os.environ.get("BIODB_OT_GENE_ASSOC_DATASETS")
+        if env:
+            chosen = [d.strip() for d in env.split(",") if d.strip()]
+        else:
+            chosen = list(DEFAULT_GENE_ASSOCIATION_DATASETS)
+
+    unknown = [d for d in chosen if d not in SUPPORTED_GENE_ASSOCIATION_DATASETS]
+    if unknown:
+        raise ValueError(
+            f"Unknown OT gene-association dataset(s): {unknown}. "
+            f"Supported: {sorted(SUPPORTED_GENE_ASSOCIATION_DATASETS)}. "
+            "Adding a new dataset requires implementing the matching "
+            "``_prepare_<name>_associations`` function in "
+            "``biodb/opentargets.py`` and a dispatch branch in "
+            "``get_gene_associations``."
+        )
+    return chosen
 
 
 def _version_sort_key(version: str) -> tuple[int, int]:
@@ -1621,16 +1718,11 @@ def get_gene_associations(
                 print(f"Loading existing file from: {save_path_obj}")
             return pd.read_parquet(save_path_obj)
 
-    # Default datasets if not provided
-    if datasets is None:
-        datasets = [
-            "disease-to-gene",
-            "known_drug",
-            "pharmacogenomics",
-            "mouse_phenotype",
-            "target_essentiality",
-            "expression",
-        ]
+    # Resolve datasets through the three-layer precedence (caller > env
+    # var > module default) and validate against the supported set. See
+    # ``_resolve_gene_association_datasets`` and the constants module
+    # block at the top of this file.
+    datasets = _resolve_gene_association_datasets(datasets)
 
     if verbose >= 1:
         msg1 = "Preparing gene associations from OpenTargets datasets"
