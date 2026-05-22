@@ -543,3 +543,64 @@ def test_prepare_evidence_intogen_associations(monkeypatch) -> None:
     ]
     assert list(out["score"]) == [0.30, 1.0]
     assert list(out["label"]) == ["disease one", "disease two"]
+
+
+def test_get_gene_associations_evidence_eva_one_real_shard(tmp_path) -> None:
+    """End-to-end against a real OT ``evidence_eva`` shard: download one
+    parquet shard, run the preprocessor through ``get_gene_associations``,
+    confirm rows actually come back with the documented column shape.
+
+    Catches schema drift in the live dataset (upstream renames /
+    deletes / type-changes the columns the preprocessor reads) that
+    the synthetic-input unit tests can't catch by construction. The
+    sibling ``test_get_dataset_target_downloads_one_real_parquet_shard``
+    proves the download path itself; this test proves the
+    preprocessor → ``get_gene_associations`` composition end-to-end.
+    """
+    # Pre-warm the cache with a SINGLE shard so ``ensure_cached_shards``
+    # short-circuits inside ``get_gene_associations`` and we don't pull
+    # the whole multi-GB ``evidence_eva`` table. ``ensure_cached_shards``
+    # returns whatever's already on disk if anything is, so the
+    # subsequent get_gene_associations call uses just this one shard.
+    opentargets.get_dataset(
+        "evidence_eva",
+        version=opentargets.DEFAULT_VERSION,
+        cache_dir=tmp_path,
+        limit_files=1,
+        verbose=0,
+    )
+
+    df = opentargets.get_gene_associations(
+        datasets=["evidence_eva"],
+        cache_dir=tmp_path,
+        verbose=0,
+        force=0,
+    )
+
+    # Must produce rows
+    assert isinstance(df, pd.DataFrame)
+    assert len(df) > 0, (
+        "evidence_eva returned 0 rows -- upstream schema may have changed, "
+        "or the preprocessor's column selection is wrong."
+    )
+
+    # Must produce the canonical concat shape every dispatch branch shares
+    for required in ("database", "dataset", "sourceId", "targetId", "score", "label"):
+        assert required in df.columns, (
+            f"evidence_eva output missing required column {required!r}; got {sorted(df.columns)}"
+        )
+
+    # The ``dataset`` column should identify this run for downstream
+    # multi-dataset concat callers
+    assert (df["dataset"] == "evidence_eva").all(), (
+        "evidence_eva preprocessor isn't tagging its output with the right "
+        f"``dataset`` label; got {df['dataset'].unique().tolist()[:5]}"
+    )
+
+    # ``targetId`` should be Ensembl gene IDs (ENSG-prefixed)
+    targets = df["targetId"].astype(str)
+    ensg_frac = targets.str.startswith("ENSG").mean()
+    assert ensg_frac > 0.95, (
+        f"Only {ensg_frac:.2%} of evidence_eva targets are ENSG-prefixed; "
+        "upstream may have changed the target ID format."
+    )
