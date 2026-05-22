@@ -2066,25 +2066,6 @@ def parse_expression(df):
     return df
 
 
-# import gget
-# logger = logging.getLogger(__name__)
-# class JSONEncoder(json.JSONEncoder):
-#     """Custom JSON encoder that handles numpy arrays and pandas types."""
-#     def default(self, obj):
-#         if isinstance(obj, np.ndarray):
-#             return obj.tolist()
-#         elif isinstance(obj, (np.integer, np.floating)):
-#             return obj.item()
-#         elif isinstance(obj, np.bool_):
-#             return bool(obj)
-#         elif pd.isna(obj):
-#             return None
-#         elif isinstance(obj, (pd.Timestamp, pd.Timedelta)):
-#             return str(obj)
-#         elif isinstance(obj, (pd.Series, pd.Index)):
-#             return obj.tolist()
-#         return super().default(obj)
-
 # # Default cache directory
 # CACHE_DIR = Path.home() / ".cache" / "aou" / "opentargets"
 # CACHE_DIR.mkdir(parents=True, exist_ok=True)
@@ -2117,54 +2098,9 @@ def parse_expression(df):
 #     This function uses gget.ref() to fetch the Ensembl GTF file and extracts
 #     all gene information. This provides a comprehensive list of all genes.
 
-#     Parameters
-#     ----------
-#     output_format : str, default "pandas"
-#         Output format: "pandas" or "polars"
-#     cache_file : str, optional
-#         Path to cache file to save/load results. If None, uses default cache
-#         location: ~/.cache/aou/opentargets/all_genes_{species}_{biotype}.parquet
-#         If file exists and force=0, will load from cache instead of querying API.
-#     force : int, default 0
-#         Force refresh level:
-#         - 0: Use cached parquet if exists, otherwise fetch and process
-#         - 1: Use cached raw GTF data if exists, regenerate parquet from it
-#         - 2: Force fresh download of raw GTF data, then process
-#     biotype_filter : str, optional, default "protein_coding"
-#         Filter genes by biotype. Set to None to get all genes.
-#         Common biotypes: "protein_coding", "lncRNA", "pseudogene", etc.
-#     species : str, default "homo_sapiens"
-#         Species name in Ensembl format (e.g., "homo_sapiens", "mus_musculus")
-
-#     Returns
-#     -------
-#     pd.DataFrame or pl.DataFrame
-#         DataFrame with columns:
-#         - ensembl_id: Ensembl gene ID (e.g., "ENSG00000157764")
-#         - approved_symbol: Official gene symbol (e.g., "BRAF")
-#         - approved_name: Full gene name
-#         - biotype: Gene biotype (e.g., "protein_coding")
-#     """
-#     # Set default cache files if not provided
-#     if cache_file is None:
-#         biotype_str = biotype_filter if biotype_filter else "all"
-#         cache_file = str(DEFAULT_CACHE_DIR / f"all_genes_{species}_{biotype_str}.parquet")
 
 #     raw_cache_file = str(DEFAULT_CACHE_DIR / f"raw_gtf_{species}.gz")
 
-#     # Check parquet cache (force=0)
-#     if force == 0 and cache_file:
-#         try:
-#             if output_format == "pandas":
-#                 df = pd.read_parquet(cache_file)
-#                 logger.info(f"Loaded {len(df)} genes from cache: {cache_file}")
-#                 return df
-#             else:
-#                 df = pl.read_parquet(cache_file)
-#                 logger.info(f"Loaded {len(df)} genes from cache: {cache_file}")
-#                 return df
-#         except FileNotFoundError:
-#             pass
 
 #     # Check raw cache (force=1) or download fresh (force=2)
 #     download_raw = force == 2 or not os.path.exists(raw_cache_file)
@@ -2175,32 +2111,6 @@ def parse_expression(df):
 #             # Get reference data from Ensembl using gget
 #             ref_data = gget.ref(species)
 
-#             # gget.ref() returns a dict with file URLs
-#             # The structure may vary, so we need to find the GTF URL
-#             gtf_url = None
-#             if isinstance(ref_data, dict):
-#                 # Try common keys for GTF file
-#                 for key in ["gtf", "annotation_gtf", "gtf_ftp"]:
-#                     if key in ref_data:
-#                         if isinstance(ref_data[key], dict):
-#                             gtf_url = ref_data[key].get("ftp") or ref_data[key].get("url")
-#                         elif isinstance(ref_data[key], str):
-#                             gtf_url = ref_data[key]
-#                         if gtf_url:
-#                             break
-
-#                 # If not found, try nested structure
-#                 if not gtf_url and species in ref_data:
-#                     species_data = ref_data[species]
-#                     if isinstance(species_data, dict):
-#                         for key in ["annotation_gtf", "gtf"]:
-#                             if key in species_data:
-#                                 if isinstance(species_data[key], dict):
-#                                     gtf_url = species_data[key].get("ftp") or species_data[key].get("url")
-#                                 elif isinstance(species_data[key], str):
-#                                     gtf_url = species_data[key]
-#                                 if gtf_url:
-#                                     break
 
 #             if not gtf_url:
 #                 raise ValueError(f"Could not retrieve GTF file URL from gget.ref() for {species}. Returned: {ref_data}")
@@ -2301,19 +2211,6 @@ def parse_expression(df):
 #     return df
 
 
-# def _convert_results_to_dataframes(
-#     results: List[Dict[str, Any]],
-#     include_phenotypes: bool,
-#     include_drugs: bool,
-#     include_tractability: bool,
-#     include_pharmacogenetics: bool,
-#     include_expression: bool,
-#     include_depmap: bool,
-#     include_interactions: bool,
-# ) -> Dict[str, pd.DataFrame]:
-#     """
-#     Convert a list of gene info dictionaries into a dictionary of DataFrames.
-
 #     Each resource type becomes its own DataFrame with a gene_id column.
 
 #     Parameters
@@ -2323,173 +2220,9 @@ def parse_expression(df):
 #     include_phenotypes, include_drugs, etc. : bool
 #         Flags indicating which resources were included
 
-#     Returns
-#     -------
-#     dict of pandas.DataFrame
-#         Dictionary with keys:
-#         - "gene_info": Basic gene information (one row per gene)
-#         - "associated_diseases": All diseases (one row per disease-gene pair)
-#         - "associated_drugs": All drugs (one row per drug-gene pair)
-#         - "tractability": Tractability data (one row per gene)
-#         - "pharmacogenetics": Pharmacogenetics data (one row per entry)
-#         - "expression": Expression data (one row per entry)
-#         - "depmap": DepMap data (one row per entry)
-#         - "interactions": Interactions data (one row per interaction)
-#     """
-#     output = {}
-
-#     # Extract basic gene info
-#     gene_info_rows = []
-#     for result in results:
-#         gene_info_rows.append({
-#             "gene_id": result.get("ensembl_id", ""),
-#             "ensembl_id": result.get("ensembl_id", ""),
-#             "approved_symbol": result.get("approved_symbol", ""),
-#             "approved_name": result.get("approved_name", ""),
-#             "biotype": result.get("biotype", ""),
-#         })
-#     output["gene_info"] = pd.DataFrame(gene_info_rows)
-
-#     # Extract associated_diseases
-#     if include_phenotypes:
-#         diseases_rows = []
-#         for result in results:
-#             gene_id = result.get("ensembl_id", "")
-#             diseases = result.get("associated_diseases", [])
-#             if isinstance(diseases, list) and len(diseases) > 0:
-#                 for disease in diseases:
-#                     if isinstance(disease, dict):
-#                         disease_row = disease.copy()
-#                         disease_row["gene_id"] = gene_id
-#                         diseases_rows.append(disease_row)
-#         if diseases_rows:
-#             output["associated_diseases"] = pd.DataFrame(diseases_rows)
-#         else:
-#             output["associated_diseases"] = pd.DataFrame(columns=["gene_id"])
-
-#     # Extract associated_drugs
-#     if include_drugs:
-#         drugs_rows = []
-#         for result in results:
-#             gene_id = result.get("ensembl_id", "")
-#             drugs = result.get("associated_drugs", [])
-#             if isinstance(drugs, list) and len(drugs) > 0:
-#                 for drug in drugs:
-#                     if isinstance(drug, dict):
-#                         drug_row = drug.copy()
-#                         drug_row["gene_id"] = gene_id
-#                         drugs_rows.append(drug_row)
-#         if drugs_rows:
-#             output["associated_drugs"] = pd.DataFrame(drugs_rows)
-#         else:
-#             output["associated_drugs"] = pd.DataFrame(columns=["gene_id"])
-
-#     # Extract tractability
-#     if include_tractability:
-#         tractability_rows = []
-#         for result in results:
-#             gene_id = result.get("ensembl_id", "")
-#             tractability = result.get("tractability", [])
-#             if isinstance(tractability, list) and len(tractability) > 0:
-#                 for entry in tractability:
-#                     if isinstance(entry, dict):
-#                         entry_row = entry.copy()
-#                         entry_row["gene_id"] = gene_id
-#                         tractability_rows.append(entry_row)
-#         if tractability_rows:
-#             output["tractability"] = pd.DataFrame(tractability_rows)
-#         else:
-#             output["tractability"] = pd.DataFrame(columns=["gene_id"])
-
-#     # Extract pharmacogenetics
-#     if include_pharmacogenetics:
-#         pharmacogenetics_rows = []
-#         for result in results:
-#             gene_id = result.get("ensembl_id", "")
-#             pharmacogenetics = result.get("pharmacogenetics", [])
-#             if isinstance(pharmacogenetics, list) and len(pharmacogenetics) > 0:
-#                 for entry in pharmacogenetics:
-#                     if isinstance(entry, dict):
-#                         entry_row = entry.copy()
-#                         entry_row["gene_id"] = gene_id
-#                         pharmacogenetics_rows.append(entry_row)
-#         if pharmacogenetics_rows:
-#             output["pharmacogenetics"] = pd.DataFrame(pharmacogenetics_rows)
-#         else:
-#             output["pharmacogenetics"] = pd.DataFrame(columns=["gene_id"])
-
-#     # Extract expression
-#     if include_expression:
-#         expression_rows = []
-#         for result in results:
-#             gene_id = result.get("ensembl_id", "")
-#             expression = result.get("expression", [])
-#             if isinstance(expression, list) and len(expression) > 0:
-#                 for entry in expression:
-#                     if isinstance(entry, dict):
-#                         entry_row = entry.copy()
-#                         entry_row["gene_id"] = gene_id
-#                         expression_rows.append(entry_row)
-#         if expression_rows:
-#             output["expression"] = pd.DataFrame(expression_rows)
-#         else:
-#             output["expression"] = pd.DataFrame(columns=["gene_id"])
-
-#     # Extract depmap
-#     if include_depmap:
-#         depmap_rows = []
-#         for result in results:
-#             gene_id = result.get("ensembl_id", "")
-#             depmap = result.get("depmap", [])
-#             if isinstance(depmap, list) and len(depmap) > 0:
-#                 for entry in depmap:
-#                     if isinstance(entry, dict):
-#                         entry_row = entry.copy()
-#                         entry_row["gene_id"] = gene_id
-#                         depmap_rows.append(entry_row)
-#         if depmap_rows:
-#             output["depmap"] = pd.DataFrame(depmap_rows)
-#         else:
-#             output["depmap"] = pd.DataFrame(columns=["gene_id"])
-
-#     # Extract interactions
-#     if include_interactions:
-#         interactions_rows = []
-#         for result in results:
-#             gene_id = result.get("ensembl_id", "")
-#             interactions = result.get("interactions", [])
-#             if isinstance(interactions, list) and len(interactions) > 0:
-#                 for entry in interactions:
-#                     if isinstance(entry, dict):
-#                         entry_row = entry.copy()
-#                         entry_row["gene_id"] = gene_id
-#                         interactions_rows.append(entry_row)
-#         if interactions_rows:
-#             output["interactions"] = pd.DataFrame(interactions_rows)
-#         else:
-#             output["interactions"] = pd.DataFrame(columns=["gene_id"])
 
 #     return output
 
-
-# def get_gene_info(
-#     gene_id: Union[str, List[str]],
-#     include_phenotypes: bool = True,
-#     include_drugs: bool = True,
-#     include_tractability: bool = True,
-#     include_pharmacogenetics: bool = True,
-#     include_expression: bool = True,
-#     include_depmap: bool = True,
-#     include_interactions: bool = True,
-#     phenotype_size: int = None,
-#     phenotype_from: int = 0,
-#     force: int = 0,
-#     verbose: int = 0,
-#     cache_as: str = "json",
-#     return_as: str = "pandas",
-# ) -> Union[Dict[str, Any], List[Dict[str, Any]], Dict[str, pd.DataFrame]]:
-#     """
-#     Get detailed information for a specific gene or multiple genes, especially associated phenotypes.
 
 #     This function queries the OpenTargets Platform via gget to retrieve comprehensive
 #     gene information including basic gene metadata and associated diseases/phenotypes.
@@ -2550,19 +2283,6 @@ def parse_expression(df):
 #         - "json": Store as JSON.gz (default, preserves nested structures)
 #         - "parquet": Store as parquet (more efficient for large datasets, but nested DataFrames are converted to JSON strings)
 
-#     return_as : str, default "pandas"
-#         Return format:
-#         - "pandas": Return as dictionary of pandas DataFrames (default)
-#           Each resource type becomes its own DataFrame:
-#           - "gene_info": Basic gene information (ensembl_id, approved_symbol, approved_name, biotype)
-#           - "associated_diseases": All diseases (one row per disease, includes gene_id column)
-#           - "associated_drugs": All drugs (one row per drug, includes gene_id column)
-#           - "tractability": Tractability data (includes gene_id column)
-#           - "pharmacogenetics": Pharmacogenetics data (includes gene_id column)
-#           - "expression": Expression data (includes gene_id column)
-#           - "depmap": DepMap data (includes gene_id column)
-#           - "interactions": Interactions data (includes gene_id column)
-#         - "json": Return as original dict/list format
 
 #     Returns
 #     -------
@@ -2575,138 +2295,6 @@ def parse_expression(df):
 #               and the value is a DataFrame containing that resource's data.
 #               All resource DataFrames include a "gene_id" column linking back to the gene.
 
-#         Each dictionary contains the following keys:
-#         - ensembl_id (str): Ensembl gene ID (e.g., "ENSG00000157764")
-#         - approved_symbol (str): Official gene symbol from HGNC (e.g., "BRAF")
-#         - approved_name (str): Full gene name/description
-#         - biotype (str): Gene biotype (e.g., "protein_coding", "lncRNA")
-#         - associated_diseases (list, optional): List of associated diseases/phenotypes
-#           (only present if include_phenotypes=True). Each entry is a dict with all fields
-#           from the OpenTargets Platform API.
-#         - associated_drugs (list, optional): List of associated drugs
-#           (only present if include_drugs=True). Each entry is a dict with all fields
-#           from the OpenTargets Platform API.
-#         - tractability (list, optional): Tractability data indicating how "druggable" the gene is
-#           (only present if include_tractability=True). Each entry is a dict with all fields
-#           from the OpenTargets Platform API.
-#         - pharmacogenetics (list, optional): Pharmacogenetic response data
-#           (only present if include_pharmacogenetics=True). Each entry is a dict with all fields
-#           from the OpenTargets Platform API.
-#         - expression (list, optional): Gene expression data by tissues, organs, and anatomical systems
-#           (only present if include_expression=True). Each entry is a dict with all fields
-#           from the OpenTargets Platform API.
-#         - depmap (list, optional): DepMap gene→disease-effect data
-#           (only present if include_depmap=True). Each entry is a dict with all fields
-#           from the OpenTargets Platform API.
-#         - interactions (list, optional): Protein⇄protein interactions
-#           (only present if include_interactions=True). Each entry is a dict with all fields
-#           from the OpenTargets Platform API.
-
-#     Examples
-#     --------
-#     >>> import biodb.opentargets as opentargets
-#     >>>
-#     >>> # Get gene info with phenotypes using Ensembl ID (single gene)
-#     >>> gene_info = opentargets.get_gene_info("ENSG00000157764", include_phenotypes=True)
-#     >>> print(gene_info["approved_symbol"])  # "BRAF"
-#     >>> print(len(gene_info["associated_diseases"]))  # Number of associated diseases
-#     >>>
-#     >>> # Get gene info using gene symbol (auto-resolved, single gene)
-#     >>> gene_info = opentargets.get_gene_info("BRAF", include_phenotypes=True)
-#     >>>
-#     >>> # Get info for multiple genes (returns list)
-#     >>> genes_info = opentargets.get_gene_info(["BRAF", "TP53", "EGFR"], include_phenotypes=True)
-#     >>> print(len(genes_info))  # 3
-#     >>> print(genes_info[0]["approved_symbol"])  # "BRAF"
-#     >>>
-#     >>> # Get top 10 diseases only
-#     >>> gene_info = opentargets.get_gene_info("TP53", phenotype_size=10)
-#     >>>
-#     >>> # Get diseases starting from rank 11 (skip top 10)
-#     >>> gene_info = opentargets.get_gene_info("EGFR", phenotype_from=10, phenotype_size=20)
-#     >>>
-#     >>> # Get basic gene info without phenotypes (faster)
-#     >>> gene_info = opentargets.get_gene_info("BRAF", include_phenotypes=False)
-#     >>>
-#     >>> # Get gene info as dictionary of pandas DataFrames (default)
-#     >>> gene_data = opentargets.get_gene_info("BRAF", return_as="pandas")
-#     >>> print(gene_data["gene_info"]["approved_symbol"].iloc[0])  # "BRAF"
-#     >>> print(len(gene_data["associated_diseases"]))  # Number of diseases
-#     >>>
-#     >>> # Get gene info as original JSON format
-#     >>> gene_dict = opentargets.get_gene_info("BRAF", return_as="json")
-#     >>> print(gene_dict["approved_symbol"])  # "BRAF"
-
-#     Notes
-#     -----
-#     - This function uses the gget library to query OpenTargets Platform
-#     - Gene symbols are resolved to Ensembl IDs automatically
-#     - Each resource type can be individually controlled via its include_* parameter
-#     - Available resources:
-#       * diseases (include_phenotypes): Associated diseases/phenotypes (sorted by association score)
-#       * drugs (include_drugs): Associated drugs
-#       * tractability (include_tractability): Druggability assessment data
-#       * pharmacogenetics (include_pharmacogenetics): Pharmacogenetic response data
-#       * expression (include_expression): Gene expression by tissues, organs, and anatomical systems
-#       * depmap (include_depmap): DepMap gene→disease-effect data
-#       * interactions (include_interactions): Protein⇄protein interactions
-#     - All resource data is cached as parquet files for performance
-#     - Complete gene info results are cached as JSON.gz (default) or parquet files per gene ID
-#     - When processing multiple genes, errors for individual genes are logged but don't stop processing
-
-#     References
-#     ----------
-#     - OpenTargets Platform: https://platform.opentargets.org/
-#     - gget documentation: https://pachterlab.github.io/gget/en/opentargets.html
-#     """
-#     # Handle list of gene IDs
-#     if isinstance(gene_id, list):
-#         results = []
-#         # Use progress bar for multiple genes (unless verbose=2)
-#         iterator = tqdm(gene_id, desc="Fetching gene info") if verbose < 2 else gene_id
-#         for gid in iterator:
-#             try:
-#                 result = _get_gene_info_single(
-#                     gid,
-#                     include_phenotypes=include_phenotypes,
-#                     include_drugs=include_drugs,
-#                     include_tractability=include_tractability,
-#                     include_pharmacogenetics=include_pharmacogenetics,
-#                     include_expression=include_expression,
-#                     include_depmap=include_depmap,
-#                     include_interactions=include_interactions,
-#                     phenotype_size=phenotype_size,
-#                     phenotype_from=phenotype_from,
-#                     force=force,
-#                     verbose=verbose,
-#                     cache_as=cache_as,
-#                 )
-#                 results.append(result)
-#             except Exception as e:
-#                 if verbose >= 1:
-#                     logger.warning(f"Error fetching info for {gid}: {e}")
-#                 # Add error entry
-#                 error_entry = {
-#                     "ensembl_id": gid,
-#                     "approved_symbol": "",
-#                     "approved_name": "",
-#                     "biotype": "",
-#                 }
-#                 if include_phenotypes:
-#                     error_entry["associated_diseases"] = []
-#                 if include_drugs:
-#                     error_entry["associated_drugs"] = []
-#                 if include_tractability:
-#                     error_entry["tractability"] = []
-#                 if include_pharmacogenetics:
-#                     error_entry["pharmacogenetics"] = []
-#                 if include_expression:
-#                     error_entry["expression"] = []
-#                 if include_depmap:
-#                     error_entry["depmap"] = []
-#                 if include_interactions:
-#                     error_entry["interactions"] = []
-#                 results.append(error_entry)
 
 #         # Convert to pandas if requested
 #         if return_as == "pandas":
@@ -2716,25 +2304,6 @@ def parse_expression(df):
 #         else:
 #             return results
 
-#     # Single gene ID - delegate to helper function
-#     # Default verbose=1 for single gene (show standard logging)
-#     if verbose == 0:
-#         verbose = 1
-#     result = _get_gene_info_single(
-#         gene_id,
-#         include_phenotypes=include_phenotypes,
-#         include_drugs=include_drugs,
-#         include_tractability=include_tractability,
-#         include_pharmacogenetics=include_pharmacogenetics,
-#         include_expression=include_expression,
-#         include_depmap=include_depmap,
-#         include_interactions=include_interactions,
-#         phenotype_size=phenotype_size,
-#         phenotype_from=phenotype_from,
-#         force=force,
-#         verbose=verbose,
-#         cache_as=cache_as,
-#     )
 
 #     # Convert to pandas if requested
 #     if return_as == "pandas":
@@ -2745,24 +2314,6 @@ def parse_expression(df):
 #         return result
 
 
-# def _get_gene_info_single(
-#     gene_id: str,
-#     include_phenotypes: bool = True,
-#     include_drugs: bool = True,
-#     include_tractability: bool = True,
-#     include_pharmacogenetics: bool = True,
-#     include_expression: bool = True,
-#     include_depmap: bool = True,
-#     include_interactions: bool = True,
-#     phenotype_size: int = None,
-#     phenotype_from: int = 0,
-#     force: int = 0,
-#     verbose: int = 1,
-#     cache_as: str = "json",
-# ) -> Dict[str, Any]:
-#     """
-#     Internal helper function to get info for a single gene.
-
 #     This contains the core logic that was previously in get_gene_info.
 #     Results are cached as JSON.gz (default) or parquet files per gene ID.
 #     """
@@ -2772,59 +2323,9 @@ def parse_expression(df):
 #     if verbose < 2:
 #         gget_logger.setLevel(logging.WARNING)
 
-#     # Resolve gene symbol to Ensembl ID if needed
-#     resolved_symbol = None
-#     if not gene_id.startswith("ENSG"):
-#         try:
-#             # Use gget.search to resolve gene symbol to Ensembl ID
-#             search_results = gget.search(gene_id, species="human")
-#             if search_results is not None and len(search_results) > 0:
-#                 # Find the first result that looks like our gene
-#                 for result_item in search_results:
-#                     if isinstance(result_item, dict):
-#                         ens_id = result_item.get("ensembl_id", "")
-#                         if ens_id.startswith("ENSG"):
-#                             gene_id = ens_id
-#                             # Also try to get the symbol from search results
-#                             resolved_symbol = (
-#                                 result_item.get("gene_name") or
-#                                 result_item.get("name") or
-#                                 result_item.get("external_name") or
-#                                 gene_id  # Use original input as fallback
-#                             )
-#                             break
-#                     elif isinstance(result_item, str) and result_item.startswith("ENSG"):
-#                         gene_id = result_item
-#                         resolved_symbol = gene_id  # Use original input as fallback
-#                         break
-#                 else:
-#                     raise ValueError(f"Could not resolve gene symbol to Ensembl ID: {gene_id}")
-#             else:
-#                 raise ValueError(f"Gene symbol not found: {gene_id}")
-#         except Exception as e:
-#             logger.error(f"Error resolving gene ID {gene_id}: {e}")
-#             raise ValueError(f"Could not resolve gene identifier: {gene_id}")
 
 #     ensembl_id = gene_id
 
-#     # Build cache file path - separate file for each gene ID
-#     # Include resource flags in cache filename to ensure different combinations get different cache files
-#     cache_parts = ["gene_info", ensembl_id]
-#     resource_flags = []
-#     if include_phenotypes:
-#         resource_flags.append("phenotypes")
-#     if include_drugs:
-#         resource_flags.append("drugs")
-#     if include_tractability:
-#         resource_flags.append("tractability")
-#     if include_pharmacogenetics:
-#         resource_flags.append("pharmacogenetics")
-#     if include_expression:
-#         resource_flags.append("expression")
-#     if include_depmap:
-#         resource_flags.append("depmap")
-#     if include_interactions:
-#         resource_flags.append("interactions")
 
 #     if resource_flags:
 #         cache_parts.append("_".join(resource_flags))
@@ -2842,48 +2343,6 @@ def parse_expression(df):
 #     else:
 #         cache_file = str(DEFAULT_CACHE_DIR / f"{'_'.join(cache_parts)}.json.gz")
 
-#     # Check cache (force=0)
-#     if force == 0:
-#         try:
-#             if os.path.exists(cache_file):
-#                 if cache_as == "parquet":
-#                     # Load from parquet
-#                     df = pd.read_parquet(cache_file)
-#                     # Convert DataFrame back to dict (assuming single row)
-#                     if len(df) > 0:
-#                         result = df.iloc[0].to_dict()
-#                         # Parse JSON strings back to objects if needed
-#                         # Only parse strings that look like JSON (start with [ or { and are longer than 1 char)
-#                         for key, val in result.items():
-#                             if isinstance(val, str) and len(val) > 1 and (val.strip().startswith('[') or val.strip().startswith('{')):
-#                                 try:
-#                                     parsed = json.loads(val)
-#                                     result[key] = parsed
-#                                 except (json.JSONDecodeError, ValueError):
-#                                     pass  # Keep as string if not valid JSON
-#                     else:
-#                         result = {}
-#                     if verbose >= 2:
-#                         logger.info(f"Loaded gene info from cache: {cache_file}")
-#                     return result
-#                 else:
-#                     # Load from JSON.gz
-#                     with gzip.open(cache_file, "rt", encoding="utf-8") as f:
-#                         result = json.load(f)
-#                     if verbose >= 2:
-#                         logger.info(f"Loaded gene info from cache: {cache_file}")
-#                     return result
-#         except (json.JSONDecodeError, ValueError, OSError) as e:
-#             logger.warning(f"Error loading cache from {cache_file}: {e}. Cache file may be corrupted. Deleting and re-fetching.")
-#             # Delete corrupted cache file
-#             try:
-#                 os.remove(cache_file)
-#             except Exception:
-#                 pass
-#             # Continue to fetch fresh data
-#         except Exception as e:
-#             logger.warning(f"Unexpected error loading cache from {cache_file}: {e}. Re-fetching.")
-#             # Continue to fetch fresh data
 
 #     # Get gene information using gget
 #     result = {
@@ -2897,122 +2356,6 @@ def parse_expression(df):
 #     if resolved_symbol and resolved_symbol != ensembl_id:
 #         result["approved_symbol"] = resolved_symbol
 
-#     # Get all resources if requested
-#     if include_phenotypes:
-#         # Fetch all resources using our helper functions
-#         # Diseases
-#         try:
-#             diseases_df = _get_gene_diseases_single(ensembl_id, limit=phenotype_size, output_format="pandas", force=0)
-#             if diseases_df is not None and len(diseases_df) > 0:
-#                 # Apply pagination offset
-#                 if phenotype_from > 0:
-#                     diseases_df = diseases_df.iloc[phenotype_from:]
-#                 result["associated_diseases"] = diseases_df.to_dict("records")
-#                 if verbose >= 2:
-#                     logger.info(f"Fetched {len(result['associated_diseases'])} diseases for {ensembl_id}")
-#             else:
-#                 result["associated_diseases"] = []
-#         except Exception as e:
-#             logger.warning(f"Error fetching diseases for {ensembl_id}: {e}")
-#             import traceback
-#             logger.debug(traceback.format_exc())
-#             result["associated_diseases"] = []
-
-#         # Drugs
-#         if include_drugs:
-#             try:
-#                 drugs_df = _get_gene_drugs_single(ensembl_id, output_format="pandas", force=0)
-#                 if drugs_df is not None and len(drugs_df) > 0:
-#                     result["associated_drugs"] = drugs_df.to_dict("records")
-#                     if verbose >= 2:
-#                         logger.info(f"Fetched {len(result['associated_drugs'])} drugs for {ensembl_id}")
-#                 else:
-#                     result["associated_drugs"] = []
-#             except Exception as e:
-#                 logger.warning(f"Error fetching drugs for {ensembl_id}: {e}")
-#                 import traceback
-#                 logger.debug(traceback.format_exc())
-#                 result["associated_drugs"] = []
-
-#         # Tractability
-#         if include_tractability:
-#             try:
-#                 tractability_df = _get_gene_resource_single(ensembl_id, resource="tractability", output_format="pandas", force=0)
-#                 if tractability_df is not None and len(tractability_df) > 0:
-#                     result["tractability"] = tractability_df.to_dict("records")
-#                     if verbose >= 2:
-#                         logger.info(f"Fetched tractability data for {ensembl_id}")
-#                 else:
-#                     result["tractability"] = []
-#             except Exception as e:
-#                 logger.warning(f"Error fetching tractability for {ensembl_id}: {e}")
-#                 import traceback
-#                 logger.debug(traceback.format_exc())
-#                 result["tractability"] = []
-
-#         # Pharmacogenetics
-#         if include_pharmacogenetics:
-#             try:
-#                 pharmacogenetics_df = _get_gene_resource_single(ensembl_id, resource="pharmacogenetics", output_format="pandas", force=0)
-#                 if pharmacogenetics_df is not None and len(pharmacogenetics_df) > 0:
-#                     result["pharmacogenetics"] = pharmacogenetics_df.to_dict("records")
-#                     if verbose >= 2:
-#                         logger.info(f"Fetched {len(result['pharmacogenetics'])} pharmacogenetics entries for {ensembl_id}")
-#                 else:
-#                     result["pharmacogenetics"] = []
-#             except Exception as e:
-#                 logger.warning(f"Error fetching pharmacogenetics for {ensembl_id}: {e}")
-#                 import traceback
-#                 logger.debug(traceback.format_exc())
-#                 result["pharmacogenetics"] = []
-
-#         # Expression
-#         if include_expression:
-#             try:
-#                 expression_df = _get_gene_resource_single(ensembl_id, resource="expression", output_format="pandas", force=0)
-#                 if expression_df is not None and len(expression_df) > 0:
-#                     result["expression"] = expression_df.to_dict("records")
-#                     if verbose >= 2:
-#                         logger.info(f"Fetched {len(result['expression'])} expression entries for {ensembl_id}")
-#                 else:
-#                     result["expression"] = []
-#             except Exception as e:
-#                 logger.warning(f"Error fetching expression for {ensembl_id}: {e}")
-#                 import traceback
-#                 logger.debug(traceback.format_exc())
-#                 result["expression"] = []
-
-#         # DepMap
-#         if include_depmap:
-#             try:
-#                 depmap_df = _get_gene_resource_single(ensembl_id, resource="depmap", output_format="pandas", force=0)
-#                 if depmap_df is not None and len(depmap_df) > 0:
-#                     result["depmap"] = depmap_df.to_dict("records")
-#                     if verbose >= 2:
-#                         logger.info(f"Fetched {len(result['depmap'])} depmap entries for {ensembl_id}")
-#                 else:
-#                     result["depmap"] = []
-#             except Exception as e:
-#                 logger.warning(f"Error fetching depmap for {ensembl_id}: {e}")
-#                 import traceback
-#                 logger.debug(traceback.format_exc())
-#                 result["depmap"] = []
-
-#         # Interactions
-#         if include_interactions:
-#             try:
-#                 interactions_df = _get_gene_resource_single(ensembl_id, resource="interactions", output_format="pandas", force=0)
-#                 if interactions_df is not None and len(interactions_df) > 0:
-#                     result["interactions"] = interactions_df.to_dict("records")
-#                     if verbose >= 2:
-#                         logger.info(f"Fetched {len(result['interactions'])} interactions for {ensembl_id}")
-#                 else:
-#                     result["interactions"] = []
-#             except Exception as e:
-#                 logger.warning(f"Error fetching interactions for {ensembl_id}: {e}")
-#                 import traceback
-#                 logger.debug(traceback.format_exc())
-#                 result["interactions"] = []
 
 #     # Try to get basic gene info using gget.info
 #     try:
@@ -3033,41 +2376,12 @@ def parse_expression(df):
 #                 # Extract from first row - try both .get() and direct access
 #                 first_row = gene_info.iloc[0]
 
-#                 # Try multiple ways to access the data
-#                 def get_from_series(series, *keys):
-#                     """Get value from pandas Series trying multiple keys."""
-#                     for key in keys:
-#                         try:
-#                             if key in series.index:
-#                                 val = series[key]
-#                                 if pd.notna(val) and val != "":
-#                                     return str(val)
-#                         except (KeyError, AttributeError):
-#                             continue
-#                     return ""
 
 #                 extracted_symbol = get_from_series(first_row, "gene_name", "name", "gene_name_ensembl", "external_name", "hgnc_symbol", "symbol", "gene_symbol")
 #                 if extracted_symbol:
 #                     result["approved_symbol"] = extracted_symbol
 #                 # Otherwise keep the resolved_symbol if we have it
 
-#                 # Try many more variations for gene name/description
-#                 extracted_name = get_from_series(
-#                     first_row,
-#                     "description",
-#                     "gene_description",
-#                     "description_ensembl",
-#                     "full_name",
-#                     "gene_full_name",
-#                     "name",  # Sometimes name is the full name
-#                     "gene_name",  # Sometimes gene_name is the full name
-#                     "external_name",
-#                     "hgnc_name",
-#                     "hgnc_full_name",
-#                     "long_name",
-#                     "gene_long_name"
-#                 )
-#                 result["approved_name"] = extracted_name or ""
 
 #                 result["biotype"] = (
 #                     get_from_series(first_row, "gene_biotype", "biotype", "biotype_ensembl") or
@@ -3086,39 +2400,6 @@ def parse_expression(df):
 #                     logger.info(f"gget.info dict keys: {list(gene_info.keys())}")
 #                     logger.info(f"gget.info dict full content: {gene_info}")
 
-#                 # Try multiple key variations for symbol
-#                 extracted_symbol = (
-#                     gene_info.get("gene_name") or
-#                     gene_info.get("name") or
-#                     gene_info.get("gene_name_ensembl") or
-#                     gene_info.get("external_name") or
-#                     gene_info.get("hgnc_symbol") or
-#                     gene_info.get("symbol") or
-#                     gene_info.get("gene_symbol") or
-#                     ""
-#                 )
-#                 if extracted_symbol:
-#                     result["approved_symbol"] = extracted_symbol
-#                 # Otherwise keep the resolved_symbol if we have it
-
-#                 # Try many more variations for gene name/description
-#                 extracted_name = (
-#                     gene_info.get("description") or
-#                     gene_info.get("gene_description") or
-#                     gene_info.get("description_ensembl") or
-#                     gene_info.get("full_name") or
-#                     gene_info.get("gene_full_name") or
-#                     gene_info.get("external_name") or
-#                     gene_info.get("hgnc_name") or
-#                     gene_info.get("hgnc_full_name") or
-#                     gene_info.get("long_name") or
-#                     gene_info.get("gene_long_name") or
-#                     # Sometimes "name" or "gene_name" is actually the full name
-#                     (gene_info.get("name") if not extracted_symbol else None) or
-#                     (gene_info.get("gene_name") if not extracted_symbol else None) or
-#                     ""
-#                 )
-#                 result["approved_name"] = extracted_name or ""
 
 #                 result["biotype"] = (
 #                     gene_info.get("gene_biotype") or
@@ -3144,174 +2425,9 @@ def parse_expression(df):
 #             # Convert dict to DataFrame (single row)
 #             df = pd.DataFrame([result])
 
-#             # Flatten nested DataFrames/Series in columns before saving to parquet
-#             for col in df.columns:
-#                 if len(df) > 0:
-#                     non_null_mask = df[col].notna()
-#                     if non_null_mask.any():
-#                         sample_val = df[col][non_null_mask].iloc[0]
-#                         # Check if column contains DataFrames or Series
-#                         if isinstance(sample_val, (pd.DataFrame, pd.Series)):
-#                             # Convert to JSON string
-#                             def convert_to_json(val):
-#                                 # Check for DataFrame/Series first (before pd.isna which doesn't work on them)
-#                                 if isinstance(val, pd.DataFrame):
-#                                     return json.dumps(val.to_dict("records"), default=str)
-#                                 elif isinstance(val, pd.Series):
-#                                     return json.dumps(val.to_dict(), default=str)
-#                                 # Check for NaN/None after DataFrame/Series checks
-#                                 try:
-#                                     if pd.isna(val):
-#                                         return None
-#                                 except (ValueError, TypeError):
-#                                     pass
-#                                 return val
-#                             df[col] = df[col].apply(convert_to_json)
-#                         elif isinstance(sample_val, list) and len(sample_val) > 0:
-#                             # Check if list contains DataFrames
-#                             if any(isinstance(v, (pd.DataFrame, pd.Series)) for v in sample_val):
-#                                 def convert_list_to_json(val):
-#                                     # Check for DataFrame/Series first
-#                                     if isinstance(val, pd.DataFrame):
-#                                         return json.dumps(val.to_dict("records"), default=str)
-#                                     elif isinstance(val, pd.Series):
-#                                         return json.dumps(val.to_dict(), default=str)
-#                                     # Check for NaN/None or wrong type
-#                                     try:
-#                                         if pd.isna(val):
-#                                             return val
-#                                     except (ValueError, TypeError):
-#                                         pass
-#                                     if not isinstance(val, list):
-#                                         return val
-#                                     converted = []
-#                                     for item in val:
-#                                         if isinstance(item, pd.DataFrame):
-#                                             converted.append(item.to_dict("records"))
-#                                         elif isinstance(item, pd.Series):
-#                                             converted.append(item.to_dict())
-#                                         else:
-#                                             converted.append(item)
-#                                     return json.dumps(converted, default=str)
-#                                 df[col] = df[col].apply(convert_list_to_json)
-#                         elif isinstance(sample_val, dict) and len(sample_val) > 0:
-#                             # Check if dict contains DataFrames
-#                             if any(isinstance(v, (pd.DataFrame, pd.Series)) for v in sample_val.values()):
-#                                 def convert_dict_to_json(val):
-#                                     # Check for DataFrame/Series first
-#                                     if isinstance(val, pd.DataFrame):
-#                                         return json.dumps(val.to_dict("records"), default=str)
-#                                     elif isinstance(val, pd.Series):
-#                                         return json.dumps(val.to_dict(), default=str)
-#                                     # Check for NaN/None or wrong type
-#                                     try:
-#                                         if pd.isna(val):
-#                                             return val
-#                                     except (ValueError, TypeError):
-#                                         pass
-#                                     if not isinstance(val, dict):
-#                                         return val
-#                                     converted = {}
-#                                     for k, v in val.items():
-#                                         if isinstance(v, pd.DataFrame):
-#                                             converted[k] = v.to_dict("records")
-#                                         elif isinstance(v, pd.Series):
-#                                             converted[k] = v.to_dict()
-#                                         else:
-#                                             converted[k] = v
-#                                     return json.dumps(converted, default=str)
-#                                 df[col] = df[col].apply(convert_dict_to_json)
-
-#             # Use atomic write: write to temp file first, then rename
-#             import tempfile
-#             temp_file = cache_file + ".tmp"
-#             try:
-#                 df.to_parquet(temp_file, index=False)
-#                 # Atomic rename (works on same filesystem)
-#                 os.replace(temp_file, cache_file)
-#                 if verbose >= 2:
-#                     logger.info(f"Cached gene info to: {cache_file}")
-#             except Exception as write_error:
-#                 # Clean up temp file if it exists
-#                 try:
-#                     if os.path.exists(temp_file):
-#                         os.remove(temp_file)
-#                 except Exception:
-#                     pass
-#                 # Also remove corrupted cache file if it exists
-#                 try:
-#                     if os.path.exists(cache_file):
-#                         os.remove(cache_file)
-#                 except Exception:
-#                     pass
-#                 raise write_error
-#         else:
-#             # Save as JSON.gz
-#             # First, convert all numpy arrays and pandas types to JSON-serializable format
-#             def make_json_serializable(obj):
-#                 """Recursively convert numpy/pandas types to JSON-serializable types."""
-#                 # Check for DataFrame first (before pd.isna which doesn't work on DataFrames)
-#                 if isinstance(obj, pd.DataFrame):
-#                     return obj.to_dict("records")
-#                 elif isinstance(obj, dict):
-#                     return {k: make_json_serializable(v) for k, v in obj.items()}
-#                 elif isinstance(obj, list):
-#                     return [make_json_serializable(item) for item in obj]
-#                 elif isinstance(obj, np.ndarray):
-#                     return obj.tolist()
-#                 elif isinstance(obj, (np.integer, np.floating)):
-#                     return obj.item()
-#                 elif isinstance(obj, np.bool_):
-#                     return bool(obj)
-#                 elif isinstance(obj, (pd.Series, pd.Index)):
-#                     return obj.tolist()
-#                 elif isinstance(obj, (pd.Timestamp, pd.Timedelta)):
-#                     return str(obj)
-#                 # Check for NaN/None after DataFrame/Series checks (pd.isna works on scalars)
-#                 try:
-#                     if pd.isna(obj):
-#                         return None
-#                 except (ValueError, TypeError):
-#                     # pd.isna might fail for some types, just continue
-#                     pass
-#                 return obj
 
 #             serializable_result = make_json_serializable(result)
 
-#             # Use atomic write: write to temp file first, then rename
-#             import tempfile
-#             temp_file = cache_file + ".tmp"
-#             try:
-#                 with gzip.open(temp_file, "wt", encoding="utf-8") as f:
-#                     json.dump(serializable_result, f, indent=2, ensure_ascii=False, cls=JSONEncoder)
-#                 # Atomic rename (works on same filesystem)
-#                 os.replace(temp_file, cache_file)
-#                 if verbose >= 2:
-#                     logger.info(f"Cached gene info to: {cache_file}")
-#             except Exception as write_error:
-#                 # Clean up temp file if it exists
-#                 try:
-#                     if os.path.exists(temp_file):
-#                         os.remove(temp_file)
-#                 except Exception:
-#                     pass
-#                 # Also remove corrupted cache file if it exists
-#                 try:
-#                     if os.path.exists(cache_file):
-#                         os.remove(cache_file)
-#                 except Exception:
-#                     pass
-#                 raise write_error
-#     except Exception as e:
-#         logger.warning(f"Error caching gene info to {cache_file}: {e}")
-#         import traceback
-#         logger.debug(traceback.format_exc())
-#         # Ensure corrupted file is deleted
-#         try:
-#             if os.path.exists(cache_file):
-#                 os.remove(cache_file)
-#         except Exception:
-#             pass
 
 #     # Restore original gget logger level
 #     gget_logger.setLevel(original_level)
@@ -3329,31 +2445,6 @@ def parse_expression(df):
 #     """
 #     Get detailed information for multiple genes in batch.
 
-#     Parameters
-#     ----------
-#     gene_ids : list of str
-#         List of gene identifiers (Ensembl IDs or gene symbols)
-#     include_phenotypes : bool, default True
-#         Whether to include associated phenotypes/diseases
-#     phenotype_size : int, default 1000
-#         Maximum number of phenotypes to retrieve per gene
-#     delay : float, default 0.1
-#         Delay between API requests in seconds (for rate limiting)
-#     output_format : str, default "pandas"
-#         Output format: "pandas" or "polars"
-
-#     Returns
-#     -------
-#     pd.DataFrame or pl.DataFrame
-#         DataFrame with gene information. Each row contains:
-#         - ensembl_id: Ensembl gene ID
-#         - approved_symbol: Official gene symbol
-#         - approved_name: Full gene name
-#         - biotype: Gene biotype
-#         - associated_diseases: JSON string or list of associated diseases
-#             (depending on output_format)
-#     """
-#     results = []
 
 #     for gene_id in tqdm(gene_ids, desc="Fetching gene info"):
 #         try:
@@ -3373,17 +2464,6 @@ def parse_expression(df):
 
 #             results.append(info)
 
-#         except Exception as e:
-#             logger.warning(f"Error fetching info for {gene_id}: {e}")
-#             results.append(
-#                 {
-#                     "ensembl_id": gene_id,
-#                     "approved_symbol": "",
-#                     "approved_name": "",
-#                     "biotype": "",
-#                     "associated_diseases": [] if include_phenotypes else None,
-#                 }
-#             )
 
 #         # Rate limiting
 #         import time
@@ -3410,57 +2490,6 @@ def parse_expression(df):
 #     This is a convenience wrapper around gget.opentargets() for diseases.
 #     Results are cached as parquet files to avoid repeated API calls.
 
-#     Parameters
-#     ----------
-#     gene_id : str or list of str
-#         Gene identifier(s). Can be either:
-#         - Ensembl gene ID (e.g., "ENSG00000157764")
-#         - Gene symbol (e.g., "BRAF", "TP53", "EGFR")
-#         - List of gene identifiers (mix of Ensembl IDs and symbols is allowed)
-#           Gene symbols will be automatically resolved to Ensembl IDs
-#     limit : int, optional
-#         Maximum number of diseases to return per gene
-#     output_format : str, default "pandas"
-#         Output format: "pandas" or "polars"
-#     force : int, default 0
-#         Force refresh level:
-#         - 0: Use cached parquet if exists, otherwise fetch and cache
-#         - 1: Force new query, bypass cache
-
-#     Returns
-#     -------
-#     pd.DataFrame or pl.DataFrame
-#         DataFrame with disease associations. If gene_id is a list, results are
-#         concatenated with a 'gene_id' column indicating which gene each disease
-#         is associated with.
-#     """
-#     # Handle list of gene IDs
-#     if isinstance(gene_id, list):
-#         all_dfs = []
-#         for gid in tqdm(gene_id, desc="Fetching diseases"):
-#             try:
-#                 df = _get_gene_diseases_single(
-#                     gid,
-#                     limit=limit,
-#                     output_format=output_format,
-#                     force=force,
-#                 )
-#                 # Add gene_id column to identify which gene this belongs to
-#                 if len(df) > 0:
-#                     if output_format == "pandas":
-#                         df["gene_id"] = gid
-#                     else:
-#                         df = df.with_columns(pl.lit(gid).alias("gene_id"))
-#                 all_dfs.append(df)
-#             except Exception as e:
-#                 logger.warning(f"Error fetching diseases for {gid}: {e}")
-#                 # Add empty DataFrame with gene_id column
-#                 if output_format == "pandas":
-#                     empty_df = pd.DataFrame()
-#                     empty_df["gene_id"] = []
-#                 else:
-#                     empty_df = pl.DataFrame({"gene_id": []})
-#                 all_dfs.append(empty_df)
 
 #         # Concatenate all results
 #         if len(all_dfs) == 0:
@@ -3502,71 +2531,17 @@ def parse_expression(df):
 #     """
 #     Internal helper function to get diseases for a single gene.
 
-#     This contains the core logic that was previously in get_gene_diseases.
-#     """
-#     # Resolve gene symbol to Ensembl ID if needed
-#     ensembl_id = gene_id
-#     if not gene_id.startswith("ENSG"):
-#         try:
-#             # Use gget.search to resolve gene symbol to Ensembl ID
-#             search_results = gget.search(gene_id, species="human")
-#             if search_results is not None and len(search_results) > 0:
-#                 # Find the first result that looks like our gene
-#                 for result_item in search_results:
-#                     if isinstance(result_item, dict):
-#                         ens_id = result_item.get("ensembl_id", "")
-#                         if ens_id.startswith("ENSG"):
-#                             ensembl_id = ens_id
-#                             break
-#                     elif isinstance(result_item, str) and result_item.startswith("ENSG"):
-#                         ensembl_id = result_item
-#                         break
-#                 else:
-#                     raise ValueError(f"Could not resolve gene symbol to Ensembl ID: {gene_id}")
-#             else:
-#                 raise ValueError(f"Gene symbol not found: {gene_id}")
-#         except Exception as e:
-#             logger.error(f"Error resolving gene ID {gene_id}: {e}")
-#             raise ValueError(f"Could not resolve gene identifier: {gene_id}")
 
 #     # Set up cache file path
 #     cache_file = str(DEFAULT_CACHE_DIR / f"diseases_{ensembl_id}.parquet")
 #     if limit is not None:
 #         cache_file = str(DEFAULT_CACHE_DIR / f"diseases_{ensembl_id}_limit{limit}.parquet")
 
-#     # Check cache (force=0)
-#     if force == 0:
-#         try:
-#             if output_format == "pandas":
-#                 df = pd.read_parquet(cache_file)
-#                 logger.info(f"Loaded {len(df)} diseases from cache: {cache_file}")
-#                 return df
-#             else:
-#                 df = pl.read_parquet(cache_file)
-#                 logger.info(f"Loaded {len(df)} diseases from cache: {cache_file}")
-#                 return df
-#         except FileNotFoundError:
-#             pass
 
 #     # Fetch from API
 #     logger.info(f"Fetching diseases for {ensembl_id} from OpenTargets Platform...")
 #     diseases_data = gget.opentargets(ensembl_id, resource="diseases", limit=limit)
 
-#     if diseases_data is None or len(diseases_data) == 0:
-#         # Return empty DataFrame with expected structure
-#         logger.warning(f"No diseases found for {ensembl_id}")
-#         if output_format == "pandas":
-#             df = pd.DataFrame()
-#         else:
-#             df = pl.DataFrame()
-#     else:
-#         # Log raw data structure for debugging
-#         if isinstance(diseases_data, list) and len(diseases_data) > 0:
-#             logger.debug(f"Raw JSON structure - first item keys: {list(diseases_data[0].keys()) if isinstance(diseases_data[0], dict) else 'Not a dict'}")
-#             logger.debug(f"Raw JSON structure - first item sample: {diseases_data[0] if isinstance(diseases_data[0], dict) else 'Not a dict'}")
-#         elif isinstance(diseases_data, pd.DataFrame) and len(diseases_data) > 0:
-#             logger.debug(f"Raw DataFrame columns: {list(diseases_data.columns)}")
-#             logger.debug(f"Raw DataFrame first row: {diseases_data.iloc[0].to_dict()}")
 
 #         # Convert list of dicts to DataFrame - this preserves ALL fields from raw JSON
 #         df = pd.DataFrame(diseases_data)
@@ -3577,20 +2552,6 @@ def parse_expression(df):
 #         if output_format == "polars":
 #             df = pl.from_pandas(df)
 
-#     # Save to cache
-#     if len(df) > 0:
-#         try:
-#             if output_format == "pandas":
-#                 df.to_parquet(cache_file, index=False)
-#             else:
-#                 # For polars, convert to pandas temporarily to save
-#                 df_pd = df.to_pandas()
-#                 df_pd.to_parquet(cache_file, index=False)
-#                 # Recreate polars DataFrame
-#                 df = pl.read_parquet(cache_file)
-#             logger.info(f"Cached {len(df)} diseases to: {cache_file}")
-#         except Exception as e:
-#             logger.warning(f"Error caching diseases to {cache_file}: {e}")
 
 #     return df
 
@@ -3608,60 +2569,6 @@ def parse_expression(df):
 #     This is a convenience wrapper around gget.opentargets() for drugs.
 #     Results are cached as parquet files to avoid repeated API calls.
 
-#     Parameters
-#     ----------
-#     gene_id : str or list of str
-#         Gene identifier(s). Can be either:
-#         - Ensembl gene ID (e.g., "ENSG00000157764")
-#         - Gene symbol (e.g., "BRAF", "TP53", "EGFR")
-#         - List of gene identifiers (mix of Ensembl IDs and symbols is allowed)
-#           Gene symbols will be automatically resolved to Ensembl IDs
-#     disease_id : str, optional
-#         Filter drugs by disease ID (EFO ID, e.g., 'EFO_0000274')
-#     limit : int, optional
-#         Maximum number of drugs to return per gene
-#     output_format : str, default "pandas"
-#         Output format: "pandas" or "polars"
-#     force : int, default 0
-#         Force refresh level:
-#         - 0: Use cached parquet if exists, otherwise fetch and cache
-#         - 1: Force new query, bypass cache
-
-#     Returns
-#     -------
-#     pd.DataFrame or pl.DataFrame
-#         DataFrame with drug associations. If gene_id is a list, results are
-#         concatenated with a 'gene_id' column indicating which gene each drug
-#         is associated with.
-#     """
-#     # Handle list of gene IDs
-#     if isinstance(gene_id, list):
-#         all_dfs = []
-#         for gid in tqdm(gene_id, desc="Fetching drugs"):
-#             try:
-#                 df = _get_gene_drugs_single(
-#                     gid,
-#                     disease_id=disease_id,
-#                     limit=limit,
-#                     output_format=output_format,
-#                     force=force,
-#                 )
-#                 # Add gene_id column to identify which gene this belongs to
-#                 if len(df) > 0:
-#                     if output_format == "pandas":
-#                         df["gene_id"] = gid
-#                     else:
-#                         df = df.with_columns(pl.lit(gid).alias("gene_id"))
-#                 all_dfs.append(df)
-#             except Exception as e:
-#                 logger.warning(f"Error fetching drugs for {gid}: {e}")
-#                 # Add empty DataFrame with gene_id column
-#                 if output_format == "pandas":
-#                     empty_df = pd.DataFrame()
-#                     empty_df["gene_id"] = []
-#                 else:
-#                     empty_df = pl.DataFrame({"gene_id": []})
-#                 all_dfs.append(empty_df)
 
 #         # Concatenate all results
 #         if len(all_dfs) == 0:
@@ -3695,39 +2602,6 @@ def parse_expression(df):
 #     )
 
 
-# def _get_gene_drugs_single(
-#     gene_id: str,
-#     disease_id: Optional[str] = None,
-#     limit: Optional[int] = None,
-#     output_format: str = "pandas",
-#     force: int = 0,
-# ) -> Union[pd.DataFrame, pl.DataFrame]:
-#     """
-#     Internal helper function to get drugs for a single gene.
-#     """
-#     # Resolve gene symbol to Ensembl ID if needed
-#     ensembl_id = gene_id
-#     if not gene_id.startswith("ENSG"):
-#         try:
-#             search_results = gget.search(gene_id, species="human")
-#             if search_results is not None and len(search_results) > 0:
-#                 for result_item in search_results:
-#                     if isinstance(result_item, dict):
-#                         ens_id = result_item.get("ensembl_id", "")
-#                         if ens_id.startswith("ENSG"):
-#                             ensembl_id = ens_id
-#                             break
-#                     elif isinstance(result_item, str) and result_item.startswith("ENSG"):
-#                         ensembl_id = result_item
-#                         break
-#                 else:
-#                     raise ValueError(f"Could not resolve gene symbol to Ensembl ID: {gene_id}")
-#             else:
-#                 raise ValueError(f"Gene symbol not found: {gene_id}")
-#         except Exception as e:
-#             logger.error(f"Error resolving gene ID {gene_id}: {e}")
-#             raise ValueError(f"Could not resolve gene identifier: {gene_id}")
-
 #     # Set up cache file path
 #     cache_file = str(DEFAULT_CACHE_DIR / f"drugs_{ensembl_id}.parquet")
 #     if disease_id:
@@ -3737,19 +2611,6 @@ def parse_expression(df):
 #         if disease_id:
 #             cache_file = str(DEFAULT_CACHE_DIR / f"drugs_{ensembl_id}_disease_{disease_id}_limit{limit}.parquet")
 
-#     # Check cache (force=0)
-#     if force == 0:
-#         try:
-#             if output_format == "pandas":
-#                 df = pd.read_parquet(cache_file)
-#                 logger.info(f"Loaded {len(df)} drugs from cache: {cache_file}")
-#                 return df
-#             else:
-#                 df = pl.read_parquet(cache_file)
-#                 logger.info(f"Loaded {len(df)} drugs from cache: {cache_file}")
-#                 return df
-#         except FileNotFoundError:
-#             pass
 
 #     # Fetch from API - use filters parameter for disease_id
 #     logger.info(f"Fetching drugs for {ensembl_id} from OpenTargets Platform...")
@@ -3777,18 +2638,6 @@ def parse_expression(df):
 #         if output_format == "polars":
 #             df = pl.from_pandas(df)
 
-#     # Save to cache
-#     if len(df) > 0:
-#         try:
-#             if output_format == "pandas":
-#                 df.to_parquet(cache_file, index=False)
-#             else:
-#                 df_pd = df.to_pandas()
-#                 df_pd.to_parquet(cache_file, index=False)
-#                 df = pl.read_parquet(cache_file)
-#             logger.info(f"Cached {len(df)} drugs to: {cache_file}")
-#         except Exception as e:
-#             logger.warning(f"Error caching drugs to {cache_file}: {e}")
 
 #     return df
 
@@ -3803,34 +2652,6 @@ def parse_expression(df):
 
 #     Tractability data indicates how "druggable" a gene is based on various criteria.
 
-#     Parameters
-#     ----------
-#     gene_id : str or list of str
-#         Gene identifier(s). Can be either:
-#         - Ensembl gene ID (e.g., "ENSG00000157764")
-#         - Gene symbol (e.g., "BRAF", "TP53", "EGFR")
-#         - List of gene identifiers (mix of Ensembl IDs and symbols is allowed)
-#           Gene symbols will be automatically resolved to Ensembl IDs
-#     output_format : str, default "pandas"
-#         Output format: "pandas" or "polars"
-#     force : int, default 0
-#         Force refresh level:
-#         - 0: Use cached parquet if exists, otherwise fetch and cache
-#         - 1: Force new query, bypass cache
-
-#     Returns
-#     -------
-#     pd.DataFrame or pl.DataFrame
-#         DataFrame with tractability data. If gene_id is a list, results are
-#         concatenated with a 'gene_id' column.
-#     """
-#     return _get_gene_resource_single(
-#         gene_id,
-#         resource="tractability",
-#         output_format=output_format,
-#         force=force,
-#     )
-
 
 # def get_gene_pharmacogenetics(
 #     gene_id: Union[str, List[str]],
@@ -3842,93 +2663,6 @@ def parse_expression(df):
 #     """
 #     Get pharmacogenetic responses for a specific gene or multiple genes using gget.
 
-#     Parameters
-#     ----------
-#     gene_id : str or list of str
-#         Gene identifier(s). Can be either:
-#         - Ensembl gene ID (e.g., "ENSG00000157764")
-#         - Gene symbol (e.g., "BRAF", "TP53", "EGFR")
-#         - List of gene identifiers (mix of Ensembl IDs and symbols is allowed)
-#           Gene symbols will be automatically resolved to Ensembl IDs
-#     drug_id : str, optional
-#         Filter by drug ID (e.g., 'CHEMBL1743081'). Only valid for pharmacogenetics resource.
-#     limit : int, optional
-#         Maximum number of results to return per gene
-#     output_format : str, default "pandas"
-#         Output format: "pandas" or "polars"
-#     force : int, default 0
-#         Force refresh level:
-#         - 0: Use cached parquet if exists, otherwise fetch and cache
-#         - 1: Force new query, bypass cache
-
-#     Returns
-#     -------
-#     pd.DataFrame or pl.DataFrame
-#         DataFrame with pharmacogenetic data. If gene_id is a list, results are
-#         concatenated with a 'gene_id' column.
-#     """
-#     return _get_gene_resource_single(
-#         gene_id,
-#         resource="pharmacogenetics",
-#         drug_id=drug_id,
-#         limit=limit,
-#         output_format=output_format,
-#         force=force,
-#     )
-
-
-# def get_gene_expression(
-#     gene_id: Union[str, List[str]],
-#     tissue_id: Optional[str] = None,
-#     anatomical_system: Optional[str] = None,
-#     organ: Optional[str] = None,
-#     limit: Optional[int] = None,
-#     output_format: str = "pandas",
-#     force: int = 0,
-# ) -> Union[pd.DataFrame, pl.DataFrame]:
-#     """
-#     Get gene expression data (by tissues, organs, and anatomical systems) using gget.
-
-#     Parameters
-#     ----------
-#     gene_id : str or list of str
-#         Gene identifier(s). Can be either:
-#         - Ensembl gene ID (e.g., "ENSG00000157764")
-#         - Gene symbol (e.g., "BRAF", "TP53", "EGFR")
-#         - List of gene identifiers (mix of Ensembl IDs and symbols is allowed)
-#           Gene symbols will be automatically resolved to Ensembl IDs
-#     tissue_id : str, optional
-#         Filter by tissue ID (e.g., 'UBERON_0000473'). Only valid for expression resource.
-#     anatomical_system : str, optional
-#         Filter by anatomical system (e.g., 'nervous system'). Only valid for expression resource.
-#     organ : str, optional
-#         Filter by organ (e.g., 'brain'). Only valid for expression resource.
-#     limit : int, optional
-#         Maximum number of results to return per gene
-#     output_format : str, default "pandas"
-#         Output format: "pandas" or "polars"
-#     force : int, default 0
-#         Force refresh level:
-#         - 0: Use cached parquet if exists, otherwise fetch and cache
-#         - 1: Force new query, bypass cache
-
-#     Returns
-#     -------
-#     pd.DataFrame or pl.DataFrame
-#         DataFrame with expression data. If gene_id is a list, results are
-#         concatenated with a 'gene_id' column.
-#     """
-#     return _get_gene_resource_single(
-#         gene_id,
-#         resource="expression",
-#         tissue_id=tissue_id,
-#         anatomical_system=anatomical_system,
-#         organ=organ,
-#         limit=limit,
-#         output_format=output_format,
-#         force=force,
-#     )
-
 
 # def get_gene_depmap(
 #     gene_id: Union[str, List[str]],
@@ -3939,111 +2673,6 @@ def parse_expression(df):
 #     """
 #     Get DepMap gene→disease-effect data using gget.
 
-#     Parameters
-#     ----------
-#     gene_id : str or list of str
-#         Gene identifier(s). Can be either:
-#         - Ensembl gene ID (e.g., "ENSG00000157764")
-#         - Gene symbol (e.g., "BRAF", "TP53", "EGFR")
-#         - List of gene identifiers (mix of Ensembl IDs and symbols is allowed)
-#           Gene symbols will be automatically resolved to Ensembl IDs
-#     tissue_id : str, optional
-#         Filter by tissue ID (e.g., 'UBERON_0000473'). Only valid for depmap resource.
-#     output_format : str, default "pandas"
-#         Output format: "pandas" or "polars"
-#     force : int, default 0
-#         Force refresh level:
-#         - 0: Use cached parquet if exists, otherwise fetch and cache
-#         - 1: Force new query, bypass cache
-
-#     Returns
-#     -------
-#     pd.DataFrame or pl.DataFrame
-#         DataFrame with DepMap data. If gene_id is a list, results are
-#         concatenated with a 'gene_id' column.
-#     """
-#     return _get_gene_resource_single(
-#         gene_id,
-#         resource="depmap",
-#         tissue_id=tissue_id,
-#         output_format=output_format,
-#         force=force,
-#     )
-
-
-# def get_gene_interactions(
-#     gene_id: Union[str, List[str]],
-#     protein_a_id: Optional[str] = None,
-#     protein_b_id: Optional[str] = None,
-#     gene_b_id: Optional[str] = None,
-#     limit: Optional[int] = None,
-#     output_format: str = "pandas",
-#     force: int = 0,
-# ) -> Union[pd.DataFrame, pl.DataFrame]:
-#     """
-#     Get protein⇄protein interactions using gget.
-
-#     Parameters
-#     ----------
-#     gene_id : str or list of str
-#         Gene identifier(s). Can be either:
-#         - Ensembl gene ID (e.g., "ENSG00000157764")
-#         - Gene symbol (e.g., "BRAF", "TP53", "EGFR")
-#         - List of gene identifiers (mix of Ensembl IDs and symbols is allowed)
-#           Gene symbols will be automatically resolved to Ensembl IDs
-#     protein_a_id : str, optional
-#         Filter by the protein ID of the first protein (e.g., 'ENSP00000304915').
-#         Only valid for interactions resource.
-#     protein_b_id : str, optional
-#         Filter by the protein ID of the second protein (e.g., 'ENSP00000379111').
-#         Only valid for interactions resource.
-#     gene_b_id : str, optional
-#         Filter by the gene ID of the second protein (e.g., 'ENSG00000077238').
-#         Only valid for interactions resource.
-#     limit : int, optional
-#         Maximum number of results to return per gene
-#     output_format : str, default "pandas"
-#         Output format: "pandas" or "polars"
-#     force : int, default 0
-#         Force refresh level:
-#         - 0: Use cached parquet if exists, otherwise fetch and cache
-#         - 1: Force new query, bypass cache
-
-#     Returns
-#     -------
-#     pd.DataFrame or pl.DataFrame
-#         DataFrame with interaction data. If gene_id is a list, results are
-#         concatenated with a 'gene_id' column.
-#     """
-#     return _get_gene_resource_single(
-#         gene_id,
-#         resource="interactions",
-#         protein_a_id=protein_a_id,
-#         protein_b_id=protein_b_id,
-#         gene_b_id=gene_b_id,
-#         limit=limit,
-#         output_format=output_format,
-#         force=force,
-#     )
-
-
-# def _get_gene_resource_single(
-#     gene_id: Union[str, List[str]],
-#     resource: str,
-#     disease_id: Optional[str] = None,
-#     drug_id: Optional[str] = None,
-#     tissue_id: Optional[str] = None,
-#     anatomical_system: Optional[str] = None,
-#     organ: Optional[str] = None,
-#     protein_a_id: Optional[str] = None,
-#     protein_b_id: Optional[str] = None,
-#     gene_b_id: Optional[str] = None,
-#     limit: Optional[int] = None,
-#     output_format: str = "pandas",
-#     force: int = 0,
-# ) -> Union[pd.DataFrame, pl.DataFrame]:
-#     """
-#     Internal helper function to get any resource for a single gene or list of genes.
 
 #     This centralizes the logic for fetching, caching, and processing gget.opentargets results.
 #     """
@@ -4052,40 +2681,6 @@ def parse_expression(df):
 #     original_level = gget_logger.level
 #     gget_logger.setLevel(logging.WARNING)
 
-#     # Handle list of gene IDs
-#     if isinstance(gene_id, list):
-#         all_dfs = []
-#         for gid in tqdm(gene_id, desc=f"Fetching {resource}"):
-#             try:
-#                 df = _get_gene_resource_single(
-#                     gid,
-#                     resource=resource,
-#                     disease_id=disease_id,
-#                     drug_id=drug_id,
-#                     tissue_id=tissue_id,
-#                     anatomical_system=anatomical_system,
-#                     organ=organ,
-#                     protein_a_id=protein_a_id,
-#                     protein_b_id=protein_b_id,
-#                     gene_b_id=gene_b_id,
-#                     limit=limit,
-#                     output_format=output_format,
-#                     force=force,
-#                 )
-#                 if len(df) > 0:
-#                     if output_format == "pandas":
-#                         df["gene_id"] = gid
-#                     else:
-#                         df = df.with_columns(pl.lit(gid).alias("gene_id"))
-#                 all_dfs.append(df)
-#             except Exception as e:
-#                 logger.warning(f"Error fetching {resource} for {gid}: {e}")
-#                 if output_format == "pandas":
-#                     empty_df = pd.DataFrame()
-#                     empty_df["gene_id"] = []
-#                 else:
-#                     empty_df = pl.DataFrame({"gene_id": []})
-#                 all_dfs.append(empty_df)
 
 #         if len(all_dfs) == 0:
 #             if output_format == "pandas":
@@ -4108,228 +2703,12 @@ def parse_expression(df):
 #         gget_logger.setLevel(original_level)
 #         return result_df
 
-#     # Single gene ID - resolve symbol to Ensembl ID if needed
-#     ensembl_id = gene_id
-#     if not gene_id.startswith("ENSG"):
-#         try:
-#             search_results = gget.search(gene_id, species="human")
-#             if search_results is not None and len(search_results) > 0:
-#                 for result_item in search_results:
-#                     if isinstance(result_item, dict):
-#                         ens_id = result_item.get("ensembl_id", "")
-#                         if ens_id.startswith("ENSG"):
-#                             ensembl_id = ens_id
-#                             break
-#                     elif isinstance(result_item, str) and result_item.startswith("ENSG"):
-#                         ensembl_id = result_item
-#                         break
-#                 else:
-#                     raise ValueError(f"Could not resolve gene symbol to Ensembl ID: {gene_id}")
-#             else:
-#                 raise ValueError(f"Gene symbol not found: {gene_id}")
-#         except Exception as e:
-#             logger.error(f"Error resolving gene ID {gene_id}: {e}")
-#             raise ValueError(f"Could not resolve gene identifier: {gene_id}")
-
-#     # Build cache file path
-#     cache_parts = [resource, ensembl_id]
-#     if disease_id:
-#         cache_parts.append(f"disease_{disease_id}")
-#     if drug_id:
-#         cache_parts.append(f"drug_{drug_id}")
-#     if tissue_id:
-#         cache_parts.append(f"tissue_{tissue_id}")
-#     if anatomical_system:
-#         cache_parts.append(f"anat_{anatomical_system.replace(' ', '_')}")
-#     if organ:
-#         cache_parts.append(f"organ_{organ.replace(' ', '_')}")
-#     if protein_a_id:
-#         cache_parts.append(f"prot_a_{protein_a_id}")
-#     if protein_b_id:
-#         cache_parts.append(f"prot_b_{protein_b_id}")
-#     if gene_b_id:
-#         cache_parts.append(f"gene_b_{gene_b_id}")
-#     if limit is not None:
-#         cache_parts.append(f"limit{limit}")
 
 #     cache_file = str(DEFAULT_CACHE_DIR / f"{'_'.join(cache_parts)}.parquet")
 
-#     # Check cache (force=0)
-#     if force == 0:
-#         try:
-#             if output_format == "pandas":
-#                 df = pd.read_parquet(cache_file)
-#                 logger.info(f"Loaded {len(df)} {resource} results from cache: {cache_file}")
-#                 gget_logger.setLevel(original_level)
-#                 return df
-#             else:
-#                 df = pl.read_parquet(cache_file)
-#                 logger.info(f"Loaded {len(df)} {resource} results from cache: {cache_file}")
-#                 gget_logger.setLevel(original_level)
-#                 return df
-#         except FileNotFoundError:
-#             pass
-
-#     # Build filters dict for gget
-#     filters = {}
-#     if disease_id:
-#         filters["disease_id"] = [disease_id]
-#     if drug_id:
-#         filters["drug_id"] = [drug_id]
-#     if tissue_id:
-#         filters["tissue_id"] = [tissue_id]
-#     if anatomical_system:
-#         filters["anatomical_system"] = [anatomical_system]
-#     if organ:
-#         filters["organ"] = [organ]
-#     if protein_a_id:
-#         filters["protein_a_id"] = [protein_a_id]
-#     if protein_b_id:
-#         filters["protein_b_id"] = [protein_b_id]
-#     if gene_b_id:
-#         filters["gene_b_id"] = [gene_b_id]
-
-#     # Fetch from API
-#     logger.info(f"Fetching {resource} for {ensembl_id} from OpenTargets Platform...")
-#     try:
-#         data = gget.opentargets(
-#             ensembl_id,
-#             resource=resource,
-#             limit=limit,
-#             filters=filters if filters else None,
-#         )
-#     except Exception as e:
-#         logger.warning(f"Error calling gget.opentargets for {resource} on {ensembl_id}: {e}")
-#         import traceback
-#         logger.debug(traceback.format_exc())
-#         gget_logger.setLevel(original_level)
-#         if output_format == "pandas":
-#             return pd.DataFrame()
-#         else:
-#             return pl.DataFrame()
-
-#     # Handle different return types from gget
-#     if data is None:
-#         logger.warning(f"No {resource} found for {ensembl_id} (returned None)")
-#         if output_format == "pandas":
-#             df = pd.DataFrame()
-#         else:
-#             df = pl.DataFrame()
-#     elif isinstance(data, (list, pd.DataFrame)):
-#         # Check if empty
-#         if len(data) == 0:
-#             logger.warning(f"No {resource} found for {ensembl_id} (empty result)")
-#             if output_format == "pandas":
-#                 df = pd.DataFrame()
-#             else:
-#                 df = pl.DataFrame()
-#         else:
-#             # Convert to DataFrame - preserve all fields
-#             df = pd.DataFrame(data)
-
-#             if output_format == "polars":
-#                 df = pl.from_pandas(df)
-#     else:
-#         # Unexpected type - try to convert anyway
-#         logger.warning(f"Unexpected type from gget.opentargets for {resource}: {type(data)}")
-#         try:
-#             df = pd.DataFrame(data)
-#             if output_format == "polars":
-#                 df = pl.from_pandas(df)
-#         except Exception as e:
-#             logger.warning(f"Could not convert {resource} data to DataFrame: {e}")
-#             if output_format == "pandas":
-#                 df = pd.DataFrame()
-#             else:
-#                 df = pl.DataFrame()
-
-#     # Save to cache
-#     if len(df) > 0:
-#         try:
-#             # Flatten nested DataFrames/Series in columns before saving to parquet
-#             # Parquet doesn't support nested DataFrames, so convert them to JSON strings
-#             def flatten_column_for_parquet(series):
-#                 """Convert nested DataFrames/Series to JSON strings for parquet compatibility."""
-#                 def convert_value(val):
-#                     # Check for DataFrame/Series first (before pd.isna which doesn't work on them)
-#                     if isinstance(val, pd.DataFrame):
-#                         # Convert DataFrame to JSON string
-#                         return json.dumps(val.to_dict("records"), default=str)
-#                     elif isinstance(val, pd.Series):
-#                         # Convert Series to JSON string
-#                         return json.dumps(val.to_dict(), default=str)
-#                     # Check for NaN/None after DataFrame/Series checks
-#                     try:
-#                         if pd.isna(val):
-#                             return None
-#                     except (ValueError, TypeError):
-#                         # pd.isna might fail for some types (e.g., DataFrames), just continue
-#                         pass
-#                     if isinstance(val, list):
-#                         # Check if list contains DataFrames
-#                         converted = []
-#                         for item in val:
-#                             if isinstance(item, pd.DataFrame):
-#                                 converted.append(item.to_dict("records"))
-#                             elif isinstance(item, pd.Series):
-#                                 converted.append(item.to_dict())
-#                             else:
-#                                 converted.append(item)
-#                         return json.dumps(converted, default=str)
-#                     elif isinstance(val, dict):
-#                         # Check if dict contains DataFrames
-#                         converted = {}
-#                         for k, v in val.items():
-#                             if isinstance(v, pd.DataFrame):
-#                                 converted[k] = v.to_dict("records")
-#                             elif isinstance(v, pd.Series):
-#                                 converted[k] = v.to_dict()
-#                             else:
-#                                 converted[k] = v
-#                         return json.dumps(converted, default=str)
-#                     else:
-#                         return val
 
 #                 return series.apply(convert_value)
 
-#             if output_format == "pandas":
-#                 df_to_save = df.copy()
-#                 # Check each column for nested DataFrames/Series
-#                 for col in df_to_save.columns:
-#                     if len(df_to_save) > 0:
-#                         # Find first non-null value
-#                         non_null_mask = df_to_save[col].notna()
-#                         if non_null_mask.any():
-#                             sample_val = df_to_save[col][non_null_mask].iloc[0]
-#                             # Check if column contains DataFrames or Series
-#                             if isinstance(sample_val, (pd.DataFrame, pd.Series)):
-#                                 df_to_save[col] = flatten_column_for_parquet(df_to_save[col])
-#                             elif isinstance(sample_val, list) and len(sample_val) > 0:
-#                                 # Check if list contains DataFrames
-#                                 if any(isinstance(v, (pd.DataFrame, pd.Series)) for v in sample_val):
-#                                     df_to_save[col] = flatten_column_for_parquet(df_to_save[col])
-#                             elif isinstance(sample_val, dict) and len(sample_val) > 0:
-#                                 # Check if dict contains DataFrames
-#                                 if any(isinstance(v, (pd.DataFrame, pd.Series)) for v in sample_val.values()):
-#                                     df_to_save[col] = flatten_column_for_parquet(df_to_save[col])
-
-#                 df_to_save.to_parquet(cache_file, index=False)
-#             else:
-#                 df_pd = df.to_pandas()
-#                 # Apply same flattening logic
-#                 for col in df_pd.columns:
-#                     if len(df_pd) > 0:
-#                         non_null_mask = df_pd[col].notna()
-#                         if non_null_mask.any():
-#                             sample_val = df_pd[col][non_null_mask].iloc[0]
-#                             if isinstance(sample_val, (pd.DataFrame, pd.Series)):
-#                                 df_pd[col] = flatten_column_for_parquet(df_pd[col])
-#                             elif isinstance(sample_val, list) and len(sample_val) > 0:
-#                                 if any(isinstance(v, (pd.DataFrame, pd.Series)) for v in sample_val):
-#                                     df_pd[col] = flatten_column_for_parquet(df_pd[col])
-#                             elif isinstance(sample_val, dict) and len(sample_val) > 0:
-#                                 if any(isinstance(v, (pd.DataFrame, pd.Series)) for v in sample_val.values()):
-#                                     df_pd[col] = flatten_column_for_parquet(df_pd[col])
 
 #                 df_pd.to_parquet(cache_file, index=False)
 #                 df = pl.read_parquet(cache_file)
@@ -4364,56 +2743,9 @@ def parse_expression(df):
 #     output_format : str, default "pandas"
 #         Output format: "pandas" or "polars"
 
-#     Returns
-#     -------
-#     pd.DataFrame or pl.DataFrame
-#         DataFrame with columns:
-#         - filename: Name of the cached file
-#         - filepath: Full path to the file
-#         - size_bytes: File size in bytes
-#         - size_mb: File size in megabytes (rounded to 2 decimals)
-#         - modified_time: Last modification time (datetime)
-#         - file_type: Type of file ("json.gz", "parquet", or "other")
-#         - resource_type: Inferred resource type (e.g., "gene_info", "pharmacogenetics", "diseases", etc.)
-#         - gene_id: Extracted gene ID if present (e.g., "ENSG00000157764")
-
-#     Examples
-#     --------
-#     >>> import biodb.opentargets as opentargets
-#     >>>
-#     >>> # List all cached files
-#     >>> all_files = opentargets.list_cache()
-#     >>>
-#     >>> # List only gene_info files
-#     >>> gene_info_files = opentargets.list_cache(pattern="gene_info")
-#     >>>
-#     >>> # List files for a specific gene
-#     >>> braf_files = opentargets.list_cache(pattern="ENSG00000157764")
-#     >>>
-#     >>> # List pharmacogenetics files
-#     >>> pgx_files = opentargets.list_cache(pattern="pharmacogenetics")
-#     """
-#     if cache_dir is None:
-#         cache_dir = DEFAULT_CACHE_DIR
-#     else:
-#         cache_dir = Path(cache_dir)
 
 #     cache_dir = Path(cache_dir)
 
-#     if not cache_dir.exists():
-#         if output_format == "pandas":
-#             return pd.DataFrame(columns=["filename", "filepath", "size_bytes", "size_mb", "modified_time", "file_type", "resource_type", "gene_id"])
-#         else:
-#             return pl.DataFrame({
-#                 "filename": [],
-#                 "filepath": [],
-#                 "size_bytes": [],
-#                 "size_mb": [],
-#                 "modified_time": [],
-#                 "file_type": [],
-#                 "resource_type": [],
-#                 "gene_id": [],
-#             })
 
 #     # Get all files in cache directory
 #     all_files = []
@@ -4451,25 +2783,6 @@ def parse_expression(df):
 #             if gene_match:
 #                 gene_id = gene_match.group(0)
 
-#             # Determine resource type based on filename patterns
-#             if filename.startswith('gene_info_'):
-#                 resource_type = "gene_info"
-#             elif filename.startswith('pharmacogenetics_'):
-#                 resource_type = "pharmacogenetics"
-#             elif filename.startswith('diseases_') or filename.startswith('drugs_'):
-#                 resource_type = filename.split('_')[0]  # "diseases" or "drugs"
-#             elif filename.startswith('tractability_'):
-#                 resource_type = "tractability"
-#             elif filename.startswith('expression_'):
-#                 resource_type = "expression"
-#             elif filename.startswith('depmap_'):
-#                 resource_type = "depmap"
-#             elif filename.startswith('interactions_'):
-#                 resource_type = "interactions"
-#             elif filename.startswith('all_genes_'):
-#                 resource_type = "all_genes"
-#             elif filename.startswith('raw_gtf_'):
-#                 resource_type = "raw_gtf"
 
 #             all_files.append({
 #                 "filename": filename,
@@ -4481,35 +2794,6 @@ def parse_expression(df):
 #                 "resource_type": resource_type,
 #                 "gene_id": gene_id,
 #             })
-
-#     # Convert to DataFrame
-#     if len(all_files) == 0:
-#         if output_format == "pandas":
-#             return pd.DataFrame(columns=["filename", "filepath", "size_bytes", "size_mb", "modified_time", "file_type", "resource_type", "gene_id"])
-#         else:
-#             return pl.DataFrame({
-#                 "filename": [],
-#                 "filepath": [],
-#                 "size_bytes": [],
-#                 "size_mb": [],
-#                 "modified_time": [],
-#                 "file_type": [],
-#                 "resource_type": [],
-#                 "gene_id": [],
-#             })
-
-#     if output_format == "pandas":
-#         df = pd.DataFrame(all_files)
-#         print(df.shape)
-#         # Sort by modified_time (newest first)
-#         df = df.sort_values("modified_time", ascending=False).reset_index(drop=True)
-#         return df
-#     else:
-#         df = pl.DataFrame(all_files)
-#         print(df.shape)
-#         # Sort by modified_time (newest first)
-#         df = df.sort("modified_time", descending=True)
-#         return df
 
 
 def get_pathways(
