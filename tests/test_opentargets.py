@@ -269,20 +269,61 @@ def test_variants_for_target_column_projection(tmp_path) -> None:
 def test_supported_gene_association_datasets_is_authoritative_allowlist() -> None:
     """The supported set names every dataset ``get_gene_associations`` has
     a ``_prepare_*`` handler for. Drift here means silently-dropped rows
-    or runtime crashes -- pin it explicitly."""
+    or runtime crashes -- pin it explicitly. The set is split into the
+    default 6 (always pulled unless overridden) and the opt-in
+    ``evidence_*`` sources (large; opt in via ``datasets=`` kwarg)."""
     assert (
         frozenset(
             {
+                # Default 6
                 "disease-to-gene",
                 "known_drug",
                 "pharmacogenomics",
                 "mouse_phenotype",
                 "target_essentiality",
                 "expression",
+                # Opt-in evidence_*
+                "evidence_eva",
+                "evidence_gwas_credible_sets",
+                "evidence_europepmc",
+                "evidence_uniprot_variants",
+                "evidence_intogen",
             }
         )
         == opentargets.SUPPORTED_GENE_ASSOCIATION_DATASETS
     )
+
+
+def test_evidence_datasets_not_in_default_list() -> None:
+    """Opt-in evidence datasets must NOT be in the default list -- adding
+    them would silently bloat existing ``get_gene_associations()`` calls
+    (multi-100MB downloads, 10s-of-millions of rows post-merge)."""
+    evidence_datasets = {
+        "evidence_eva",
+        "evidence_gwas_credible_sets",
+        "evidence_europepmc",
+        "evidence_uniprot_variants",
+        "evidence_intogen",
+    }
+    overlap = evidence_datasets & set(opentargets.DEFAULT_GENE_ASSOCIATION_DATASETS)
+    assert not overlap, (
+        f"evidence_* datasets leaked into DEFAULT_GENE_ASSOCIATION_DATASETS: {overlap}"
+    )
+
+
+def test_evidence_preprocessors_present() -> None:
+    """Each new ``evidence_*`` entry in the allow-list must have a
+    matching ``_prepare_*_associations`` function -- otherwise the
+    dispatch in ``get_gene_associations`` would crash at call time."""
+    for name in [
+        "evidence_eva",
+        "evidence_gwas_credible_sets",
+        "evidence_europepmc",
+        "evidence_uniprot_variants",
+        "evidence_intogen",
+    ]:
+        fn_name = f"_prepare_{name}_associations"
+        assert hasattr(opentargets, fn_name), f"missing preprocessor: {fn_name}"
 
 
 def test_default_gene_association_datasets_subset_of_supported() -> None:
@@ -332,3 +373,173 @@ def test_resolve_gene_association_datasets_raises_on_unknown(monkeypatch) -> Non
     monkeypatch.delenv("BIODB_OT_GENE_ASSOC_DATASETS", raising=False)
     with pytest.raises(ValueError, match="Unknown OT gene-association dataset"):
         opentargets._resolve_gene_association_datasets(["known_drug", "made_up_dataset"])
+
+
+# ---------------------------------------------------------------------------
+# evidence_* preprocessors — fully synthetic-input unit tests.
+#
+# Each preprocessor calls ``opentargets.get_dataset`` for its own
+# dataset plus the ``disease`` table (label join). We monkey-patch
+# ``get_dataset`` to return tiny in-memory DataFrames so the test is
+# hermetic + fast (no network, no parquet IO).
+# ---------------------------------------------------------------------------
+
+
+def _synthetic_disease_table() -> pd.DataFrame:
+    """3-row disease metadata table sufficient for the label join."""
+    return pd.DataFrame(
+        {
+            "id": ["EFO_0000001", "EFO_0000002", "MONDO_0000003"],
+            "name": ["disease one", "disease two", "disease three"],
+        }
+    )
+
+
+def _install_fake_get_dataset(monkeypatch, evidence_name: str, evidence_df: pd.DataFrame) -> None:
+    """Patch ``opentargets.get_dataset`` to return a synthetic frame for the
+    evidence dataset under test + the ``disease`` table for the label join.
+
+    Any other dataset name raises -- which surfaces accidental extra
+    downloads in the preprocessor body."""
+
+    def fake_get_dataset(dataset=None, **kwargs):  # noqa: ANN001 -- match real sig loosely
+        if dataset == evidence_name:
+            return evidence_df.copy()
+        if dataset == "disease":
+            return _synthetic_disease_table()
+        raise AssertionError(
+            f"unexpected get_dataset call for {dataset!r}; "
+            f"test only mocks {evidence_name!r} + 'disease'"
+        )
+
+    monkeypatch.setattr(opentargets, "get_dataset", fake_get_dataset)
+
+
+def _assert_standard_output_columns(df: pd.DataFrame, expected_dataset: str) -> None:
+    """Every preprocessor must emit the common 6-column header."""
+    for col in ("database", "dataset", "sourceId", "targetId", "score", "label"):
+        assert col in df.columns, f"missing standard column: {col}"
+    assert (df["database"] == "OpenTargets").all()
+    assert (df["dataset"] == expected_dataset).all()
+
+
+def test_prepare_evidence_eva_associations(monkeypatch) -> None:
+    """ClinVar (EVA) preprocessor: sourceId = per-evidence id, label
+    joins from disease table, score passes through."""
+    eva = pd.DataFrame(
+        {
+            "id": ["clinvar_hash_a", "clinvar_hash_b", "clinvar_hash_c"],
+            "targetId": ["ENSG001", "ENSG002", "ENSG003"],
+            "targetFromSourceId": ["ENSG001", "ENSG002", "ENSG003"],
+            "diseaseId": ["EFO_0000001", "EFO_0000002", "EFO_0099999"],
+            "datasourceId": ["eva", "eva", "eva"],
+            "score": [0.5, 0.9, None],
+        }
+    )
+    _install_fake_get_dataset(monkeypatch, "evidence_eva", eva)
+
+    out = opentargets._prepare_evidence_eva_associations(default_score=0.1, verbose=0)
+    _assert_standard_output_columns(out, "evidence_eva")
+    assert len(out) == 3
+    assert list(out["sourceId"]) == ["clinvar_hash_a", "clinvar_hash_b", "clinvar_hash_c"]
+    # NaN score replaced with default_score; known scores preserved.
+    assert list(out["score"]) == [0.5, 0.9, 0.1]
+    # First two diseases resolve to names; third has no entry -> falls back to diseaseId.
+    assert out.loc[out["diseaseId"] == "EFO_0000001", "label"].iloc[0] == "disease one"
+    assert out.loc[out["diseaseId"] == "EFO_0099999", "label"].iloc[0] == "EFO_0099999"
+
+
+def test_prepare_evidence_gwas_credible_sets_associations(monkeypatch) -> None:
+    """GWAS credible-set preprocessor: sourceId = studyLocusId.diseaseId,
+    label joined, scores numeric-coerced."""
+    gwas = pd.DataFrame(
+        {
+            "id": ["ev1", "ev2"],
+            "targetId": ["ENSG001", "ENSG002"],
+            "diseaseId": ["EFO_0000001", "EFO_0000002"],
+            "datasourceId": ["gwas_credible_sets", "gwas_credible_sets"],
+            "studyLocusId": ["SL_A", "SL_B"],
+            "score": [0.27, 0.91],
+        }
+    )
+    _install_fake_get_dataset(monkeypatch, "evidence_gwas_credible_sets", gwas)
+
+    out = opentargets._prepare_evidence_gwas_credible_sets_associations(verbose=0)
+    _assert_standard_output_columns(out, "evidence_gwas_credible_sets")
+    assert len(out) == 2
+    assert list(out["sourceId"]) == ["SL_A.EFO_0000001", "SL_B.EFO_0000002"]
+    assert list(out["score"]) == [0.27, 0.91]
+    assert list(out["label"]) == ["disease one", "disease two"]
+
+
+def test_prepare_evidence_europepmc_associations(monkeypatch) -> None:
+    """EuropePMC text-mining preprocessor: sourceId = per-evidence id,
+    label joined."""
+    epmc = pd.DataFrame(
+        {
+            "id": ["epmc_a", "epmc_b", "epmc_c"],
+            "targetFromSourceId": ["ENSG001", "ENSG002", "ENSG003"],
+            "targetId": ["ENSG001", "ENSG002", "ENSG003"],
+            "diseaseId": ["EFO_0000001", "EFO_0000002", "MONDO_0000003"],
+            "datasourceId": ["europepmc", "europepmc", "europepmc"],
+            "score": [0.05, 0.02, 0.10],
+        }
+    )
+    _install_fake_get_dataset(monkeypatch, "evidence_europepmc", epmc)
+
+    out = opentargets._prepare_evidence_europepmc_associations(verbose=0)
+    _assert_standard_output_columns(out, "evidence_europepmc")
+    assert len(out) == 3
+    assert list(out["sourceId"]) == ["epmc_a", "epmc_b", "epmc_c"]
+    assert list(out["label"]) == ["disease one", "disease two", "disease three"]
+
+
+def test_prepare_evidence_uniprot_variants_associations(monkeypatch) -> None:
+    """UniProt variants preprocessor: sourceId = variantId.diseaseId
+    when variantId is set; falls back to per-evidence id otherwise."""
+    upv = pd.DataFrame(
+        {
+            "id": ["upv_a", "upv_b"],
+            "targetId": ["ENSG001", "ENSG002"],
+            "diseaseId": ["EFO_0000001", "EFO_0000002"],
+            "datasourceId": ["uniprot_variants", "uniprot_variants"],
+            "variantId": ["12_6870327_G_A", None],
+            "score": [1.0, 1.0],
+        }
+    )
+    _install_fake_get_dataset(monkeypatch, "evidence_uniprot_variants", upv)
+
+    out = opentargets._prepare_evidence_uniprot_variants_associations(verbose=0)
+    _assert_standard_output_columns(out, "evidence_uniprot_variants")
+    assert len(out) == 2
+    # First row: variantId present -> composite sourceId.
+    assert out.loc[0, "sourceId"] == "12_6870327_G_A.EFO_0000001"
+    # Second row: variantId null -> falls back to evidence id.
+    assert out.loc[1, "sourceId"] == "upv_b"
+
+
+def test_prepare_evidence_intogen_associations(monkeypatch) -> None:
+    """IntOGen cancer-driver preprocessor: sourceId = cohortId.diseaseId,
+    label joined, score passes through."""
+    intogen = pd.DataFrame(
+        {
+            "id": ["intogen_a", "intogen_b"],
+            "targetId": ["ENSG001", "ENSG002"],
+            "diseaseId": ["EFO_0000001", "EFO_0000002"],
+            "datasourceId": ["intogen", "intogen"],
+            "cohortId": ["PCAWG_WGS_HEAD_SCC", "TCGA_WXS_PRAD"],
+            "score": [0.30, 1.0],
+            "resourceScore": [2.378870e-02, 2.427767e-24],
+        }
+    )
+    _install_fake_get_dataset(monkeypatch, "evidence_intogen", intogen)
+
+    out = opentargets._prepare_evidence_intogen_associations(verbose=0)
+    _assert_standard_output_columns(out, "evidence_intogen")
+    assert len(out) == 2
+    assert list(out["sourceId"]) == [
+        "PCAWG_WGS_HEAD_SCC.EFO_0000001",
+        "TCGA_WXS_PRAD.EFO_0000002",
+    ]
+    assert list(out["score"]) == [0.30, 1.0]
+    assert list(out["label"]) == ["disease one", "disease two"]
