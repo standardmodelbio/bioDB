@@ -537,3 +537,135 @@ def query_variant(
         client=client,
     )
     return data.get("variant")
+
+
+_MAP_IDS_QUERY = """
+query MapIds($terms: [String!]!, $entities: [String!]!) {
+  mapIds(queryTerms: $terms, entityNames: $entities) {
+    mappings { term hits { id name entity } }
+  }
+}
+"""
+"""Free-text / symbol -> Ensembl ID lookup. ``mapIds`` is OT's public
+fuzzy-search entrypoint; restricting via ``entityNames`` keeps the
+result set to the kind of record the caller actually wants
+(``"target"`` for gene lookups, ``"disease"`` for EFO/MONDO, etc.)."""
+
+
+def map_symbols_to_ensembl(
+    gene_symbols: list[str],
+    *,
+    client: httpx.Client | None = None,
+) -> dict[str, str]:
+    """Map HGNC gene symbols to Ensembl gene IDs via OT's ``mapIds`` query.
+
+    Useful for panel construction where you have a list of HGNC
+    symbols and need their canonical Ensembl IDs before any of the
+    other Open Targets helpers (which all key on Ensembl).
+
+    The wire format returns a list of ``{term, hits: [{id, name, entity}]}``
+    entries; this helper takes the first hit per term and only keeps
+    targets that actually resolved. Symbols with no hit are omitted
+    rather than returning ``None`` -- callers should check ``in``
+    membership of the returned dict.
+
+    Parameters
+    ----------
+    gene_symbols : list[str]
+        HGNC symbols (``["BRCA1", "TP53", ...]``). Case-insensitive
+        on OT's side but the input case is preserved as the dict key.
+    client : httpx.Client, optional
+        Reusable client for batched workflows.
+
+    Returns
+    -------
+    dict[str, str]
+        ``{symbol: ensembl_id}`` for symbols with at least one hit.
+
+    Examples
+    --------
+    >>> map_symbols_to_ensembl(["BRCA1"])["BRCA1"]  # doctest: +SKIP
+    'ENSG00000012048'
+    """
+    data = graphql_post(
+        _MAP_IDS_QUERY,
+        {"terms": list(gene_symbols), "entities": ["target"]},
+        client=client,
+    )
+    return {
+        m["term"]: m["hits"][0]["id"]
+        for m in data.get("mapIds", {}).get("mappings", [])
+        if m.get("hits")
+    }
+
+
+_TARGET_ASSOC_DISEASES_QUERY = """
+query TargetAssociatedDiseases($ensemblId: String!, $size: Int!) {
+  target(ensemblId: $ensemblId) {
+    id
+    approvedSymbol
+    associatedDiseases(page: {index: 0, size: $size}) {
+      count
+      rows {
+        score
+        datatypeScores { id score }
+        disease { id name therapeuticAreas { id name } }
+      }
+    }
+  }
+}
+"""
+"""Focused target -> associated-diseases query. ``query_target`` already
+exists but returns the metadata-only payload; this one is for the
+"give me one gene's disease association scores" use case (panel
+scoring, prioritisation pipelines). Splitting into a separate helper
+keeps the ``query_target`` payload sane and skips the rest of the
+target metadata when the caller only wants disease scores."""
+
+
+def target_associated_diseases(
+    ensembl_id: str,
+    *,
+    size: int = 200,
+    client: httpx.Client | None = None,
+) -> dict[str, Any] | None:
+    """Fetch a target's ``associatedDiseases`` rows by Ensembl gene ID.
+
+    Returns the ``target`` envelope (``id``, ``approvedSymbol``,
+    ``associatedDiseases.{count, rows}``) so the caller can filter
+    rows by disease ID or aggregate scores client-side. The full
+    ``query_target`` payload is more than what most callers need for
+    panel scoring; this query just pulls the disease rows.
+
+    Parameters
+    ----------
+    ensembl_id : str
+        Ensembl stable gene ID (e.g. ``"ENSG00000012048"``).
+    size : int, default 200
+        Page size for ``associatedDiseases``. OT caps individual
+        pages at 200 -- bump only if you've split a target across
+        the pagination boundary (rare; most targets have <100
+        associated diseases above the OT relevance threshold).
+    client : httpx.Client, optional
+        Reusable client for batched workflows.
+
+    Returns
+    -------
+    dict or None
+        ``{"id": ..., "approvedSymbol": ..., "associatedDiseases": {"count": N, "rows": [...]}}``
+        or ``None`` if no such target exists.
+
+    Examples
+    --------
+    >>> brca1 = target_associated_diseases("ENSG00000012048")  # doctest: +SKIP
+    >>> brca1["approvedSymbol"]  # doctest: +SKIP
+    'BRCA1'
+    >>> brca1["associatedDiseases"]["count"] > 0  # doctest: +SKIP
+    True
+    """
+    data = graphql_post(
+        _TARGET_ASSOC_DISEASES_QUERY,
+        {"ensemblId": ensembl_id, "size": size},
+        client=client,
+    )
+    return data.get("target")

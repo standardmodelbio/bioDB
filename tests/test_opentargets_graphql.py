@@ -43,7 +43,15 @@ def test_endpoint_constant() -> None:
 
 
 def test_public_api_signatures_stable() -> None:
-    for name in ("graphql_post", "query_target", "query_disease", "query_drug", "query_variant"):
+    for name in (
+        "graphql_post",
+        "query_target",
+        "query_disease",
+        "query_drug",
+        "query_variant",
+        "map_symbols_to_ensembl",
+        "target_associated_diseases",
+    ):
         assert hasattr(gql, name)
 
 
@@ -251,3 +259,156 @@ def test_query_variant_live() -> None:
     assert isinstance(v.get("alleleFrequencies"), list)
     assert isinstance(v.get("transcriptConsequences"), list)
     assert isinstance(v.get("variantEffect"), list)
+
+
+# ---------------------------------------------------------------------------
+# map_symbols_to_ensembl
+# ---------------------------------------------------------------------------
+
+
+def test_map_symbols_to_ensembl_takes_first_hit_per_symbol() -> None:
+    """A symbol can resolve to multiple OT records; ``map_symbols_to_ensembl``
+    takes the first hit (OT's relevance-ranked default) so the caller
+    gets a deterministic 1-to-1 dict."""
+    client = _client_returning(
+        {
+            "data": {
+                "mapIds": {
+                    "mappings": [
+                        {
+                            "term": "BRCA1",
+                            "hits": [
+                                {"id": "ENSG00000012048", "name": "BRCA1", "entity": "target"},
+                                {"id": "ENSG_OTHER", "name": "BRCA1-AS1", "entity": "target"},
+                            ],
+                        },
+                        {
+                            "term": "TP53",
+                            "hits": [
+                                {"id": "ENSG00000141510", "name": "TP53", "entity": "target"},
+                            ],
+                        },
+                    ],
+                }
+            }
+        }
+    )
+    out = gql.map_symbols_to_ensembl(["BRCA1", "TP53"], client=client)
+    assert out == {"BRCA1": "ENSG00000012048", "TP53": "ENSG00000141510"}
+
+
+def test_map_symbols_to_ensembl_omits_unresolved() -> None:
+    """A symbol with no hits is dropped from the dict -- callers check
+    ``in`` membership rather than getting a ``None`` sentinel."""
+    client = _client_returning(
+        {
+            "data": {
+                "mapIds": {
+                    "mappings": [
+                        {
+                            "term": "BRCA1",
+                            "hits": [
+                                {"id": "ENSG00000012048", "name": "BRCA1", "entity": "target"}
+                            ],
+                        },
+                        {"term": "MADEUPSYM", "hits": []},
+                    ]
+                }
+            }
+        }
+    )
+    out = gql.map_symbols_to_ensembl(["BRCA1", "MADEUPSYM"], client=client)
+    assert "MADEUPSYM" not in out
+    assert out["BRCA1"] == "ENSG00000012048"
+
+
+def test_map_symbols_to_ensembl_empty_input_returns_empty_dict() -> None:
+    """Edge case: ``terms=[]`` -> OT returns ``mappings=[]`` -> empty dict."""
+    client = _client_returning({"data": {"mapIds": {"mappings": []}}})
+    assert gql.map_symbols_to_ensembl([], client=client) == {}
+
+
+# ---------------------------------------------------------------------------
+# target_associated_diseases
+# ---------------------------------------------------------------------------
+
+
+def test_target_associated_diseases_returns_target_envelope() -> None:
+    """Helper returns the ``target`` envelope (id + approvedSymbol +
+    associatedDiseases) so the caller can filter rows by disease ID
+    without re-fetching the symbol."""
+    client = _client_returning(
+        {
+            "data": {
+                "target": {
+                    "id": "ENSG00000012048",
+                    "approvedSymbol": "BRCA1",
+                    "associatedDiseases": {
+                        "count": 2,
+                        "rows": [
+                            {
+                                "score": 0.95,
+                                "datatypeScores": [{"id": "literature", "score": 0.95}],
+                                "disease": {
+                                    "id": "EFO_0000305",
+                                    "name": "breast cancer",
+                                    "therapeuticAreas": [],
+                                },
+                            },
+                            {
+                                "score": 0.42,
+                                "datatypeScores": [{"id": "rna_expression", "score": 0.42}],
+                                "disease": {
+                                    "id": "EFO_0001075",
+                                    "name": "ovarian cancer",
+                                    "therapeuticAreas": [],
+                                },
+                            },
+                        ],
+                    },
+                }
+            }
+        }
+    )
+    target = gql.target_associated_diseases("ENSG00000012048", client=client)
+    assert target is not None
+    assert target["approvedSymbol"] == "BRCA1"
+    assert target["associatedDiseases"]["count"] == 2
+    disease_ids = [r["disease"]["id"] for r in target["associatedDiseases"]["rows"]]
+    assert disease_ids == ["EFO_0000305", "EFO_0001075"]
+
+
+def test_target_associated_diseases_returns_none_when_target_missing() -> None:
+    """``target: null`` -> ``None``. Callers shouldn't have to repeat
+    the get-with-default boilerplate."""
+    client = _client_returning({"data": {"target": None}})
+    assert gql.target_associated_diseases("ENSG_NONEXISTENT", client=client) is None
+
+
+def test_target_associated_diseases_passes_size_param() -> None:
+    """``size=`` must reach the GraphQL ``$size`` variable -- a default
+    of 200 would silently truncate panels for genes with >200 disease
+    associations."""
+    captured: dict[str, object] = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        import json
+
+        body = json.loads(request.content)
+        captured["variables"] = body["variables"]
+        return httpx.Response(
+            200,
+            json={
+                "data": {
+                    "target": {
+                        "id": "X",
+                        "approvedSymbol": "X",
+                        "associatedDiseases": {"count": 0, "rows": []},
+                    }
+                }
+            },
+        )
+
+    client = httpx.Client(transport=httpx.MockTransport(handler))
+    gql.target_associated_diseases("ENSG_X", size=42, client=client)
+    assert captured["variables"] == {"ensemblId": "ENSG_X", "size": 42}
