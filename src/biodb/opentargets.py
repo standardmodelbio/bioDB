@@ -257,7 +257,15 @@ def ensure_cached_shards(
         parquet_urls = parquet_urls[:limit_files]
     if not parquet_urls:
         raise FileNotFoundError(f"No parquet files found under {dataset_url}")
-    return [_download_to_cache(url, cache_root, force=force) for url in parquet_urls]
+    from tqdm.auto import tqdm
+
+    # Per-file ``_downloads.stream_to_file`` already shows a byte-level
+    # bar; add an outer bar over shards so multi-shard datasets like
+    # ``variant`` (25 shards in OT 25.12) report meaningful progress.
+    return [
+        _download_to_cache(url, cache_root, force=force)
+        for url in tqdm(parquet_urls, desc=f"{dataset} shards", unit="shard", leave=False)
+    ]
 
 
 def get_dataset(
@@ -424,6 +432,98 @@ def read_for_target(
         columns=columns,
     )
     return table.to_pandas()
+
+
+def variants_for_target(
+    target_id: str,
+    *,
+    version: str = DEFAULT_VERSION,
+    cache_dir: str | Path | None = None,
+    columns: list[str] | None = None,
+    progress: bool = True,
+) -> "pl.DataFrame":
+    """All variants whose ``transcriptConsequences`` include ``target_id``.
+
+    OT's ``variant`` parquet table doesn't expose a top-level
+    ``targetId`` column; gene linkage is recorded per-transcript inside
+    the nested ``transcriptConsequences`` list-of-struct column. A
+    plain :func:`read_for_target` won't reach it because pyarrow's
+    pushdown filter can't traverse nested arrays. This helper does the
+    list-of-struct filter via explode+dedupe so callers don't have to
+    repeat the unnest plumbing on every consumer.
+
+    Returns one row per variant (not per transcript-consequence) where
+    at least one transcript consequence's ``targetId`` matches.
+
+    Parameters
+    ----------
+    target_id : str
+        Ensembl gene ID (e.g. ``"ENSG00000130164"`` for LDLR).
+    version : str, default ``DEFAULT_VERSION``
+        OT release tag.
+    cache_dir : str | Path, optional
+        Override for the shard cache root (defaults to
+        :data:`DEFAULT_CACHE_DIR`).
+    columns : list[str], optional
+        Projection to a subset of top-level columns. ``None`` returns
+        every column the parquet ships.
+    progress : bool, default True
+        Show a tqdm progress bar over the shard iteration. The full
+        OT variant table is 25 shards in v25.12 and each one is a
+        scan + explode + dedupe pass, so the bar gives meaningful
+        feedback on multi-minute runs. Disable for noise-free batch
+        callers.
+
+    Returns
+    -------
+    polars.DataFrame
+        Empty if the gene has no variant rows (or no shards on disk).
+
+    Examples
+    --------
+    >>> from biodb.opentargets import variants_for_target
+    >>> df = variants_for_target("ENSG00000130164")  # doctest: +SKIP
+    >>> df.columns  # doctest: +SKIP
+    ['variantId', 'chromosome', 'position', ...]
+    """
+    import polars as pl
+
+    paths = ensure_cached_shards("variant", version=version, cache_dir=cache_dir)
+    if not paths:
+        return pl.DataFrame()
+
+    from tqdm.auto import tqdm
+
+    frames: list[pl.DataFrame] = []
+    iterator = (
+        tqdm(paths, desc=f"variants[{target_id}]", unit="shard", leave=False) if progress else paths
+    )
+    for shard in iterator:
+        lf = pl.scan_parquet(str(shard))
+        schema_names = lf.collect_schema().names()
+        # Bail out cheaply if this shard's schema isn't what we expect
+        # (older OT releases used a different layout for the nested
+        # ``transcriptConsequences`` column).
+        if "transcriptConsequences" not in schema_names:
+            continue
+        # The shard is filtered by exploding the list-of-struct column,
+        # keeping rows whose exploded ``targetId`` matches, then
+        # de-duplicating back to one row per source variant. This is
+        # marginally more memory-intensive than a list-expression DSL
+        # filter, but the per-shard row count is bounded (~290k for OT
+        # 25.12) and the filter pass is dominated by the parquet read.
+        matching = (
+            lf.with_row_index("_var_row")
+            .explode("transcriptConsequences")
+            .filter(pl.col("transcriptConsequences").struct.field("targetId") == target_id)
+            .select("_var_row")
+            .unique()
+        )
+        out = lf.with_row_index("_var_row").join(matching, on="_var_row").drop("_var_row")
+        if columns is not None:
+            out = out.select(columns)
+        frames.append(out.collect())
+    return pl.concat(frames) if frames else pl.DataFrame()
 
 
 def _preprocess_disease_to_gene(

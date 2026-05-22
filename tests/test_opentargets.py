@@ -44,6 +44,7 @@ def test_public_api_signatures_stable() -> None:
         "ensure_cached_shards",
         "list_available_versions",
         "read_for_target",
+        "variants_for_target",
     }
     missing = [name for name in expected if not hasattr(opentargets, name)]
     assert not missing, f"missing public symbols: {missing}"
@@ -172,3 +173,87 @@ def test_get_dataset_caches_locally(tmp_path) -> None:
         f"Cached read took {dt_cached:.1f}s vs initial {dt_download:.1f}s — "
         "the local cache layer probably re-downloaded."
     )
+
+
+def _write_synthetic_variant_shards(cache_root, version="TESTVER"):
+    """Build a 2-shard variant parquet at the layout ``ensure_cached_shards``
+    expects. Each row is a real OT-25.12-shaped variant record with a
+    nested ``transcriptConsequences`` list-of-struct so the helper has
+    something to filter on."""
+    import polars as pl
+
+    dataset_dir = cache_root / version / "variant"
+    dataset_dir.mkdir(parents=True, exist_ok=True)
+
+    shard0 = pl.DataFrame(
+        {
+            "variantId": ["1_100_A_T", "1_200_C_G", "1_300_G_A"],
+            "chromosome": ["1", "1", "1"],
+            "transcriptConsequences": [
+                [{"transcriptId": "ENST1", "targetId": "ENSG_A"}],
+                [{"transcriptId": "ENST2", "targetId": "ENSG_B"}],
+                # multi-transcript variant with both targets
+                [
+                    {"transcriptId": "ENST3a", "targetId": "ENSG_A"},
+                    {"transcriptId": "ENST3b", "targetId": "ENSG_C"},
+                ],
+            ],
+        }
+    )
+    shard1 = pl.DataFrame(
+        {
+            "variantId": ["2_100_T_C"],
+            "chromosome": ["2"],
+            "transcriptConsequences": [
+                [{"transcriptId": "ENST4", "targetId": "ENSG_A"}],
+            ],
+        }
+    )
+    shard0.write_parquet(dataset_dir / "part-00000.parquet")
+    shard1.write_parquet(dataset_dir / "part-00001.parquet")
+    return dataset_dir
+
+
+def test_variants_for_target_filters_nested_targetid(tmp_path) -> None:
+    """The helper's load-bearing guarantee: filter on
+    ``transcriptConsequences[*].targetId`` even though that's nested
+    inside a list-of-struct that pyarrow's pushdown can't reach."""
+    import polars as pl
+
+    _write_synthetic_variant_shards(tmp_path)
+    df = opentargets.variants_for_target(
+        "ENSG_A",
+        version="TESTVER",
+        cache_dir=tmp_path,
+    )
+    # ENSG_A appears in shard 0 rows 0 and 2, and shard 1 row 0 -> 3 total.
+    assert isinstance(df, pl.DataFrame)
+    assert sorted(df["variantId"].to_list()) == sorted(["1_100_A_T", "1_300_G_A", "2_100_T_C"])
+
+
+def test_variants_for_target_unknown_gene_returns_empty(tmp_path) -> None:
+    """Gene with no matching ``targetId`` in any transcript consequence
+    returns an empty DataFrame rather than raising."""
+    import polars as pl
+
+    _write_synthetic_variant_shards(tmp_path)
+    df = opentargets.variants_for_target(
+        "ENSG_DOES_NOT_EXIST",
+        version="TESTVER",
+        cache_dir=tmp_path,
+    )
+    assert isinstance(df, pl.DataFrame)
+    assert len(df) == 0
+
+
+def test_variants_for_target_column_projection(tmp_path) -> None:
+    """``columns=`` restricts the returned schema -- useful for big
+    parquet shards where you only need variantId + position."""
+    _write_synthetic_variant_shards(tmp_path)
+    df = opentargets.variants_for_target(
+        "ENSG_A",
+        version="TESTVER",
+        cache_dir=tmp_path,
+        columns=["variantId", "chromosome"],
+    )
+    assert set(df.columns) == {"variantId", "chromosome"}
