@@ -86,12 +86,25 @@ DEFAULT_SCORE = 0.5
 # ---------------------------------------------------------------------------
 SUPPORTED_GENE_ASSOCIATION_DATASETS: frozenset[str] = frozenset(
     {
+        # ── Default 6 (cheap to pull, always included unless overridden)
         "disease-to-gene",
         "known_drug",
         "pharmacogenomics",
         "mouse_phenotype",
         "target_essentiality",
         "expression",
+        # ── Opt-in evidence sources (large; opt in via ``datasets=`` kwarg
+        #    or the ``BIODB_OT_GENE_ASSOC_DATASETS`` env var). These are
+        #    deliberately NOT in ``DEFAULT_GENE_ASSOCIATION_DATASETS`` --
+        #    download volumes (multi-100MB shards) and post-merge row
+        #    counts (10s of millions for ``evidence_eva`` /
+        #    ``evidence_europepmc``) would silently bloat the default
+        #    ``get_gene_associations()`` call.
+        "evidence_eva",
+        "evidence_gwas_credible_sets",
+        "evidence_europepmc",
+        "evidence_uniprot_variants",
+        "evidence_intogen",
     }
 )
 """Authoritative allow-list for ``get_gene_associations``'s ``datasets``
@@ -111,7 +124,13 @@ when ``datasets`` is ``None`` and the env-var override is unset. A
 list (not a set) so the column order in the concatenated output is
 stable across runs. Override at module-level for a session-wide
 change or via ``BIODB_OT_GENE_ASSOC_DATASETS`` for a process-local
-override."""
+override.
+
+The ``evidence_*`` entries in
+:data:`SUPPORTED_GENE_ASSOCIATION_DATASETS` are intentionally absent
+from this default list -- they're large enough that auto-including
+them would silently change the runtime + memory profile of existing
+``get_gene_associations()`` callers. Opt in explicitly."""
 
 # OT release directory names look like ``25.12/``, ``26.03/``, etc.
 _VERSION_RE = re.compile(r"^\d{2}\.\d{2}$")
@@ -1614,6 +1633,405 @@ def _prepare_target_essentiality_associations(
     return target_essentiality
 
 
+# ---------------------------------------------------------------------------
+# Evidence-flavoured datasets (extra ``get_gene_associations`` sources).
+#
+# These all follow the OT ``evidence_*`` parquet schema -- one row per
+# raw evidence record with ``targetId``, ``diseaseId``, ``datasourceId``,
+# and a pre-computed ``score`` (range varies per source). They are
+# opt-in additions to the legacy 6 default datasets: download volumes
+# and row counts are large enough that adding them to
+# ``DEFAULT_GENE_ASSOCIATION_DATASETS`` would silently bloat the
+# default ``get_gene_associations()`` call. Callers pull them via the
+# ``datasets=`` kwarg (or the ``BIODB_OT_GENE_ASSOC_DATASETS`` env var).
+#
+# All five share the helper-friendly shape, so the preprocessors are
+# thin: load shards, build a ``sourceId`` that is unique per evidence
+# row, attach disease name as ``label``, fill missing scores with
+# ``default_score``, and tag with ``database`` / ``dataset``.
+# ---------------------------------------------------------------------------
+
+
+def _attach_disease_label(
+    df: pd.DataFrame,
+    *,
+    cache_dir: str | None,
+    force: bool,
+    output_format: str,
+    verbose: int,
+) -> pd.DataFrame:
+    """Left-merge OT ``disease.name`` onto ``df["diseaseId"]`` as ``label``.
+
+    Shared helper for the ``evidence_*`` preprocessors. Falls back to
+    the raw ``diseaseId`` for rows that don't match (e.g. an EFO term
+    that didn't survive harmonisation). Preserves row order.
+    """
+    if "diseaseId" not in df.columns:
+        df["label"] = pd.NA
+        return df
+
+    disease = get_dataset(
+        dataset="disease",
+        cache_dir=cache_dir,
+        force=force,
+        output_format=output_format,
+        verbose=verbose - 1 if verbose > 0 else 0,
+    )
+    df = df.merge(
+        disease[["id", "name"]].rename(columns={"id": "diseaseId", "name": "label"}),
+        on="diseaseId",
+        how="left",
+    )
+    # Backfill missing labels with the raw EFO/MONDO/etc. id so the
+    # column is never fully NaN -- downstream embedders prefer a
+    # human-readable string but degrade gracefully to the ontology id.
+    df["label"] = df["label"].fillna(df["diseaseId"])
+    return df
+
+
+def _coerce_score(
+    df: pd.DataFrame,
+    *,
+    score_col: str = "score",
+    default_score: float | None = None,
+) -> pd.DataFrame:
+    """Ensure ``df["score"]`` exists, is float-typed, and NaN-filled.
+
+    OT evidence shards already publish a ``score`` column, but a few
+    sources leave it null for individual rows. Fall back to
+    ``default_score`` (or ``DEFAULT_SCORE``) so the final concatenated
+    matrix in :func:`get_gene_associations` doesn't carry mixed dtypes.
+    """
+    if score_col not in df.columns:
+        df["score"] = default_score if default_score is not None else DEFAULT_SCORE
+        return df
+    df["score"] = pd.to_numeric(df[score_col], errors="coerce")
+    fill = default_score if default_score is not None else DEFAULT_SCORE
+    df["score"] = df["score"].fillna(fill)
+    return df
+
+
+def _prepare_evidence_eva_associations(
+    cache_dir: str | None = None,
+    force: bool = False,
+    output_format: str = "pandas",
+    default_score: float | None = None,
+    verbose: int = 1,
+) -> pd.DataFrame:
+    """
+    Prepare ClinVar (EVA) variant-disease evidence associations from OpenTargets.
+
+    Each row in ``evidence_eva`` is one ClinVar submission linking a
+    germline / somatic variant to a disease through a target gene.
+    Rows are kept at evidence-record granularity (so a single
+    target-disease pair can contribute multiple rows when reported by
+    multiple submitters); ``sourceId`` is the unique ClinVar evidence
+    id to keep them distinguishable.
+
+    Parameters
+    ----------
+    cache_dir : str, optional
+        Local directory to cache downloaded files.
+    force : bool, default False
+        If True, re-download parquet shards.
+    output_format : str, default "pandas"
+        Output format: "pandas" or "polars".
+    default_score : float or None, default None
+        Fallback for rows missing a numeric score.
+    verbose : int, default 1
+
+    Returns
+    -------
+    pd.DataFrame
+        Standardised columns: ``database``, ``dataset``, ``sourceId``,
+        ``targetId``, ``score``, ``label`` plus the original
+        ``evidence_eva`` columns.
+    """
+    if verbose >= 1:
+        logger.info("Preparing evidence_eva (ClinVar) associations")
+
+    df = get_dataset(
+        dataset="evidence_eva",
+        cache_dir=cache_dir,
+        force=force,
+        output_format=output_format,
+        verbose=verbose - 1 if verbose > 0 else 0,
+    )
+
+    # evidence_* tables expose both the canonical ``targetId`` and the
+    # raw ``targetFromSourceId``; prefer the canonical (already ENSG).
+    if "targetId" not in df.columns and "targetFromSourceId" in df.columns:
+        df = df.rename(columns={"targetFromSourceId": "targetId"})
+
+    # sourceId: use the per-evidence ``id`` (ClinVar hashes) so each
+    # submission is its own row; fall back to diseaseId.datasourceId
+    # when ``id`` is missing.
+    if "id" in df.columns:
+        df["sourceId"] = df["id"]
+    else:
+        df["sourceId"] = (
+            df.get("diseaseId", pd.Series(["NA"] * len(df))).astype(str)
+            + "."
+            + df.get("datasourceId", pd.Series(["eva"] * len(df))).astype(str)
+        )
+
+    df = _coerce_score(df, default_score=default_score)
+    df["dataset"] = "evidence_eva"
+    df["database"] = "OpenTargets"
+    df = _attach_disease_label(
+        df,
+        cache_dir=cache_dir,
+        force=force,
+        output_format=output_format,
+        verbose=verbose,
+    )
+
+    if verbose >= 1:
+        logger.info(f"DataFrame shape: {df.shape}")
+
+    return df
+
+
+def _prepare_evidence_gwas_credible_sets_associations(
+    cache_dir: str | None = None,
+    force: bool = False,
+    output_format: str = "pandas",
+    default_score: float | None = None,
+    verbose: int = 1,
+) -> pd.DataFrame:
+    """
+    Prepare GWAS credible-set evidence associations from OpenTargets.
+
+    Each row is one credible-set / locus-to-gene assignment for a
+    target-disease pair, with an L2G score in the existing ``score``
+    column (already 0-1).
+
+    Returns
+    -------
+    pd.DataFrame
+        Standardised columns: ``database``, ``dataset``, ``sourceId``,
+        ``targetId``, ``score``, ``label``. ``sourceId`` is
+        ``studyLocusId.diseaseId`` when available, otherwise the raw
+        per-evidence ``id``.
+    """
+    if verbose >= 1:
+        logger.info("Preparing evidence_gwas_credible_sets associations")
+
+    df = get_dataset(
+        dataset="evidence_gwas_credible_sets",
+        cache_dir=cache_dir,
+        force=force,
+        output_format=output_format,
+        verbose=verbose - 1 if verbose > 0 else 0,
+    )
+
+    if "targetId" not in df.columns and "targetFromSourceId" in df.columns:
+        df = df.rename(columns={"targetFromSourceId": "targetId"})
+
+    if "studyLocusId" in df.columns and "diseaseId" in df.columns:
+        df["sourceId"] = df["studyLocusId"].astype(str) + "." + df["diseaseId"].astype(str)
+    elif "id" in df.columns:
+        df["sourceId"] = df["id"]
+    else:
+        df["sourceId"] = pd.NA
+
+    df = _coerce_score(df, default_score=default_score)
+    df["dataset"] = "evidence_gwas_credible_sets"
+    df["database"] = "OpenTargets"
+    df = _attach_disease_label(
+        df,
+        cache_dir=cache_dir,
+        force=force,
+        output_format=output_format,
+        verbose=verbose,
+    )
+
+    if verbose >= 1:
+        logger.info(f"DataFrame shape: {df.shape}")
+
+    return df
+
+
+def _prepare_evidence_europepmc_associations(
+    cache_dir: str | None = None,
+    force: bool = False,
+    output_format: str = "pandas",
+    default_score: float | None = None,
+    verbose: int = 1,
+) -> pd.DataFrame:
+    """
+    Prepare EuropePMC text-mining evidence associations from OpenTargets.
+
+    Each row is one co-mention of a target and a disease in a
+    EuropePMC publication. ``sourceId`` is built from the per-evidence
+    hash so individual sentences remain distinguishable.
+
+    Returns
+    -------
+    pd.DataFrame
+        Standardised columns: ``database``, ``dataset``, ``sourceId``,
+        ``targetId``, ``score``, ``label``.
+    """
+    if verbose >= 1:
+        logger.info("Preparing evidence_europepmc associations")
+
+    df = get_dataset(
+        dataset="evidence_europepmc",
+        cache_dir=cache_dir,
+        force=force,
+        output_format=output_format,
+        verbose=verbose - 1 if verbose > 0 else 0,
+    )
+
+    if "targetId" not in df.columns and "targetFromSourceId" in df.columns:
+        df = df.rename(columns={"targetFromSourceId": "targetId"})
+
+    if "id" in df.columns:
+        df["sourceId"] = df["id"]
+    else:
+        df["sourceId"] = df.get("diseaseId", pd.Series(["NA"] * len(df))).astype(str) + ".europepmc"
+
+    df = _coerce_score(df, default_score=default_score)
+    df["dataset"] = "evidence_europepmc"
+    df["database"] = "OpenTargets"
+    df = _attach_disease_label(
+        df,
+        cache_dir=cache_dir,
+        force=force,
+        output_format=output_format,
+        verbose=verbose,
+    )
+
+    if verbose >= 1:
+        logger.info(f"DataFrame shape: {df.shape}")
+
+    return df
+
+
+def _prepare_evidence_uniprot_variants_associations(
+    cache_dir: str | None = None,
+    force: bool = False,
+    output_format: str = "pandas",
+    default_score: float | None = None,
+    verbose: int = 1,
+) -> pd.DataFrame:
+    """
+    Prepare UniProt natural-variant evidence associations from OpenTargets.
+
+    Each row links a UniProt-curated variant to a disease through a
+    target gene. ``sourceId`` is ``variantId.diseaseId`` when a
+    variant is present, otherwise the per-evidence ``id`` hash.
+
+    Returns
+    -------
+    pd.DataFrame
+        Standardised columns: ``database``, ``dataset``, ``sourceId``,
+        ``targetId``, ``score``, ``label``.
+    """
+    if verbose >= 1:
+        logger.info("Preparing evidence_uniprot_variants associations")
+
+    df = get_dataset(
+        dataset="evidence_uniprot_variants",
+        cache_dir=cache_dir,
+        force=force,
+        output_format=output_format,
+        verbose=verbose - 1 if verbose > 0 else 0,
+    )
+
+    if "targetId" not in df.columns and "targetFromSourceId" in df.columns:
+        # ``targetFromSourceId`` in this table is a UniProt accession
+        # (e.g. ``P60174``); only use it as a fallback. The canonical
+        # ENSG lives in ``targetId``.
+        df = df.rename(columns={"targetFromSourceId": "targetId"})
+
+    if "variantId" in df.columns and "diseaseId" in df.columns:
+        # Some rows have null variantId; fall back to the evidence ``id``.
+        sid = df["variantId"].astype("string") + "." + df["diseaseId"].astype("string")
+        if "id" in df.columns:
+            sid = sid.fillna(df["id"])
+        df["sourceId"] = sid
+    elif "id" in df.columns:
+        df["sourceId"] = df["id"]
+    else:
+        df["sourceId"] = pd.NA
+
+    df = _coerce_score(df, default_score=default_score)
+    df["dataset"] = "evidence_uniprot_variants"
+    df["database"] = "OpenTargets"
+    df = _attach_disease_label(
+        df,
+        cache_dir=cache_dir,
+        force=force,
+        output_format=output_format,
+        verbose=verbose,
+    )
+
+    if verbose >= 1:
+        logger.info(f"DataFrame shape: {df.shape}")
+
+    return df
+
+
+def _prepare_evidence_intogen_associations(
+    cache_dir: str | None = None,
+    force: bool = False,
+    output_format: str = "pandas",
+    default_score: float | None = None,
+    verbose: int = 1,
+) -> pd.DataFrame:
+    """
+    Prepare IntOGen cancer-driver evidence associations from OpenTargets.
+
+    Each row is one IntOGen driver call for a target gene in a cancer
+    cohort, with the published ``score`` already 0-1-normalised by OT.
+    ``sourceId`` is ``cohortId.diseaseId`` so cohort-specific driver
+    calls stay distinguishable from each other.
+
+    Returns
+    -------
+    pd.DataFrame
+        Standardised columns: ``database``, ``dataset``, ``sourceId``,
+        ``targetId``, ``score``, ``label``.
+    """
+    if verbose >= 1:
+        logger.info("Preparing evidence_intogen associations")
+
+    df = get_dataset(
+        dataset="evidence_intogen",
+        cache_dir=cache_dir,
+        force=force,
+        output_format=output_format,
+        verbose=verbose - 1 if verbose > 0 else 0,
+    )
+
+    if "targetId" not in df.columns and "targetFromSourceId" in df.columns:
+        df = df.rename(columns={"targetFromSourceId": "targetId"})
+
+    if "cohortId" in df.columns and "diseaseId" in df.columns:
+        df["sourceId"] = df["cohortId"].astype(str) + "." + df["diseaseId"].astype(str)
+    elif "id" in df.columns:
+        df["sourceId"] = df["id"]
+    else:
+        df["sourceId"] = pd.NA
+
+    df = _coerce_score(df, default_score=default_score)
+    df["dataset"] = "evidence_intogen"
+    df["database"] = "OpenTargets"
+    df = _attach_disease_label(
+        df,
+        cache_dir=cache_dir,
+        force=force,
+        output_format=output_format,
+        verbose=verbose,
+    )
+
+    if verbose >= 1:
+        logger.info(f"DataFrame shape: {df.shape}")
+
+    return df
+
+
 def get_gene_associations(
     datasets: list | None = None,
     association_dataset: str = "association_by_datasource_direct",
@@ -1858,6 +2276,65 @@ def get_gene_associations(
         )
         expression = apply_filter_adaptive(expression, "expression")
         associations_list.append(expression)
+
+    # ── Opt-in evidence_* sources ───────────────────────────────────
+    # These are validated by ``_resolve_gene_association_datasets`` so
+    # we don't need to defensively check ``in SUPPORTED_*`` here.
+
+    if "evidence_eva" in datasets:
+        evidence_eva = _prepare_evidence_eva_associations(
+            cache_dir=cache_dir,
+            force=(force >= 2),
+            output_format=output_format,
+            default_score=default_score,
+            verbose=verbose,
+        )
+        evidence_eva = apply_filter_adaptive(evidence_eva, "evidence_eva")
+        associations_list.append(evidence_eva)
+
+    if "evidence_gwas_credible_sets" in datasets:
+        evidence_gwas = _prepare_evidence_gwas_credible_sets_associations(
+            cache_dir=cache_dir,
+            force=(force >= 2),
+            output_format=output_format,
+            default_score=default_score,
+            verbose=verbose,
+        )
+        evidence_gwas = apply_filter_adaptive(evidence_gwas, "evidence_gwas_credible_sets")
+        associations_list.append(evidence_gwas)
+
+    if "evidence_europepmc" in datasets:
+        evidence_epmc = _prepare_evidence_europepmc_associations(
+            cache_dir=cache_dir,
+            force=(force >= 2),
+            output_format=output_format,
+            default_score=default_score,
+            verbose=verbose,
+        )
+        evidence_epmc = apply_filter_adaptive(evidence_epmc, "evidence_europepmc")
+        associations_list.append(evidence_epmc)
+
+    if "evidence_uniprot_variants" in datasets:
+        evidence_upv = _prepare_evidence_uniprot_variants_associations(
+            cache_dir=cache_dir,
+            force=(force >= 2),
+            output_format=output_format,
+            default_score=default_score,
+            verbose=verbose,
+        )
+        evidence_upv = apply_filter_adaptive(evidence_upv, "evidence_uniprot_variants")
+        associations_list.append(evidence_upv)
+
+    if "evidence_intogen" in datasets:
+        evidence_intogen = _prepare_evidence_intogen_associations(
+            cache_dir=cache_dir,
+            force=(force >= 2),
+            output_format=output_format,
+            default_score=default_score,
+            verbose=verbose,
+        )
+        evidence_intogen = apply_filter_adaptive(evidence_intogen, "evidence_intogen")
+        associations_list.append(evidence_intogen)
 
     if len(associations_list) == 0:
         raise ValueError("At least one dataset must be included")
