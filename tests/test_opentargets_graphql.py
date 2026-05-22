@@ -10,6 +10,7 @@ from __future__ import annotations
 import time
 
 import httpx
+import polars as pl
 import pytest
 
 from biodb import opentargets_graphql as gql
@@ -51,6 +52,8 @@ def test_public_api_signatures_stable() -> None:
         "query_variant",
         "map_symbols_to_ensembl",
         "target_associated_diseases",
+        "fetch_panel_scores",
+        "fetch_aggregated_panel_scores",
     ):
         assert hasattr(gql, name)
 
@@ -412,3 +415,240 @@ def test_target_associated_diseases_passes_size_param() -> None:
     client = httpx.Client(transport=httpx.MockTransport(handler))
     gql.target_associated_diseases("ENSG_X", size=42, client=client)
     assert captured["variables"] == {"ensemblId": "ENSG_X", "size": 42}
+
+
+# ---------------------------------------------------------------------------
+# _normalise_id (private but small enough to nail down behaviour)
+# ---------------------------------------------------------------------------
+
+
+def test_normalise_id_replaces_efo_colon() -> None:
+    assert gql._normalise_id("EFO:0000305") == "EFO_0000305"
+
+
+def test_normalise_id_passes_through_underscore_form() -> None:
+    assert gql._normalise_id("EFO_0000305") == "EFO_0000305"
+
+
+def test_normalise_id_handles_mondo() -> None:
+    assert gql._normalise_id("MONDO:0004975") == "MONDO_0004975"
+
+
+# ---------------------------------------------------------------------------
+# fetch_panel_scores / fetch_aggregated_panel_scores
+#
+# These compose ``map_symbols_to_ensembl`` and ``target_associated_diseases``
+# end-to-end against a single httpx.MockTransport that routes by the GraphQL
+# query string -- so the tests cover the per-gene loop, the disease-id
+# filter, the polars schema, and the group-by aggregation together.
+# ---------------------------------------------------------------------------
+
+
+def _assoc_target(rows: list[dict], approved_symbol: str = "X", ensembl_id: str = "ENSG_X") -> dict:
+    """Build a ``target`` envelope for the ``associatedDiseases`` mock response."""
+    return {
+        "id": ensembl_id,
+        "approvedSymbol": approved_symbol,
+        "associatedDiseases": {"count": len(rows), "rows": rows},
+    }
+
+
+def _panel_transport(
+    *,
+    symbol_map: dict[str, str],
+    targets: dict[str, dict | None],
+    assoc_error: Exception | None = None,
+) -> httpx.MockTransport:
+    """Build a MockTransport that routes mapIds vs target queries by query body.
+
+    Parameters
+    ----------
+    symbol_map : dict[str, str]
+        Symbols that will resolve via ``map_symbols_to_ensembl`` -- emitted
+        as the ``mapIds.mappings`` payload.
+    targets : dict[str, dict | None]
+        Per-Ensembl-id ``target`` envelope to return from
+        ``target_associated_diseases``. A ``None`` value is returned as
+        ``{"data": {"target": null}}`` so the helper yields ``None``.
+    assoc_error : Exception, optional
+        If set, the ``target`` query raises by emitting a 503 (which the
+        retrying ``graphql_post`` bubbles as ``httpx.HTTPError``) -- exercises
+        the per-gene swallow path.
+    """
+    import json
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        body = json.loads(request.content)
+        query = body["query"]
+        if "mapIds" in query:
+            mappings = [
+                {
+                    "term": sym,
+                    "hits": [{"id": ens, "name": sym, "entity": "target"}],
+                }
+                for sym, ens in symbol_map.items()
+            ]
+            return httpx.Response(200, json={"data": {"mapIds": {"mappings": mappings}}})
+        if "TargetAssociatedDiseases" in query or "associatedDiseases" in query:
+            if assoc_error is not None:
+                return httpx.Response(503, json={})
+            ensembl_id = body["variables"]["ensemblId"]
+            target = targets.get(ensembl_id)
+            return httpx.Response(200, json={"data": {"target": target}})
+        raise AssertionError(f"unexpected query: {query!r}")
+
+    return httpx.MockTransport(handler)
+
+
+def test_fetch_panel_scores_filters_to_wanted_diseases() -> None:
+    """Only rows whose ``disease.id`` is in the requested set survive --
+    the test also confirms colon-form input is normalised to underscore."""
+    target = _assoc_target(
+        [
+            {"disease": {"id": "EFO_0000305", "name": "breast cancer"}, "score": 0.9},
+            {"disease": {"id": "EFO_9999999", "name": "unrelated"}, "score": 0.1},
+        ]
+    )
+    client = httpx.Client(
+        transport=_panel_transport(
+            symbol_map={"X": "ENSG_X"},
+            targets={"ENSG_X": target},
+        )
+    )
+    df = gql.fetch_panel_scores(["X"], ["EFO:0000305"], client=client)
+    assert df.height == 1
+    assert df["cancer_type"].to_list() == ["EFO_0000305"]
+    assert df["ot_score"].to_list() == [pytest.approx(0.9)]
+    assert df["ot_evidence"].to_list() == ["breast cancer"]
+
+
+def test_fetch_panel_scores_empty_when_no_mapping() -> None:
+    """If no symbol resolves to an Ensembl id, the associated-diseases
+    query is never issued and the result carries the full empty schema."""
+    client = httpx.Client(
+        transport=_panel_transport(symbol_map={}, targets={}),
+    )
+    df = gql.fetch_panel_scores(["UNKNOWN"], ["EFO_0000305"], client=client)
+    assert df.height == 0
+    assert df.columns == ["gene_id", "gene_symbol", "cancer_type", "ot_score", "ot_evidence"]
+
+
+def test_fetch_panel_scores_logs_warning_on_per_gene_failure(
+    caplog: pytest.LogCaptureFixture, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A per-gene associated-disease HTTP failure is logged as WARNING and
+    the gene is skipped (matches seqlab's prior behaviour, but via logging
+    instead of stderr)."""
+    monkeypatch.setattr(time, "sleep", lambda _: None)  # zip past graphql_post backoff
+    client = httpx.Client(
+        transport=_panel_transport(
+            symbol_map={"X": "ENSG_X"},
+            targets={"ENSG_X": None},
+            assoc_error=httpx.HTTPError("nope"),
+        )
+    )
+    with caplog.at_level("WARNING", logger="biodb.opentargets_graphql"):
+        df = gql.fetch_panel_scores(["X"], ["EFO_0000305"], client=client)
+    assert df.height == 0
+    assert any("associated-diseases fetch failed" in rec.message for rec in caplog.records)
+
+
+def test_fetch_panel_scores_skips_null_target() -> None:
+    """``target: null`` from OT (unknown Ensembl id post-resolve) returns
+    ``None`` from :func:`target_associated_diseases` and is skipped without
+    emitting a warning."""
+    client = httpx.Client(
+        transport=_panel_transport(
+            symbol_map={"X": "ENSG_X"},
+            targets={"ENSG_X": None},
+        )
+    )
+    df = gql.fetch_panel_scores(["X"], ["EFO_0000305"], client=client)
+    assert df.height == 0
+
+
+def test_fetch_panel_scores_uses_approved_symbol_when_present() -> None:
+    """``gene_symbol`` should be the OT-canonical ``approvedSymbol``, not
+    the input HGNC symbol (which may differ in case or be an alias)."""
+    target = _assoc_target(
+        [{"disease": {"id": "EFO_0000305", "name": "breast cancer"}, "score": 0.9}],
+        approved_symbol="BRCA1",
+        ensembl_id="ENSG_X",
+    )
+    client = httpx.Client(
+        transport=_panel_transport(
+            symbol_map={"brca1": "ENSG_X"},
+            targets={"ENSG_X": target},
+        )
+    )
+    df = gql.fetch_panel_scores(["brca1"], ["EFO_0000305"], client=client)
+    assert df.height == 1
+    assert df["gene_symbol"].to_list() == ["BRCA1"]
+
+
+def test_fetch_panel_scores_returns_typed_empty_schema_on_no_matches() -> None:
+    """When mappings + targets succeed but no row matches the disease set,
+    the empty DataFrame still has the documented schema."""
+    target = _assoc_target([{"disease": {"id": "EFO_9999999", "name": "unrelated"}, "score": 0.5}])
+    client = httpx.Client(
+        transport=_panel_transport(
+            symbol_map={"X": "ENSG_X"},
+            targets={"ENSG_X": target},
+        )
+    )
+    df = gql.fetch_panel_scores(["X"], ["EFO_0000305"], client=client)
+    assert df.height == 0
+    assert df.schema["gene_id"] == pl.Utf8
+    assert df.schema["ot_score"] == pl.Float64
+
+
+def test_fetch_aggregated_panel_scores_empty_input() -> None:
+    """No mappings -> empty aggregated DataFrame with the full schema
+    (List[Utf8] for the list columns, not Null)."""
+    client = httpx.Client(
+        transport=_panel_transport(symbol_map={}, targets={}),
+    )
+    df = gql.fetch_aggregated_panel_scores(["UNKNOWN"], ["EFO_0000305"], client=client)
+    assert df.height == 0
+    assert df.columns == ["gene_id", "gene_symbol", "ot_score", "cancer_types", "diseases"]
+    assert df.schema["cancer_types"] == pl.List(pl.Utf8)
+    assert df.schema["diseases"] == pl.List(pl.Utf8)
+
+
+def test_fetch_aggregated_panel_scores_groups_per_gene() -> None:
+    """Two matched diseases for one gene collapse into one row with
+    ``ot_score`` = max, plus list-columns for the matched ids/names."""
+    target = _assoc_target(
+        [
+            {"disease": {"id": "EFO_0000305", "name": "breast cancer"}, "score": 0.9},
+            {"disease": {"id": "EFO_0001075", "name": "ovarian cancer"}, "score": 0.7},
+        ]
+    )
+    client = httpx.Client(
+        transport=_panel_transport(
+            symbol_map={"X": "ENSG_X"},
+            targets={"ENSG_X": target},
+        )
+    )
+    df = gql.fetch_aggregated_panel_scores(["X"], ["EFO_0000305", "EFO_0001075"], client=client)
+    assert df.height == 1
+    row = df.to_dicts()[0]
+    assert row["ot_score"] == pytest.approx(0.9)
+    assert sorted(row["cancer_types"]) == ["EFO_0000305", "EFO_0001075"]
+    assert sorted(row["diseases"]) == ["breast cancer", "ovarian cancer"]
+
+
+def test_fetch_aggregated_panel_scores_reuses_caller_client() -> None:
+    """The ``client=`` kwarg is forwarded to :func:`fetch_panel_scores` so
+    callers can share connection pools across the two phases."""
+    target = _assoc_target(
+        [{"disease": {"id": "EFO_0000305", "name": "breast cancer"}, "score": 0.9}],
+    )
+    transport = _panel_transport(
+        symbol_map={"X": "ENSG_X"},
+        targets={"ENSG_X": target},
+    )
+    client = httpx.Client(transport=transport)
+    df = gql.fetch_aggregated_panel_scores(["X"], ["EFO_0000305"], client=client)
+    assert df.height == 1
+    assert not client.is_closed  # caller-owned -> stays open

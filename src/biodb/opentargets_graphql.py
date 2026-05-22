@@ -54,6 +54,7 @@ import time
 from typing import Any
 
 import httpx
+import polars as pl
 
 logger = logging.getLogger(__name__)
 
@@ -669,3 +670,216 @@ def target_associated_diseases(
         client=client,
     )
     return data.get("target")
+
+
+# ---------------------------------------------------------------------------
+# Panel scoring
+#
+# Composes the symbol -> Ensembl resolution + per-target associated-disease
+# queries above with EFO/MONDO/HP id normalisation and polars-DataFrame
+# aggregation. Mirrors the API the seqlab panel builder previously hosted
+# under ``seqlab.panel.opentargets``; consolidated here in biodb because the
+# building blocks live in this module and there are no seqlab-specific
+# concerns left.
+# ---------------------------------------------------------------------------
+
+
+def _normalise_id(disease_id: str) -> str:
+    """Normalise an ontology ID to OpenTargets' internal underscored form.
+
+    OpenTargets uses ``MONDO_0007254`` not ``MONDO:0007254`` and
+    ``EFO_0000305`` not ``EFO:0000305``. Inputs already in underscored
+    form are returned unchanged. Module-private (not re-exported).
+
+    Parameters
+    ----------
+    disease_id : str
+        EFO / MONDO / HP id in either ``"EFO:0000305"`` or
+        ``"EFO_0000305"`` form.
+
+    Returns
+    -------
+    str
+        The same id with any ``:`` separator replaced by ``_``.
+
+    Raises
+    ------
+    AttributeError
+        If ``disease_id`` is not a string.
+
+    Examples
+    --------
+    >>> _normalise_id("EFO:0000305")
+    'EFO_0000305'
+    >>> _normalise_id("EFO_0000305")
+    'EFO_0000305'
+    >>> _normalise_id("MONDO:0007254")
+    'MONDO_0007254'
+    """
+    return disease_id.replace(":", "_")
+
+
+def fetch_panel_scores(
+    gene_symbols: list[str],
+    disease_ids: list[str],
+    *,
+    client: httpx.Client | None = None,
+) -> pl.DataFrame:
+    """Fetch OpenTargets association scores per gene x disease pair.
+
+    Resolves each HGNC symbol to its Ensembl gene ID via
+    :func:`map_symbols_to_ensembl`, pulls the ``associatedDiseases`` rows
+    via :func:`target_associated_diseases`, and keeps only rows whose
+    ``disease.id`` is in the normalised ``disease_ids`` set. Per-gene
+    HTTP failures are logged at WARNING and the gene is skipped (the
+    rest of the panel still scores). Symbols that fail to resolve to
+    an Ensembl id are silently dropped.
+
+    Parameters
+    ----------
+    gene_symbols : list[str]
+        HGNC symbols (``["BRCA1", "TP53", ...]``). Case is preserved in
+        any returned ``gene_symbol`` values but OT's resolver is
+        case-insensitive.
+    disease_ids : list[str]
+        EFO / MONDO / HP ids in either ``"EFO_0000305"`` or
+        ``"EFO:0000305"`` form -- colon form is normalised internally.
+    client : httpx.Client, optional
+        Reusable HTTP client for connection pooling across the resolve +
+        per-gene fetch passes. If ``None``, one is created for the call.
+
+    Returns
+    -------
+    polars.DataFrame
+        Columns: ``gene_id`` (Utf8), ``gene_symbol`` (Utf8),
+        ``cancer_type`` (Utf8 -- the matched normalised disease id),
+        ``ot_score`` (Float64), ``ot_evidence`` (Utf8 -- the matched
+        disease display name). One row per ``(gene, matched_disease)``
+        pair. The empty-result DataFrame still carries the full schema
+        so downstream group-by operations don't need to guard on it.
+
+    Raises
+    ------
+    httpx.HTTPError
+        Only from the initial ``map_symbols_to_ensembl`` call -- per-gene
+        association failures are swallowed and logged.
+
+    Examples
+    --------
+    >>> df = fetch_panel_scores(["BRCA1"], ["EFO_0000305"])  # doctest: +SKIP
+    >>> df.height >= 1  # doctest: +SKIP
+    True
+    """
+    wanted = {_normalise_id(d) for d in disease_ids}
+    rows: list[dict[str, Any]] = []
+    owns_client = client is None
+    if client is None:
+        client = httpx.Client()
+    try:
+        mapping = map_symbols_to_ensembl(gene_symbols, client=client)
+        for sym in gene_symbols:
+            ensembl_id = mapping.get(sym)
+            if ensembl_id is None:
+                continue
+            try:
+                target = target_associated_diseases(ensembl_id, client=client)
+            except (httpx.HTTPError, RuntimeError) as exc:
+                logger.warning(
+                    "%s (%s) associated-diseases fetch failed: %s; skipping",
+                    sym,
+                    ensembl_id,
+                    exc,
+                )
+                continue
+            if not target:
+                continue
+            approved = target.get("approvedSymbol", sym)
+            for r in target["associatedDiseases"]["rows"]:
+                did = _normalise_id(r["disease"]["id"])
+                if did not in wanted:
+                    continue
+                rows.append(
+                    {
+                        "gene_id": ensembl_id,
+                        "gene_symbol": approved,
+                        "cancer_type": did,
+                        "ot_score": float(r["score"]),
+                        "ot_evidence": r["disease"]["name"],
+                    }
+                )
+    finally:
+        if owns_client:
+            client.close()
+    if not rows:
+        return pl.DataFrame(
+            schema={
+                "gene_id": pl.Utf8,
+                "gene_symbol": pl.Utf8,
+                "cancer_type": pl.Utf8,
+                "ot_score": pl.Float64,
+                "ot_evidence": pl.Utf8,
+            }
+        )
+    return pl.DataFrame(rows)
+
+
+def fetch_aggregated_panel_scores(
+    gene_symbols: list[str],
+    disease_ids: list[str],
+    *,
+    client: httpx.Client | None = None,
+) -> pl.DataFrame:
+    """Fetch and aggregate OpenTargets scores to one row per gene.
+
+    Thin wrapper around :func:`fetch_panel_scores` that group-bys on
+    ``(gene_id, gene_symbol)`` and collapses the per-disease rows into:
+
+    - ``ot_score`` -- max score across matched diseases
+    - ``cancer_types`` -- list of matched (normalised) disease ids
+    - ``diseases`` -- list of matched disease display names
+
+    Order within the list columns mirrors the iteration order of
+    :func:`fetch_panel_scores` (the OT row order for each gene); no
+    sort is applied.
+
+    Parameters
+    ----------
+    gene_symbols : list[str]
+        HGNC symbols, forwarded to :func:`fetch_panel_scores`.
+    disease_ids : list[str]
+        EFO / MONDO / HP ids -- colon form auto-normalised.
+    client : httpx.Client, optional
+        Reusable HTTP client forwarded to :func:`fetch_panel_scores`.
+
+    Returns
+    -------
+    polars.DataFrame
+        Columns: ``gene_id`` (Utf8), ``gene_symbol`` (Utf8),
+        ``ot_score`` (Float64), ``cancer_types`` (List[Utf8]),
+        ``diseases`` (List[Utf8]). Zero rows if no gene matched any
+        requested disease.
+
+    Examples
+    --------
+    >>> df = fetch_aggregated_panel_scores(  # doctest: +SKIP
+    ...     ["BRCA1"], ["EFO_0000305", "EFO_0001075"]
+    ... )
+    >>> df.columns  # doctest: +SKIP
+    ['gene_id', 'gene_symbol', 'ot_score', 'cancer_types', 'diseases']
+    """
+    per_disease = fetch_panel_scores(gene_symbols, disease_ids, client=client)
+    if per_disease.height == 0:
+        return pl.DataFrame(
+            schema={
+                "gene_id": pl.Utf8,
+                "gene_symbol": pl.Utf8,
+                "ot_score": pl.Float64,
+                "cancer_types": pl.List(pl.Utf8),
+                "diseases": pl.List(pl.Utf8),
+            }
+        )
+    return per_disease.group_by(["gene_id", "gene_symbol"]).agg(
+        pl.col("ot_score").max(),
+        pl.col("cancer_type").alias("cancer_types"),
+        pl.col("ot_evidence").alias("diseases"),
+    )
