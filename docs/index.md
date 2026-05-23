@@ -32,6 +32,12 @@ the full All-of-Us pipeline.
   scores across proteins (Olink + SomaScan), metabolites (Metabolon +
   Nightingale), and RNA expression — each pre-mapped to its cis
   Ensembl gene / UniProt protein.
+- **`ols`** — EBI OLS4 REST client for ~280 ontologies (Mondo, EFO,
+  HPO, GO, SO, ChEBI, SNOMED CT, …). Ranked term search
+  (`find_terms` / `find_term`), hierarchical traversal
+  (`get_descendants` / `get_ancestors` / `get_children` / `get_parents`),
+  versioned local cache for whole-ontology dumps (`list_terms`), and
+  CURIE↔IRI conversion helpers. See [Searching ontologies with OLS](ols.md).
 
 ## Quickstart
 
@@ -56,6 +62,7 @@ See the [quickstart guide](quickstart.md) for usage patterns and the
 :hidden:
 
 quickstart
+ols
 api
 changelog
 ```
