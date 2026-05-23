@@ -582,10 +582,209 @@ def search(
     return pd.DataFrame(rows_out, columns=list(cols))
 
 
+def ontology_id_from_curie(curie: str) -> str:
+    """Map an OBO-style CURIE to the OLS ontology slug it lives in.
+
+    OLS slugs are lowercase namespaces (``"mondo"``, ``"efo"``,
+    ``"hp"``, ``"go"``, …), but most callers carry the CURIE
+    (``"MONDO:0004975"``, ``"EFO_0000311"``) and don't want to repeat
+    the prefix→slug mapping at every call site. This helper centralises
+    it.
+
+    The mapping is lowercase-of-prefix for almost every OBO Foundry
+    ontology; the exceptions are non-OBO vocabularies whose OLS slug
+    diverges from their CURIE prefix (notably SNOMED CT, which lives at
+    OLS slug ``"snomed"`` but has CURIE prefix ``"SNOMED"`` / ``"SCTID"``,
+    and Orphanet, where Orphanet IDs are stored under the ORDO slug).
+
+    Parameters
+    ----------
+    curie : str
+        CURIE in either ``PREFIX:local`` or ``PREFIX_local`` form, e.g.
+        ``"MONDO:0004975"``, ``"EFO_0000311"``, ``"HP_0000118"``.
+
+    Returns
+    -------
+    str
+        Lowercase OLS slug (``"mondo"``, ``"efo"``, ``"hp"``, …).
+
+    Raises
+    ------
+    ValueError
+        If ``curie`` carries no recognisable prefix separator (``:`` or
+        ``_``).
+
+    Examples
+    --------
+    >>> ontology_id_from_curie("MONDO:0004975")
+    'mondo'
+    >>> ontology_id_from_curie("EFO_0000311")
+    'efo'
+    >>> ontology_id_from_curie("SNOMED:38341003")
+    'snomed'
+    """
+    for sep in (":", "_"):
+        if sep in curie:
+            prefix = curie.split(sep, 1)[0]
+            break
+    else:
+        raise ValueError(
+            f"{curie!r} is not a CURIE — expected ``PREFIX:local`` or ``PREFIX_local``."
+        )
+    prefix_upper = prefix.upper()
+    # Non-OBO vocabularies whose OLS slug doesn't match the CURIE prefix.
+    aliases: dict[str, str] = {
+        "SCTID": "snomed",
+        "ORPHA": "ordo",
+        "ORPHANET": "ordo",
+    }
+    return aliases.get(prefix_upper, prefix.lower())
+
+
+def find_terms(
+    query: str,
+    *,
+    ontology: str | None = None,
+    top_k: int = 10,
+    timeout: int = 30,
+) -> pd.DataFrame:
+    """Find ontology terms whose label / synonyms best match ``query``.
+
+    Convenience wrapper on top of :func:`search` for the "what term is
+    this?" use case. Returns a ranked DataFrame with an explicit
+    ``match_quality`` column so callers can pick the best hit
+    deterministically rather than depending on opaque Solr boosts that
+    shift between OLS releases.
+
+    Ranking (high → low):
+
+    - **4** — exact case-insensitive label match.
+    - **3** — exact case-insensitive synonym match.
+    - **2** — label prefix-match (label starts with the query).
+    - **1** — regex substring match in either label or any synonym.
+    - **0** — Solr surfaced it but no surface-form overlap. Useful as
+      a "soft" hit; usually a description / annotation hit.
+
+    OLS does **not** currently expose a RAG / embedding-based semantic
+    search endpoint as of OLS4 — every server-side hit goes through
+    Solr's lexical (TF-IDF + field boost) ranker. For semantic /
+    paraphrase-aware lookup you'd need to pair OLS output with an
+    external embedding index (e.g. compute MPNet embeddings on the
+    output of :func:`list_terms` and query by cosine similarity). The
+    `EBI Talk-to-EBI <https://www.ebi.ac.uk/about/news/updates-from-data-resources/talk-to-ebi-prototype>`_
+    prototype demonstrates this pattern but is not a stable API.
+
+    Parameters
+    ----------
+    query : str
+        Free-text query — typically a disease name, phenotype, or
+        anatomical part. Case-insensitive.
+    ontology : str, optional
+        OLS slug to scope the search (``"mondo"``, ``"efo"``,
+        ``"hp"``, …). ``None`` (default) searches every ontology OLS
+        hosts.
+    top_k : int, default 10
+        Number of rows to return. The helper fetches ``3 * top_k``
+        candidates from OLS so the local re-ranker has enough room to
+        promote exact / synonym matches that Solr ranked low.
+    timeout : int, default 30
+
+    Returns
+    -------
+    pandas.DataFrame
+        Columns: ``obo_id``, ``label``, ``iri``, ``description``,
+        ``synonyms``, ``is_obsolete``, ``ontology_name``,
+        ``match_quality``. Sorted by ``match_quality`` descending,
+        with the original Solr order preserved within each tier
+        (stable sort).
+
+    Examples
+    --------
+    >>> from biodb.ols import find_terms
+    >>> hits = find_terms("breast cancer", ontology="efo")  # doctest: +SKIP
+    >>> hits.iloc[0]["obo_id"]                              # doctest: +SKIP
+    'EFO:0000305'
+    >>> # Cross-ontology (no scope): handy when the user doesn't yet
+    >>> # know which vocabulary owns the concept.
+    >>> hits = find_terms("Alzheimer disease")              # doctest: +SKIP
+    """
+    df = search(query, ontology=ontology, rows=top_k * 3, timeout=timeout)
+    if df.empty:
+        df = df.copy()
+        df["match_quality"] = pd.Series(dtype="int64")
+        return df
+
+    q_lower = query.lower().strip()
+    q_pattern = re.compile(re.escape(q_lower), re.IGNORECASE)
+
+    def _quality(row: pd.Series) -> int:
+        label = (row.get("label") or "").lower()
+        synonyms = row.get("synonyms") or []
+        if label == q_lower:
+            return 4
+        if any((s or "").lower() == q_lower for s in synonyms):
+            return 3
+        if label.startswith(q_lower):
+            return 2
+        if q_pattern.search(label) or any(q_pattern.search(s or "") for s in synonyms):
+            return 1
+        return 0
+
+    df = df.copy()
+    df["match_quality"] = df.apply(_quality, axis=1)
+    # Stable sort so Solr ordering survives within each match_quality tier.
+    df = df.sort_values("match_quality", ascending=False, kind="mergesort").head(top_k)
+    return df.reset_index(drop=True)
+
+
+def find_term(
+    query: str,
+    *,
+    ontology: str | None = None,
+    timeout: int = 30,
+) -> dict[str, Any] | None:
+    """Return the single best-matching ontology term for ``query``, or None.
+
+    Thin wrapper around :func:`find_terms` for the "I just want the ID"
+    use case (typed pipelines, CLI ID-resolution). Returns ``None``
+    when no candidate surfaces at all — the caller is expected to
+    handle the no-match case (rather than the helper raising) because
+    ID resolution is almost always best-effort.
+
+    Parameters
+    ----------
+    query : str
+    ontology : str, optional
+        See :func:`find_terms`.
+    timeout : int, default 30
+
+    Returns
+    -------
+    dict or None
+        Best-matching term as a dict (keys: ``obo_id``, ``label``,
+        ``iri``, ``description``, ``synonyms``, ``is_obsolete``,
+        ``ontology_name``, ``match_quality``), or ``None`` when no
+        candidate at all surfaced from OLS.
+
+    Examples
+    --------
+    >>> from biodb.ols import find_term
+    >>> hit = find_term("breast carcinoma", ontology="efo")  # doctest: +SKIP
+    >>> hit["obo_id"]                                         # doctest: +SKIP
+    'EFO:0000305'
+    """
+    df = find_terms(query, ontology=ontology, top_k=1, timeout=timeout)
+    if df.empty:
+        return None
+    return df.iloc[0].to_dict()
+
+
 __all__ = [
     "OBO_PURL_BASE",
     "OLS_API_BASE_URL",
     "curie_to_iri",
+    "find_term",
+    "find_terms",
     "get_ancestors",
     "get_children",
     "get_descendants",
@@ -594,5 +793,6 @@ __all__ = [
     "get_term",
     "iter_terms",
     "list_terms",
+    "ontology_id_from_curie",
     "search",
 ]
