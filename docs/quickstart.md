@@ -73,3 +73,23 @@ assoc = pd.DataFrame({
 X, meta = create_gene_association_matrix(assoc, verbose=False)
 print(X.shape, meta["metadata"]["sparsity"])
 ```
+
+## Searching ontologies (OLS)
+
+```python
+from biodb.ols import find_term, find_terms, get_descendants, ontology_id_from_curie
+
+# Resolve a disease name to its EFO ID
+find_term("breast carcinoma", ontology="efo")["obo_id"]
+# 'EFO:0000305'
+
+# Get every transitive descendant of "neoplasm" (the cancer umbrella)
+root = "EFO_0000311"
+ont = ontology_id_from_curie(root)                # "efo"
+descendants = get_descendants(ont, root)
+print(f"{len(descendants)} cancer-related EFO terms")
+```
+
+See [Searching ontologies with OLS](ols.md) for the full surface — ranked
+matching, whole-ontology dumps, CURIE conversion, and a note on why OLS
+is lexical (Solr) rather than semantic / RAG.

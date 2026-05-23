@@ -9,6 +9,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+* `ols.find_terms` / `ols.find_term` — ranked term lookup wrapping the
+  existing Solr-backed `search` with a deterministic exact-label /
+  exact-synonym / prefix / regex re-ranker. Adds an explicit
+  `match_quality` ordinal column (0..4) so callers can filter by tier
+  (`df[df.match_quality >= 3]`) instead of depending on opaque Solr
+  boost configs that drift between OLS releases. `find_term` is the
+  singular best-match convenience for "I just need the ID" callers —
+  returns `None` on no match rather than raising.
+* `ols.ontology_id_from_curie` — centralised CURIE → OLS-slug mapping
+  (`MONDO:0007254` → `"mondo"`, `EFO_0000311` → `"efo"`, with non-OBO
+  aliases `SCTID`/`SNOMED` → `"snomed"` and `ORPHA`/`ORPHANET` →
+  `"ordo"`). Lets downstream callers walk an ontology subtree via
+  `get_descendants` without hard-coding the prefix → slug table.
+* Dedicated [`docs/ols.md`](https://github.com/bschilder/bioDB/blob/main/docs/ols.md)
+  user guide covering ranked search, hierarchy traversal, whole-ontology
+  dumps, CURIE conversion, and a worked "expand a disease group"
+  example. Includes an honest note on OLS's current lack of
+  semantic / RAG search (Solr-only) and where to plug in an external
+  embedding index if you need paraphrase-aware lookup.
 * `aou_allxall` module — All of Us *All-by-All* PheWAS atlas client
   (~3,602 META phenotypes × ~414k WGS participants, CDR v8 / Feb 2025).
   Public-API REST wrapper for the unauthenticated browser backend at
