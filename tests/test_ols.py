@@ -640,3 +640,163 @@ def test_list_terms_drops_obsolete_terms_by_default(tmp_path) -> None:
     assert set(df_all["obo_id"]) == {"MONDO:1", "MONDO:DEAD"}
     # Two distinct parquets on disk -- active-only vs with-obsolete.
     assert len(list((tmp_path / "mondo").glob("*.parquet"))) == 2
+
+
+# ---------------------------------------------------------------------------
+# find_terms / find_term — ranked OLS lookup
+# ---------------------------------------------------------------------------
+
+
+def _search_payload(*rows: dict) -> dict:
+    """Build a fake OLS /search response with the supplied docs."""
+    return {"response": {"docs": list(rows), "numFound": len(rows)}}
+
+
+def test_find_terms_promotes_exact_label_above_solr_rank() -> None:
+    """Solr ranked "Breast carcinoma in situ" first, but the exact-label
+    "breast carcinoma" hit should win after re-ranking."""
+    docs = [
+        {
+            "obo_id": "EFO:0000999",
+            "label": "Breast carcinoma in situ",
+            "iri": "http://www.ebi.ac.uk/efo/EFO_0000999",
+            "description": None,
+            "synonyms": [],
+            "is_obsolete": False,
+            "ontology_name": "efo",
+        },
+        {
+            "obo_id": "EFO:0000305",
+            "label": "breast carcinoma",
+            "iri": "http://www.ebi.ac.uk/efo/EFO_0000305",
+            "description": None,
+            "synonyms": ["mammary carcinoma"],
+            "is_obsolete": False,
+            "ontology_name": "efo",
+        },
+    ]
+    with responses.RequestsMock() as mock_resp:
+        mock_resp.add(
+            responses.GET,
+            f"{ols.OLS_API_BASE_URL}/search",
+            json=_search_payload(*docs),
+            status=200,
+        )
+        df = ols.find_terms("breast carcinoma", ontology="efo", top_k=5)
+    assert df.iloc[0]["obo_id"] == "EFO:0000305"
+    assert df.iloc[0]["match_quality"] == 4  # exact label
+    # "Breast carcinoma in situ" starts with the query → prefix match (2).
+    assert df.iloc[1]["match_quality"] == 2
+
+
+def test_find_terms_synonym_match_beats_substring() -> None:
+    """An exact synonym hit (quality 3) should outrank a substring
+    hit on label (quality 1)."""
+    docs = [
+        {
+            "obo_id": "EFO:1",
+            "label": "Tumor of breast — late stage",
+            "iri": "x",
+            "description": None,
+            "synonyms": [],
+            "is_obsolete": False,
+            "ontology_name": "efo",
+        },
+        {
+            "obo_id": "EFO:2",
+            "label": "Some other label",
+            "iri": "y",
+            "description": None,
+            "synonyms": ["breast tumor", "neoplasm of breast"],
+            "is_obsolete": False,
+            "ontology_name": "efo",
+        },
+    ]
+    with responses.RequestsMock() as mock_resp:
+        mock_resp.add(
+            responses.GET,
+            f"{ols.OLS_API_BASE_URL}/search",
+            json=_search_payload(*docs),
+            status=200,
+        )
+        df = ols.find_terms("breast tumor", ontology="efo", top_k=5)
+    assert df.iloc[0]["obo_id"] == "EFO:2"
+    assert df.iloc[0]["match_quality"] == 3
+
+
+def test_find_terms_empty_when_ols_returns_nothing() -> None:
+    """An empty OLS response yields an empty DataFrame with the
+    match_quality column still present (typed)."""
+    with responses.RequestsMock() as mock_resp:
+        mock_resp.add(
+            responses.GET,
+            f"{ols.OLS_API_BASE_URL}/search",
+            json=_search_payload(),
+            status=200,
+        )
+        df = ols.find_terms("nonsense xyzzy", top_k=5)
+    assert df.empty
+    assert "match_quality" in df.columns
+
+
+def test_find_term_returns_best_hit_or_none() -> None:
+    docs = [
+        {
+            "obo_id": "EFO:0000305",
+            "label": "breast carcinoma",
+            "iri": "x",
+            "description": None,
+            "synonyms": [],
+            "is_obsolete": False,
+            "ontology_name": "efo",
+        },
+    ]
+    with responses.RequestsMock() as mock_resp:
+        mock_resp.add(
+            responses.GET,
+            f"{ols.OLS_API_BASE_URL}/search",
+            json=_search_payload(*docs),
+            status=200,
+        )
+        hit = ols.find_term("breast carcinoma", ontology="efo")
+    assert hit is not None
+    assert hit["obo_id"] == "EFO:0000305"
+
+    with responses.RequestsMock() as mock_resp:
+        mock_resp.add(
+            responses.GET,
+            f"{ols.OLS_API_BASE_URL}/search",
+            json=_search_payload(),
+            status=200,
+        )
+        assert ols.find_term("nonsense xyzzy") is None
+
+
+# ---------------------------------------------------------------------------
+# ontology_id_from_curie — namespace → OLS slug
+# ---------------------------------------------------------------------------
+
+
+def test_ontology_id_from_curie_efo() -> None:
+    assert ols.ontology_id_from_curie("EFO:0000311") == "efo"
+    assert ols.ontology_id_from_curie("EFO_0000311") == "efo"
+
+
+def test_ontology_id_from_curie_mondo() -> None:
+    assert ols.ontology_id_from_curie("MONDO:0007254") == "mondo"
+
+
+def test_ontology_id_from_curie_snomed_alias() -> None:
+    """SCTID is the alternate prefix MEDLINE / UMLS use for SNOMED CT."""
+    assert ols.ontology_id_from_curie("SCTID:38341003") == "snomed"
+    assert ols.ontology_id_from_curie("SNOMED:38341003") == "snomed"
+
+
+def test_ontology_id_from_curie_orphanet_to_ordo() -> None:
+    """Orphanet IDs live under the ORDO slug at OLS."""
+    assert ols.ontology_id_from_curie("ORPHA:733") == "ordo"
+
+
+def test_ontology_id_from_curie_rejects_garbage() -> None:
+    with pytest.raises(ValueError, match="not a CURIE"):
+        ols.ontology_id_from_curie("not-a-curie")
