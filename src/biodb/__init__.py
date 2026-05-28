@@ -193,6 +193,8 @@ __all__ = [
     "set_random_seed",
     "simplify_annotations",
     "snomed",
+    "string",
+    "string_physical_ppi_edges",
     "transform",
     "uniprot",
     "utils",
