@@ -27,6 +27,11 @@ Module map:
   (~3,600 phenotypes × ~414k WGS participants); public-API client for
   per-phenotype gene-burden tables (pLoF/missenseLC/synonymous) with
   concurrent bulk download + consolidated Parquet output.
+* :mod:`biodb.string` -- STRING database physical PPI edges with
+  continuous combined-score weights (``download_physical_links``,
+  ``load_physical_links``, ``physical_ppi_edges``). The physical
+  sub-network is direct binding evidence only — closer to "PPI"
+  than the full functional-coupling network in ``protein.links``.
 
 Shared utilities live in :mod:`biodb.utils` (random seeding,
 similarity helpers, token counting, ``create_gene_association_matrix``,
@@ -50,6 +55,7 @@ from biodb import (
     opentargets_graphql,
     pubmed,
     snomed,
+    string,
     transform,
     uniprot,
     utils,
@@ -105,6 +111,9 @@ from biodb.opentargets_graphql import (
     query_drug,
     query_target,
     query_variant,
+)
+from biodb.string import (
+    physical_ppi_edges as string_physical_ppi_edges,
 )
 from biodb.uniprot import (
     get_dbxrefs,
