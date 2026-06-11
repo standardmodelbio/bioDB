@@ -154,9 +154,46 @@ cosine-similarity, and per-gene cosine weights are HaploForge/biodocs concerns.
   exercising the streaming `iter_full_records` parser and `panel_text`.
 - Any live-network call marked `@pytest.mark.network` (skipped in CI), matching
   the repo convention.
-- Add a row to the README **Sources** table (✅ both modes).
 - Re-export a curated slice from `src/biodb/__init__.py`.
-- Add `docs/gtr.md` user guide mirroring `docs/ols.md`, wired into the Sphinx toctree.
+
+### 7. Documentation (thorough — both in-code and on the website)
+
+Documentation is a first-class deliverable, not an afterthought. It spans two layers:
+
+**In-code (docstrings).** Every public symbol — module, `GTRTest`, and all functions
+in the public surface — gets a complete NumPy-style docstring (the convention
+already used across `gprofiler`/`uniprot`/`gprofiler`), covering:
+
+- A one-line summary plus an extended description explaining *what GTR concept*
+  the function exposes (test record vs panel vs gene set) and *which access path*
+  it uses (E-utilities vs FTP TSV vs full XML).
+- Full `Parameters` / `Returns` / `Raises` sections with types.
+- An `Examples` block with a runnable, `# doctest: +SKIP` snippet (skipped because
+  it hits the network), mirroring the existing modules.
+- Inline comments at every non-obvious decision: the `GTR%09d` UID↔accession gap,
+  the 3/s vs 10/s rate-limit branch, why the XML parse streams + clears elements,
+  and how `support_count` is derived. These are constraint/why comments, not
+  narration.
+- The module-level docstring opens with a `Sources` / access-paths overview and a
+  short worked example for each mode (targeted, bulk-light, bulk-rich, gene-set).
+
+**Website (Sphinx).** The docs site must document GTR as thoroughly as OLS:
+
+- Add `docs/gtr.md` — a full user guide mirroring `docs/ols.md`: an intro to what
+  GTR is, a table of the access paths, and worked end-to-end examples for each of
+  the four use shapes (find tests for a gene; pull one rich record; bulk gene-set
+  materialization for GenForge via `to_gmt`; panel-text extraction for HaploForge
+  weighting via `panel_text` + the `support_count` prior). Include the dual-mode
+  framing and rate-limit/API-key guidance.
+- Wire `docs/gtr.md` into the Sphinx `toctree` (and any sources index/landing list
+  that enumerates the other guides).
+- Add an autodoc API-reference page (or section) for `biodb.gtr` so every public
+  symbol's docstring renders on the site, matching how the other modules appear in
+  the API reference.
+- Add a row to the README **Sources** table (✅ both modes), in the same format as
+  the existing rows, linking to `docs/gtr.md`.
+- Verify the docs build cleanly: `sphinx-build -b html docs docs/_build/html`
+  produces no new warnings for the GTR pages.
 
 ## Public surface summary
 
