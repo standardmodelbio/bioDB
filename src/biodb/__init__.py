@@ -37,6 +37,7 @@ from biodb import (
     aou_allxall,
     clinvar,
     gprofiler,
+    gtr,
     gwas_atlas,
     harmonizome,
     mapping,
@@ -77,6 +78,24 @@ from biodb.harmonizome import (
 )
 from biodb.harmonizome import (
     list_datasets as harmonizome_list_datasets,
+)
+from biodb.gtr import (
+    aggregate_gene_sets as gtr_aggregate_gene_sets,
+)
+from biodb.gtr import (
+    gene_sets as gtr_gene_sets,
+)
+from biodb.gtr import (
+    panel_text as gtr_panel_text,
+)
+from biodb.gtr import (
+    query_test as gtr_query_test,
+)
+from biodb.gtr import (
+    search_tests as gtr_search_tests,
+)
+from biodb.gtr import (
+    to_gmt as gtr_to_gmt,
 )
 from biodb.mapping import map_gene_ids
 from biodb.monarch import (
@@ -154,6 +173,13 @@ __all__ = [
     "get_sequences",
     "get_targets",
     "gprofiler",
+    "gtr",
+    "gtr_aggregate_gene_sets",
+    "gtr_gene_sets",
+    "gtr_panel_text",
+    "gtr_query_test",
+    "gtr_search_tests",
+    "gtr_to_gmt",
     "gwas_atlas",
     "harmonizome",
     "harmonizome_download_datasets",
