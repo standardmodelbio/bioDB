@@ -27,6 +27,11 @@ Module map:
   (~3,600 phenotypes × ~414k WGS participants); public-API client for
   per-phenotype gene-burden tables (pLoF/missenseLC/synonymous) with
   concurrent bulk download + consolidated Parquet output.
+* :mod:`biodb.string` -- STRING database physical PPI edges with
+  continuous combined-score weights (``download_physical_links``,
+  ``load_physical_links``, ``physical_ppi_edges``). The physical
+  sub-network is direct binding evidence only — closer to "PPI"
+  than the full functional-coupling network in ``protein.links``.
 
 Shared utilities live in :mod:`biodb.utils` (random seeding,
 similarity helpers, token counting, ``create_gene_association_matrix``,
@@ -51,6 +56,7 @@ from biodb import (
     opentargets_graphql,
     pubmed,
     snomed,
+    string,
     transform,
     uniprot,
     utils,
@@ -65,19 +71,6 @@ from biodb.clinvar import (
     download_vcf,
     simplify_annotations,
     vcf_to_df,
-)
-from biodb.harmonizome import (
-    download_datasets as harmonizome_download_datasets,
-)
-from biodb.harmonizome import (
-    get_dataset_metadata as harmonizome_get_dataset_metadata,
-)
-from biodb.harmonizome import (
-    get_gmt,
-    load_gene_attribute_matrix,
-)
-from biodb.harmonizome import (
-    list_datasets as harmonizome_list_datasets,
 )
 from biodb.gtr import (
     aggregate_gene_sets as gtr_aggregate_gene_sets,
@@ -96,6 +89,19 @@ from biodb.gtr import (
 )
 from biodb.gtr import (
     to_gmt as gtr_to_gmt,
+)
+from biodb.harmonizome import (
+    download_datasets as harmonizome_download_datasets,
+)
+from biodb.harmonizome import (
+    get_dataset_metadata as harmonizome_get_dataset_metadata,
+)
+from biodb.harmonizome import (
+    get_gmt,
+    load_gene_attribute_matrix,
+)
+from biodb.harmonizome import (
+    list_datasets as harmonizome_list_datasets,
 )
 from biodb.mapping import map_gene_ids
 from biodb.monarch import (
@@ -124,6 +130,9 @@ from biodb.opentargets_graphql import (
     query_drug,
     query_target,
     query_variant,
+)
+from biodb.string import (
+    physical_ppi_edges as string_physical_ppi_edges,
 )
 from biodb.uniprot import (
     get_dbxrefs,
@@ -210,6 +219,8 @@ __all__ = [
     "set_random_seed",
     "simplify_annotations",
     "snomed",
+    "string",
+    "string_physical_ppi_edges",
     "transform",
     "uniprot",
     "utils",
