@@ -38,6 +38,17 @@ the full All-of-Us pipeline.
   (`get_descendants` / `get_ancestors` / `get_children` / `get_parents`),
   versioned local cache for whole-ontology dumps (`list_terms`), and
   CURIE↔IRI conversion helpers. See [Searching ontologies with OLS](ols.md).
+- **`gtr`** — NCBI Genetic Testing Registry client. Targeted E-utilities
+  queries (`query_gene` / `query_condition` / `query_test`) plus bulk
+  downloads (`download`, `load_test_condition_gene`, streaming
+  `iter_full_records`). Materializes curated per-panel gene sets
+  (`gene_sets` / `aggregate_gene_sets` / `to_gmt`) and embeddable panel
+  text (`panel_text`) with a `support_count` importance prior. See
+  [Querying genetic tests with GTR](gtr.md).
+- **`string`** — STRING protein–protein interaction client. Bulk physical
+  sub-network (direct-binding) edges keyed by gene symbol with continuous
+  combined-score weights (`download_physical_links`, `load_physical_links`,
+  `physical_ppi_edges`).
 
 ## Quickstart
 
@@ -63,6 +74,7 @@ See the [quickstart guide](quickstart.md) for usage patterns and the
 
 quickstart
 ols
+gtr
 api
 changelog
 ```

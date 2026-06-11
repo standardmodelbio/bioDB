@@ -5,6 +5,36 @@ from __future__ import annotations
 import numpy as np
 import pandas as pd
 import pytest
+import requests
+
+# HTTP statuses that mean "the upstream service is unavailable" — a gateway
+# couldn't reach its backend (502), the service is down (503), or a gateway
+# timed out (504). These are infrastructure/availability failures, NOT a
+# response the API actually produced about our request.
+_UPSTREAM_OUTAGE_STATUS = frozenset({502, 503, 504})
+
+
+def is_upstream_outage(exc: BaseException) -> bool:
+    """True iff ``exc`` reflects a *transient upstream outage*, narrowly.
+
+    Returns True only for genuine availability failures:
+
+    * a connection error or read/connect timeout (the server never answered), or
+    * an HTTP ``502`` / ``503`` / ``504`` (gateway / service-unavailable).
+
+    Returns False for everything else — ``4xx`` (our request is wrong / a
+    contract changed), ``500`` (the server ran and errored, possibly because of
+    *us*), JSON/parse errors, and assertion failures. Those indicate a real API
+    change or a bug on our side and MUST fail loudly, never be skipped. Use this
+    to guard live-API integration tests so a third party's downtime doesn't gate
+    CI, without masking real regressions.
+    """
+    if isinstance(exc, (requests.exceptions.ConnectionError, requests.exceptions.Timeout)):
+        return True
+    if isinstance(exc, requests.exceptions.HTTPError):
+        response = getattr(exc, "response", None)
+        return response is not None and response.status_code in _UPSTREAM_OUTAGE_STATUS
+    return False
 
 
 @pytest.fixture

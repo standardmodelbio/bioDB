@@ -1,0 +1,5 @@
+#accession_version	test_type	object	GTR_identifier	MIM_number	object_name	gene_or_SNOMED_CT_ID	gene_symbol
+GTR000004006.1	Clinical	condition	C0016667	300624	Fragile X syndrome	613003	N/A
+GTR000004006.1	Clinical	gene	C1414649	309550	FMR1:fragile X messenger ribonucleoprotein 1	2332	FMR1
+GTR000509983.1	Clinical	condition	C0677776	604370	Breast-ovarian cancer familial 1	718220	N/A
+GTR000509983.1	Clinical	gene	C1414742	113705	BRCA1:BRCA1 DNA repair associated	672	BRCA1

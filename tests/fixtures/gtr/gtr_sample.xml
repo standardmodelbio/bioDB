@@ -1,0 +1,80 @@
+<?xml version="1.0"?>
+<GTRPublicData Version="1.0">
+  <GTRLabData>
+    <GTRLab>
+      <Organization><Name>Example Genetics Lab</Name></Organization>
+      <GeneTesting GeneID="672" test_count="1"><GeneSymbol>BRCA1</GeneSymbol></GeneTesting>
+    </GTRLab>
+    <GTRLabTest LastUpdate="2024-01-01" source="GTR" id="509983" GTRAccession="GTR000509983" Version="1">
+      <TestName>BRCA1 gene sequencing</TestName>
+      <Indications>
+        <TestType>Clinical</TestType>
+        <Purpose>Diagnosis</Purpose>
+        <TargetPop><Description>Individuals with a family history of breast cancer.</Description></TargetPop>
+      </Indications>
+      <Method>
+        <TopCategory Value="Molecular Genetics">
+          <Category Value="Sequence analysis of the entire coding region" code="C">
+            <Methodology Value="Next-Generation (NGS)/Massively parallel sequencing (MPS)">
+              <Instrument>Ion Torrent PGM</Instrument>
+            </Methodology>
+          </Category>
+        </TopCategory>
+      </Method>
+      <AnalyticalValidity>
+        <Description>Analytical sensitivity &gt;99% for SNVs.</Description>
+        <CitationText>Internal validation.</CitationText>
+      </AnalyticalValidity>
+      <QualityControl PTPerformed="Yes">
+        <Method>Formal PT program</Method>
+        <ClinicalValidity>
+          <Description>Pathogenic BRCA1 variants confer high breast cancer risk.</Description>
+          <PMID>20301425</PMID>
+        </ClinicalValidity>
+      </QualityControl>
+      <ClinicalUtility>
+        <Type>Diagnosis</Type>
+        <Description>Confirms a hereditary breast cancer diagnosis.</Description>
+      </ClinicalUtility>
+      <ClinVarSet>
+        <DescrSet Type="Preferred" CUI="C0677776"/>
+        <ClinVarAssertion>
+          <MeasureSet ID="23497">
+            <Measure ID="1172" Type="Gene">
+              <Name Type="Preferred">BRCA1 DNA repair associated</Name>
+              <Symbol Type="Preferred">BRCA1</Symbol>
+              <XRef ID="672" DB="Gene"></XRef>
+            </Measure>
+          </MeasureSet>
+          <TraitSet>
+            <Trait ID="18746" Type="Disease">
+              <Name Type="Preferred">Breast-ovarian cancer, familial 1</Name>
+              <Name Type="Alternate">HBOC</Name>
+              <XRef DB="MedGen" Type="CUI" ID="C0677776"></XRef>
+            </Trait>
+          </TraitSet>
+        </ClinVarAssertion>
+      </ClinVarSet>
+    </GTRLabTest>
+    <GTRLabTest source="GTR" id="4006" GTRAccession="GTR000004006" Version="2">
+      <TestName>FMR1 CGG repeat analysis</TestName>
+      <Indications><TestType>Clinical</TestType></Indications>
+      <ClinVarSet>
+        <ClinVarAssertion>
+          <MeasureSet ID="900">
+            <Measure ID="500" Type="Gene">
+              <Symbol Type="Preferred">FMR1</Symbol>
+              <XRef ID="2332" DB="Gene"></XRef>
+            </Measure>
+          </MeasureSet>
+          <TraitSet>
+            <Trait ID="200" Type="Disease">
+              <Name Type="Preferred">Fragile X syndrome</Name>
+              <XRef DB="MedGen" Type="CUI" ID="C0016667"></XRef>
+            </Trait>
+          </TraitSet>
+        </ClinVarAssertion>
+      </ClinVarSet>
+    </GTRLabTest>
+  </GTRLabData>
+</GTRPublicData>

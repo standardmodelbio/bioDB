@@ -93,3 +93,18 @@ print(f"{len(descendants)} cancer-related EFO terms")
 See [Searching ontologies with OLS](ols.md) for the full surface — ranked
 matching, whole-ontology dumps, CURIE conversion, and a note on why OLS
 is lexical (Solr) rather than semantic / RAG.
+
+## Genetic tests + panels (GTR)
+
+```python
+from biodb import gtr
+
+# Tests targeting a gene, and a panel's embeddable description.
+tests = gtr.query_gene("BRCA1", retmax=10)
+text = gtr.panel_text(tests[0])
+
+# Curated gene sets -> GMT for GenForge.
+gtr.to_gmt("gtr_panels.gmt", by="condition")
+```
+
+See [Querying genetic tests with GTR](gtr.md) for the full surface.

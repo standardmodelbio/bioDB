@@ -1,0 +1,40 @@
+{
+  "header": {"type": "esummary", "version": "0.3"},
+  "result": {
+    "uids": ["509983"],
+    "509983": {
+      "uid": "509983",
+      "id": 509983,
+      "source": "GTR",
+      "accession": "GTR000509983",
+      "testname": "BRCA1 gene sequencing",
+      "testtype": "Clinical",
+      "conditionlist": [
+        {"name": "Breast-ovarian cancer, familial 1", "acronym": "", "cui": "C0677776"},
+        {"name": "Hereditary breast ovarian cancer syndrome", "acronym": "HBOC", "cui": "C0027672"}
+      ],
+      "analytes": [
+        {"analytetype": "Gene", "name": "BRCA1", "geneid": 672, "location": "17q21.31"}
+      ],
+      "genelist": [],
+      "offerer": "Example Genetics Lab",
+      "offererid": 308659,
+      "method": [
+        {"name": "Molecular Genetics", "categoriesstring": "_C_",
+         "categorylist": [
+           {"name": "Sequence analysis of the entire coding region", "code": "C",
+            "methodlist": ["Next-Generation (NGS)/Massively parallel sequencing (MPS)"]}
+         ]}
+      ],
+      "analyticalvalidity": "Analytical sensitivity >99% for SNVs.",
+      "targetpopulation": "Individuals with a personal or family history of breast cancer.",
+      "testpurpose": ["Diagnosis", "Risk Assessment"],
+      "clinicalvalidity": {
+        "description": "Pathogenic BRCA1 variants confer high lifetime breast cancer risk.",
+        "pmid": ["20301425"], "url": [], "citationtext": []
+      },
+      "clinicalutility": [],
+      "testurl": "https://example.org/tests/brca1"
+    }
+  }
+}
