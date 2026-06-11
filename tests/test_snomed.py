@@ -27,6 +27,7 @@ from pathlib import Path
 
 import pandas as pd
 import pytest
+import requests
 
 from biodb import snomed
 
@@ -269,8 +270,16 @@ def test_search_concepts_returns_dataframe_of_hits() -> None:
 
 def test_get_children_is_one_hop_subset_of_descendants() -> None:
     """Direct children should be a subset of all descendants."""
-    children = snomed.get_children(38341003, size=10)
-    descendants = snomed.get_descendants(38341003, size=500)
+    # Live OLS call — tolerate a transient EBI connectivity blip (the CI
+    # failure was a 30s ReadTimeout) rather than hard-failing. Scoped to
+    # Timeout/ConnectionError ONLY: an HTTPError (4xx/5xx), parse error, or
+    # the assertions below still fail loudly, so a real API change or
+    # regression on our side is NOT masked.
+    try:
+        children = snomed.get_children(38341003, size=10)
+        descendants = snomed.get_descendants(38341003, size=500)
+    except (requests.exceptions.Timeout, requests.exceptions.ConnectionError) as exc:
+        pytest.skip(f"OLS/EBI unreachable (transient connectivity): {exc}")
     assert set(children["obo_id"]) <= set(descendants["obo_id"])
     assert len(children) <= len(descendants)
 

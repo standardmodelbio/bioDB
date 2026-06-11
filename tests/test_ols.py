@@ -330,8 +330,10 @@ def test_ols_get_children_is_one_hop_subset_of_descendants() -> None:
 
 
 def test_ols_search_alzheimer_finds_canonical_term() -> None:
-    hits = ols.search("alzheimer", ontology="mondo", rows=5)
-    assert len(hits) == 5
+    # OLS Solr relevance ranking drifts over time, so don't pin the canonical
+    # term to a fixed top-N slot — pull a wider window and assert it's present.
+    hits = ols.search("alzheimer", ontology="mondo", rows=25)
+    assert not hits.empty
     assert "MONDO:0004975" in set(hits["obo_id"])
 
 
