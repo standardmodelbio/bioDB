@@ -90,20 +90,30 @@ test_url`.
 An internal cooperative rate-limiter respects the 3/s (10/s with key) E-utilities
 ceiling; `tool` + `email` params are forwarded per NCBI policy.
 
-### 3. Bulk mode (layered)
+### 3. Bulk mode (one download entry point, layered consumers)
+
+A single bulk-download function always fetches the light daily TSV and, with one
+opt-in flag, *additionally* pulls the 214 MB full XML:
 
 ```python
-# Light path (default) — daily TSV, gene<->condition mapping, no text.
-download_test_condition_gene(cache_dir=None, force=False, progress=True) -> Path
-load_test_condition_gene(cache_dir=None, force=False) -> pd.DataFrame
-    # 8 columns; split into a tidy frame with separate condition / gene rows
-    # resolved into per-test (gene_entrez, gene_symbol, condition_cui) records.
+download(cache_dir=None, full_xml=False, force=False, progress=True) -> dict[str, Path]
+    # Always downloads the light daily test_condition_gene.txt TSV.
+    # full_xml=True ALSO downloads gtr_ftp.xml.gz (214 MB).
+    # Returns {"tsv": Path, "xml": Path | None} — "xml" is None unless requested.
+    # Both files funnel through _downloads.stream_to_file (tqdm).
+```
 
-# Rich path (opt-in) — 214 MB XML, streaming, carries descriptions.
-download_full_xml(cache_dir=None, force=False, progress=True) -> Path
-iter_full_records(path=None, ...) -> Iterator[GTRTest]
-    # xml.etree.iterparse streaming generator; clears elements as it goes so
-    # memory stays flat over the full 214 MB dump.
+Consumers read whichever file they need:
+
+```python
+load_test_condition_gene(cache_dir=None, force=False) -> pd.DataFrame
+    # Reads the TSV (downloading via download() if absent). 8 columns split into
+    # a tidy frame: per-test (gene_entrez, gene_symbol, condition_cui) records.
+
+iter_full_records(path=None, cache_dir=None, force=False) -> Iterator[GTRTest]
+    # xml.etree.iterparse streaming generator over gtr_ftp.xml.gz (downloading
+    # via download(full_xml=True) if absent); clears elements as it goes so
+    # memory stays flat over the full 214 MB dump. Carries descriptions.
 ```
 
 ### 4. Gene-set views (the GenForge / HaploForge payload)
@@ -151,8 +161,8 @@ cosine-similarity, and per-gene cosine weights are HaploForge/biodocs concerns.
 ## Public surface summary
 
 `search_tests`, `query_test`, `query_gene`, `query_condition`,
-`download_test_condition_gene`, `load_test_condition_gene`, `download_full_xml`,
-`iter_full_records`, `gene_sets`, `aggregate_gene_sets`, `to_gmt`, `panel_text`,
+`download`, `load_test_condition_gene`, `iter_full_records`,
+`gene_sets`, `aggregate_gene_sets`, `to_gmt`, `panel_text`,
 plus the `GTRTest` record type and `CACHE_DIR` / URL constants.
 
 ## Out of scope
