@@ -18,6 +18,7 @@ API Reference
    aou_allxall
    omicspred
    gprofiler
+   gtr
    msigdb
    mapping
    transform

@@ -28,7 +28,9 @@ extensions = [
 source_suffix = {".rst": "restructuredtext", ".md": "markdown"}
 master_doc = "index"
 templates_path = ["_templates"]
-exclude_patterns = ["_build", "Thumbs.db", ".DS_Store"]
+# ``superpowers/`` holds internal design specs + implementation plans, not
+# public site content — keep them out of the autosummary/toctree sweep.
+exclude_patterns = ["_build", "Thumbs.db", ".DS_Store", "superpowers/**"]
 
 autosummary_generate = True
 autodoc_typehints = "description"
@@ -41,6 +43,11 @@ napoleon_google_docstring = True
 napoleon_numpy_docstring = True
 napoleon_use_param = True
 napoleon_use_rtype = True
+# Render dataclass "Attributes" sections (e.g. biodb.gtr.GTRTest) as :ivar:
+# info fields rather than standalone py:attribute directives — otherwise they
+# collide with autodoc's own field documentation and emit duplicate-object
+# warnings.
+napoleon_use_ivar = True
 
 intersphinx_mapping = {
     "python": ("https://docs.python.org/3", None),

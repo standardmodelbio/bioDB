@@ -73,3 +73,18 @@ assoc = pd.DataFrame({
 X, meta = create_gene_association_matrix(assoc, verbose=False)
 print(X.shape, meta["metadata"]["sparsity"])
 ```
+
+## Genetic tests + panels (GTR)
+
+```python
+from biodb import gtr
+
+# Tests targeting a gene, and a panel's embeddable description.
+tests = gtr.query_gene("BRCA1", retmax=10)
+text = gtr.panel_text(tests[0])
+
+# Curated gene sets -> GMT for GenForge.
+gtr.to_gmt("gtr_panels.gmt", by="condition")
+```
+
+See [Querying genetic tests with GTR](gtr.md) for the full surface.

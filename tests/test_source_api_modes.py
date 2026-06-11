@@ -290,3 +290,30 @@ def test_uniprot_count_records_streaming(tmp_path) -> None:
     fasta = tmp_path / "tiny.fasta"
     fasta.write_text(">a\nM\n>b\nM\n>c\nM\n")
     assert uniprot.count_swissprot_records(fasta_path=fasta) == 3
+
+
+# ─── biodb.gtr (NCBI E-utilities, db=gtr) ────────────────────────────────────
+# GTR esummary is the field most prone to schema drift (lowercase JSON keys
+# like ``analytes``/``geneid``/``conditionlist`` that NCBI has renamed before).
+# Hit the live endpoint so CI fails fast on the next rename.
+
+
+def test_gtr_query_gene_returns_brca1_tests() -> None:
+    """BRCA1 is targeted by many GTR tests; the normalized record must carry
+    the gene's Entrez id (672) parsed out of the ``analytes`` array."""
+    from biodb import gtr
+
+    tests = gtr.query_gene("BRCA1", retmax=3)
+    assert tests, "expected at least one GTR test targeting BRCA1"
+    assert all(t.accession.startswith("GTR") for t in tests)
+    assert any("672" in {g["entrez"] for g in t.genes} for t in tests)
+
+
+def test_gtr_search_then_query_roundtrips() -> None:
+    """``search_tests`` returns accessions that ``query_test`` can resolve."""
+    from biodb import gtr
+
+    accs = gtr.search_tests("BRCA1", field="SYMB", retmax=2)
+    assert accs and accs[0].startswith("GTR")
+    rec = gtr.query_test(accs[0])
+    assert rec.name and rec.test_type in {"Clinical", "Research"}

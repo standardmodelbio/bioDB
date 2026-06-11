@@ -32,6 +32,13 @@ the full All-of-Us pipeline.
   scores across proteins (Olink + SomaScan), metabolites (Metabolon +
   Nightingale), and RNA expression — each pre-mapped to its cis
   Ensembl gene / UniProt protein.
+- **`gtr`** — NCBI Genetic Testing Registry client. Targeted E-utilities
+  queries (`query_gene` / `query_condition` / `query_test`) plus bulk
+  downloads (`download`, `load_test_condition_gene`, streaming
+  `iter_full_records`). Materializes curated per-panel gene sets
+  (`gene_sets` / `aggregate_gene_sets` / `to_gmt`) and embeddable panel
+  text (`panel_text`) with a `support_count` importance prior. See
+  [Querying genetic tests with GTR](gtr.md).
 
 ## Quickstart
 
@@ -56,6 +63,7 @@ See the [quickstart guide](quickstart.md) for usage patterns and the
 :hidden:
 
 quickstart
+gtr
 api
 changelog
 ```
