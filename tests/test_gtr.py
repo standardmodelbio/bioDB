@@ -300,12 +300,27 @@ def test_gene_sets_builds_long_frame(tmp_path) -> None:
 def _multi_panel_df() -> pd.DataFrame:
     return pd.DataFrame(
         [
-            {"panel_id": "GTR1", "panel_name": "Fragile X", "condition_cui": "C0016667",
-             "gene_symbol": "FMR1", "gene_entrez": "2332"},
-            {"panel_id": "GTR2", "panel_name": "Fragile X", "condition_cui": "C0016667",
-             "gene_symbol": "FMR1", "gene_entrez": "2332"},
-            {"panel_id": "GTR2", "panel_name": "Fragile X", "condition_cui": "C0016667",
-             "gene_symbol": "AFF2", "gene_entrez": "2334"},
+            {
+                "panel_id": "GTR1",
+                "panel_name": "Fragile X",
+                "condition_cui": "C0016667",
+                "gene_symbol": "FMR1",
+                "gene_entrez": "2332",
+            },
+            {
+                "panel_id": "GTR2",
+                "panel_name": "Fragile X",
+                "condition_cui": "C0016667",
+                "gene_symbol": "FMR1",
+                "gene_entrez": "2332",
+            },
+            {
+                "panel_id": "GTR2",
+                "panel_name": "Fragile X",
+                "condition_cui": "C0016667",
+                "gene_symbol": "AFF2",
+                "gene_entrez": "2334",
+            },
         ]
     )
 
@@ -349,9 +364,7 @@ def test_to_gmt_raw_roundtrips(tmp_path, monkeypatch) -> None:
     gtr.to_gmt(out)
     assert out.exists()
     parsed = read_gmt(out, return_format="dict")
-    gtr2_genes = {
-        g for (sid, _desc), genes in parsed.items() if sid == "GTR2" for g in genes
-    }
+    gtr2_genes = {g for (sid, _desc), genes in parsed.items() if sid == "GTR2" for g in genes}
     assert gtr2_genes == {"FMR1", "AFF2"}
 
 

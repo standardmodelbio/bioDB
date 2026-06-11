@@ -209,9 +209,7 @@ def _test_from_esummary(rec: dict) -> GTRTest:
     pmids = [str(p) for p in (cv.get("pmid", []) if isinstance(cv, dict) else [])]
     cu_items = rec.get("clinicalutility") or []
     cu_desc = "\n\n".join(
-        u.get("description", "")
-        for u in cu_items
-        if isinstance(u, dict) and u.get("description")
+        u.get("description", "") for u in cu_items if isinstance(u, dict) and u.get("description")
     )
     for u in cu_items:
         if isinstance(u, dict):
@@ -316,9 +314,7 @@ def _esummary_records(
         params["api_key"] = api_key
     payload = _eutils_get("esummary.fcgi", params, timeout=timeout).json()
     result = payload.get("result", {})
-    return [
-        _test_from_esummary(result[u]) for u in result.get("uids", []) if u in result
-    ]
+    return [_test_from_esummary(result[u]) for u in result.get("uids", []) if u in result]
 
 
 def query_test(
@@ -567,9 +563,7 @@ def _test_from_xml_element(test: ET.Element) -> GTRTest:
         *test.findall("ClinicalUtility"),
     ):
         pmids.extend(
-            (p.text or "").strip()
-            for p in block.findall("PMID")
-            if (p.text or "").strip()
+            (p.text or "").strip() for p in block.findall("PMID") if (p.text or "").strip()
         )
 
     return GTRTest(
@@ -586,9 +580,7 @@ def _test_from_xml_element(test: ET.Element) -> GTRTest:
         clinical_utility=clinical_utility,
         target_population=_first_desc(test.find("Indications/TargetPop")),
         test_purpose=[
-            p.text.strip()
-            for p in test.findall("Indications/Purpose")
-            if p.text and p.text.strip()
+            p.text.strip() for p in test.findall("Indications/Purpose") if p.text and p.text.strip()
         ],
         pmids=pmids,
     )
@@ -711,9 +703,9 @@ def aggregate_gene_sets(
 
     # support_count = number of distinct panels (panel_id) in this group that
     # include this gene.
-    grouped = raw.groupby(
-        [key, "gene_entrez", "gene_symbol"], as_index=False
-    ).agg(support_count=("panel_id", "nunique"))
+    grouped = raw.groupby([key, "gene_entrez", "gene_symbol"], as_index=False).agg(
+        support_count=("panel_id", "nunique")
+    )
     name_map = (
         raw.groupby(key)["panel_name"].first()
         if by == "condition"
