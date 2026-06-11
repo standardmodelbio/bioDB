@@ -30,6 +30,7 @@ import pytest
 import requests
 
 from biodb import snomed
+from tests.conftest import is_upstream_outage
 
 # ---------------------------------------------------------------------------
 # Module surface
@@ -270,16 +271,17 @@ def test_search_concepts_returns_dataframe_of_hits() -> None:
 
 def test_get_children_is_one_hop_subset_of_descendants() -> None:
     """Direct children should be a subset of all descendants."""
-    # Live OLS call — tolerate a transient EBI connectivity blip (the CI
-    # failure was a 30s ReadTimeout) rather than hard-failing. Scoped to
-    # Timeout/ConnectionError ONLY: an HTTPError (4xx/5xx), parse error, or
-    # the assertions below still fail loudly, so a real API change or
-    # regression on our side is NOT masked.
+    # Live OLS call — the CI failure was a 30s EBI ReadTimeout. Skip ONLY on a
+    # genuine upstream outage (connection/timeout, or 502/503/504); a 4xx/500,
+    # parse error, or the assertions below still fail loudly so a real API
+    # change or our-side regression is NOT masked. See is_upstream_outage.
     try:
         children = snomed.get_children(38341003, size=10)
         descendants = snomed.get_descendants(38341003, size=500)
-    except (requests.exceptions.Timeout, requests.exceptions.ConnectionError) as exc:
-        pytest.skip(f"OLS/EBI unreachable (transient connectivity): {exc}")
+    except requests.exceptions.RequestException as exc:
+        if is_upstream_outage(exc):
+            pytest.skip(f"OLS/EBI upstream outage: {exc}")
+        raise
     assert set(children["obo_id"]) <= set(descendants["obo_id"])
     assert len(children) <= len(descendants)
 

@@ -11,6 +11,9 @@ from __future__ import annotations
 
 import pandas as pd
 import pytest
+import requests
+
+from tests.conftest import is_upstream_outage
 
 # ─── biodb.opentargets_graphql.query_drug — schema-drift canary ─────────────
 # The other OT query helpers (query_target, query_disease) are exercised in
@@ -38,7 +41,12 @@ def test_monarch_query_entity_returns_documented_fields() -> None:
     """BRCA1 (HGNC:1100) round-trips through the BioLink entity endpoint."""
     from biodb import monarch
 
-    brca1 = monarch.query_entity("HGNC:1100")
+    try:
+        brca1 = monarch.query_entity("HGNC:1100")
+    except requests.exceptions.RequestException as exc:
+        if is_upstream_outage(exc):
+            pytest.skip(f"Monarch upstream outage: {exc}")
+        raise
     assert brca1["id"] == "HGNC:1100"
     assert brca1["name"] == "BRCA1"
     assert brca1["category"] == "biolink:Gene"
@@ -50,7 +58,12 @@ def test_monarch_query_associations_returns_paginated_items() -> None:
     """Filter by subject; verify pagination metadata + association shape."""
     from biodb import monarch
 
-    page = monarch.query_associations(subject="HGNC:1100", limit=3)
+    try:
+        page = monarch.query_associations(subject="HGNC:1100", limit=3)
+    except requests.exceptions.RequestException as exc:
+        if is_upstream_outage(exc):
+            pytest.skip(f"Monarch upstream outage: {exc}")
+        raise
     assert page["limit"] == 3
     assert isinstance(page["items"], list)
     assert page["total"] > 100, "BRCA1 should have many associations"
@@ -64,7 +77,12 @@ def test_monarch_query_gene_associations_returns_dataframe() -> None:
     """The convenience wrapper aggregates pagination into a DataFrame."""
     from biodb import monarch
 
-    df = monarch.query_gene_associations("HGNC:1100", limit=50)
+    try:
+        df = monarch.query_gene_associations("HGNC:1100", limit=50)
+    except requests.exceptions.RequestException as exc:
+        if is_upstream_outage(exc):
+            pytest.skip(f"Monarch upstream outage: {exc}")
+        raise
     assert isinstance(df, pd.DataFrame)
     assert len(df) > 50, f"Expected pagination to fetch many rows, got {len(df)}"
     assert (df["subject"] == "HGNC:1100").all()
@@ -78,7 +96,12 @@ def test_monarch_query_cypher_count_nodes() -> None:
     public Neo4j HTTP transactional endpoint."""
     from biodb import monarch
 
-    df = monarch.query_cypher("MATCH (n) RETURN count(n) AS total")
+    try:
+        df = monarch.query_cypher("MATCH (n) RETURN count(n) AS total")
+    except requests.exceptions.RequestException as exc:
+        if is_upstream_outage(exc):
+            pytest.skip(f"Monarch upstream outage: {exc}")
+        raise
     assert list(df.columns) == ["total"]
     assert df.iloc[0]["total"] > 1_000_000, (
         f"Monarch KG should have well over 1 M nodes; got {df.iloc[0]['total']} — suspicious"
@@ -90,10 +113,15 @@ def test_monarch_query_cypher_parameters_round_trip() -> None:
     into a Cypher query — verify the wire format works end-to-end."""
     from biodb import monarch
 
-    df = monarch.query_cypher(
-        "MATCH (n {id: $id}) RETURN n.id AS id, n.name AS name LIMIT 1",
-        parameters={"id": "HGNC:1100"},
-    )
+    try:
+        df = monarch.query_cypher(
+            "MATCH (n {id: $id}) RETURN n.id AS id, n.name AS name LIMIT 1",
+            parameters={"id": "HGNC:1100"},
+        )
+    except requests.exceptions.RequestException as exc:
+        if is_upstream_outage(exc):
+            pytest.skip(f"Monarch upstream outage: {exc}")
+        raise
     assert len(df) == 1
     assert df.iloc[0]["id"] == "HGNC:1100"
     assert df.iloc[0]["name"] == "BRCA1"
@@ -113,7 +141,12 @@ def test_monarch_query_neighbors_returns_real_edges() -> None:
     should pull a sample with the documented columns."""
     from biodb import monarch
 
-    df = monarch.query_neighbors("HGNC:1100", limit=5)
+    try:
+        df = monarch.query_neighbors("HGNC:1100", limit=5)
+    except requests.exceptions.RequestException as exc:
+        if is_upstream_outage(exc):
+            pytest.skip(f"Monarch upstream outage: {exc}")
+        raise
     assert len(df) == 5
     for col in ("predicate", "neighbor_id", "neighbor_name", "neighbor_category"):
         assert col in df.columns
