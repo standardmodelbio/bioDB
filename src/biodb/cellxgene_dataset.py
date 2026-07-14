@@ -216,8 +216,12 @@ def build_dataset(
     (out / "markers").mkdir(parents=True, exist_ok=True)
 
     markers = build_markers(cache_dir=cache_dir, force=force)
-    markers["canonical"].to_parquet(out / "markers" / "canonical.parquet", index=False)
-    written = {"canonical": len(markers["canonical"])}
+    # Canonical markers are curated, organism-agnostic reference markers, so the
+    # per-species/score columns are uniformly empty — drop them rather than ship
+    # all-null columns (keeps tissue/cell type/CL id/gene/publication).
+    canonical = markers["canonical"].dropna(axis=1, how="all")
+    canonical.to_parquet(out / "markers" / "canonical.parquet", index=False)
+    written = {"canonical": len(canonical)}
     for species in organisms:
         if species in markers:
             path = out / "markers" / f"computational_{_slug(species)}.parquet"
@@ -333,8 +337,10 @@ CellGuide snapshot.
 - `computational_<species>.parquet` — CZI's **Marker Score** (effect size) per
   gene × cell type × tissue, with `specificity`, `mean_expression`,
   `pct_expressing`, `rank`. One file per species (human, mouse).
-- `canonical.parquet` — curated marker genes (literature / ASCT+B), cross-species
-  (so `species` is null), with `publication` references where available.
+- `canonical.parquet` — curated reference marker genes (from HuBMAP ASCT+B tables
+  + literature), organized **by tissue, not organism**. CZI does not attach an
+  organism to these, so this table has **no `species` (or score) column** — just
+  `cell_ontology_id`, `cell_type_name`, `tissue`, `gene_symbol`, `publication`.
 
 ### Disease DEG (`disease_deg/`){"" if include_deg else " — *not yet built (follow-up run)*"}
 Disease-vs-normal differential expression per *(disease × tissue × cell type)*,
