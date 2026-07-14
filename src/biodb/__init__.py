@@ -88,6 +88,9 @@ from biodb.celltaxonomy import (
     query_markers as celltaxonomy_query_markers,
 )
 from biodb.cellxgene import (
+    disease_vs_normal as cellxgene_disease_vs_normal,
+)
+from biodb.cellxgene import (
     get_all_markers as cellxgene_get_all_markers,
 )
 from biodb.cellxgene import (
@@ -197,6 +200,7 @@ __all__ = [
     "cellmarker_get_markers",
     "cellmarker_query_markers",
     "cellxgene",
+    "cellxgene_disease_vs_normal",
     "cellxgene_get_all_markers",
     "cellxgene_get_tissue_markers",
     "cellxgene_query_markers",

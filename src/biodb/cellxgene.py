@@ -64,11 +64,17 @@ logger = logging.getLogger(__name__)
 WMG_API_BASE_URL = "https://api.cellxgene.cziscience.com/wmg/v2"
 """CZ CELLxGENE WMG ("Where's My Gene") REST API root."""
 
+DE_API_BASE_URL = "https://api.cellxgene.cziscience.com/de/v1"
+"""CZ CELLxGENE Differential Expression REST API root."""
+
 DEFAULT_ORGANISM = "Homo sapiens"
 """Default organism (accepts the label or an ``NCBITaxon:`` id)."""
 
 DEFAULT_TEST = "ttest"
 """Statistical test backing the Marker Score (the only value WMG exposes)."""
+
+NORMAL_DISEASE_ID = "PATO:0000461"
+"""CELLxGENE's ontology id for "normal" (non-diseased) cells."""
 
 SOURCE_NAME = "cellxgene"
 """Value written into the normalized ``source`` column."""
@@ -93,10 +99,12 @@ def _get(path: str, *, timeout: int = 60) -> dict[str, Any]:
     return resp.json()
 
 
-def _post(path: str, payload: dict, *, timeout: int = 120) -> dict[str, Any]:
-    """POST JSON to a WMG endpoint and return parsed JSON."""
+def _post(
+    path: str, payload: dict, *, base: str = WMG_API_BASE_URL, timeout: int = 120
+) -> dict[str, Any]:
+    """POST JSON to a WMG/DE endpoint and return parsed JSON."""
     resp = requests.post(
-        f"{WMG_API_BASE_URL}/{path.lstrip('/')}",
+        f"{base}/{path.lstrip('/')}",
         json=payload,
         headers={"User-Agent": _USER_AGENT, "Content-Type": "application/json"},
         timeout=timeout,
@@ -205,8 +213,8 @@ def list_cell_types(tissue: str, *, organism: str = DEFAULT_ORGANISM) -> pd.Data
     )
 
 
-def _cell_type_map(tissue: str, organism: str) -> dict[str, str]:
-    """CL-id → label map for a tissue, via the WMG ``filters`` endpoint."""
+def _filter_dims(tissue: str, organism: str) -> dict[str, Any]:
+    """Return WMG ``filter_dims`` for a tissue (cell types, diseases, sex, …)."""
     organism_id, _ = _resolve_organism(organism)
     tissue_id, _ = _resolve_tissue(tissue, organism_id)
     payload = {
@@ -215,8 +223,37 @@ def _cell_type_map(tissue: str, organism: str) -> dict[str, str]:
             "tissue_ontology_term_ids": [tissue_id],
         }
     }
-    filters = _post("filters", payload)
-    return _flatten_terms(filters["filter_dims"]["cell_type_terms"])
+    return _post("filters", payload)["filter_dims"]
+
+
+def _cell_type_map(tissue: str, organism: str) -> dict[str, str]:
+    """CL-id → label map for a tissue, via the WMG ``filters`` endpoint."""
+    return _flatten_terms(_filter_dims(tissue, organism)["cell_type_terms"])
+
+
+def list_diseases(tissue: str, *, organism: str = DEFAULT_ORGANISM) -> pd.DataFrame:
+    """List the diseases with data in a tissue (excluding ``normal``).
+
+    Parameters
+    ----------
+    tissue
+        Tissue label or ``UBERON:`` id.
+    organism
+        Organism label or ``NCBITaxon:`` id.
+
+    Returns
+    -------
+    pandas.DataFrame
+        Columns ``disease_ontology_term_id``, ``disease``. Empty if the tissue
+        has only normal cells.
+    """
+    terms = _flatten_terms(_filter_dims(tissue, organism)["disease_terms"])
+    rows = [
+        {"disease_ontology_term_id": did, "disease": label}
+        for did, label in terms.items()
+        if did != NORMAL_DISEASE_ID
+    ]
+    return pd.DataFrame(rows, columns=["disease_ontology_term_id", "disease"])
 
 
 # ─── API mode — one cell type ────────────────────────────────────────────────
@@ -453,6 +490,165 @@ def get_all_markers(
     )
 
 
+# ─── Differential expression — disease vs normal, condition contrasts ────────
+
+DE_COLUMNS = [
+    "species",
+    "tissue",
+    "cell_type_name",
+    "cell_ontology_id",
+    "disease",
+    "gene_symbol",
+    "gene_id",
+    "effect_size",
+    "log_fold_change",
+    "adjusted_p_value",
+    "rank",
+    "source",
+]
+"""Schema for :func:`disease_vs_normal` / :func:`differential_expression`.
+
+A *differential* product (not the Marker Score): ``effect_size`` and
+``log_fold_change`` describe the group-1-vs-group-2 contrast, ``rank`` is by
+descending ``effect_size``."""
+
+
+def differential_expression(
+    group1_filters: dict[str, Any],
+    group2_filters: dict[str, Any],
+    *,
+    exclude_overlapping_cells: str = "retainBoth",
+    timeout: int = 300,
+) -> pd.DataFrame:
+    """Genome-wide differential expression between two cell populations.
+
+    Thin client over CZI's served Differential Expression API — the same engine
+    behind the Discover UI's "Differential Expression" tool. Each group is
+    defined by a WMG-style filter dict (``organism_ontology_term_id`` plus any of
+    ``tissue_ontology_term_ids`` / ``cell_type_ontology_term_ids`` /
+    ``disease_ontology_term_ids`` / ``sex_ontology_term_ids`` /
+    ``development_stage_ontology_term_ids`` /
+    ``self_reported_ethnicity_ontology_term_ids`` / ``dataset_ids``).
+
+    Parameters
+    ----------
+    group1_filters, group2_filters
+        The two populations to contrast (group 1 vs group 2).
+    exclude_overlapping_cells
+        How to handle cells matching both groups: ``"retainBoth"`` (default),
+        ``"excludeOne"``, or ``"excludeTwo"``.
+    timeout
+        Per-request timeout (seconds).
+
+    Returns
+    -------
+    pandas.DataFrame
+        Columns ``gene_symbol``, ``gene_id``, ``effect_size``,
+        ``log_fold_change``, ``adjusted_p_value``, sorted by descending
+        ``effect_size``.
+    """
+    payload = {
+        "exclude_overlapping_cells": exclude_overlapping_cells,
+        "queryGroup1Filters": group1_filters,
+        "queryGroup2Filters": group2_filters,
+    }
+    results = _post("differentialExpression", payload, base=DE_API_BASE_URL, timeout=timeout)
+    rows = [
+        {
+            "gene_symbol": r.get("gene_symbol"),
+            "gene_id": r.get("gene_ontology_term_id"),
+            "effect_size": r.get("effect_size"),
+            "log_fold_change": r.get("log_fold_change"),
+            "adjusted_p_value": r.get("adjusted_p_value"),
+        }
+        for r in results.get("differentialExpressionResults", [])
+    ]
+    df = pd.DataFrame(
+        rows,
+        columns=["gene_symbol", "gene_id", "effect_size", "log_fold_change", "adjusted_p_value"],
+    )
+    return df.sort_values("effect_size", ascending=False, na_position="last").reset_index(drop=True)
+
+
+def disease_vs_normal(
+    cell_type: str,
+    *,
+    tissue: str,
+    disease: str,
+    organism: str = DEFAULT_ORGANISM,
+    exclude_overlapping_cells: str = "retainBoth",
+    n_top: int | None = None,
+) -> pd.DataFrame:
+    """Disease-vs-normal differential expression for one cell type in a tissue.
+
+    Contrasts the same cell type between a disease condition and ``normal`` via
+    :func:`differential_expression`, so the result is CZI's *served* effect
+    size — no local recomputation. Complements :func:`query_markers` (which is
+    healthy-only cell-type specificity): this is a *within-cell-type,
+    across-condition* contrast.
+
+    Parameters
+    ----------
+    cell_type
+        CL id or plain name (resolved via OLS).
+    tissue
+        Tissue label or ``UBERON:`` id.
+    disease
+        A disease id (``"MONDO:0015925"``) or label (``"interstitial lung
+        disease"``) available in the tissue (see :func:`list_diseases`).
+    organism
+        Organism label or ``NCBITaxon:`` id.
+    exclude_overlapping_cells
+        Forwarded to :func:`differential_expression`.
+    n_top
+        If given, keep only the top-``n_top`` genes by effect size.
+
+    Returns
+    -------
+    pandas.DataFrame
+        Columns per :data:`DE_COLUMNS` (positive ``effect_size`` = up in
+        disease).
+    """
+    organism_id, organism_label = _resolve_organism(organism)
+    tissue_id, tissue_label = _resolve_tissue(tissue, organism_id)
+    cl_id = _resolve_cl_id(cell_type)
+
+    diseases = _flatten_terms(_filter_dims(tissue, organism)["disease_terms"])
+    disease_id = disease if disease in diseases else None
+    if disease_id is None:
+        for did, label in diseases.items():
+            if label.lower() == disease.lower():
+                disease_id = did
+                break
+    if disease_id is None:
+        raise ValueError(f"Disease {disease!r} not found in {tissue_label}. See list_diseases().")
+    disease_label = diseases.get(disease_id, disease_id)
+
+    base = {
+        "organism_ontology_term_id": organism_id,
+        "tissue_ontology_term_ids": [tissue_id],
+        "cell_type_ontology_term_ids": [cl_id],
+    }
+    de = differential_expression(
+        {**base, "disease_ontology_term_ids": [disease_id]},
+        {**base, "disease_ontology_term_ids": [NORMAL_DISEASE_ID]},
+        exclude_overlapping_cells=exclude_overlapping_cells,
+    )
+    cell_name = _cell_type_map(tissue, organism).get(cl_id)
+    de.insert(0, "species", organism_label)
+    de.insert(1, "tissue", tissue_label)
+    de.insert(2, "cell_type_name", cell_name)
+    de.insert(3, "cell_ontology_id", cl_id)
+    de.insert(4, "disease", disease_label)
+    de["rank"] = _celltype.rank_within_group(
+        de, group_cols=["cell_ontology_id"], score_col="effect_size"
+    )
+    de["source"] = SOURCE_NAME
+    if n_top is not None:
+        de = de.head(n_top)
+    return de[DE_COLUMNS].reset_index(drop=True)
+
+
 def to_gmt(
     path: str | Path,
     *,
@@ -483,14 +679,20 @@ def to_gmt(
 
 __all__ = [
     "WMG_API_BASE_URL",
+    "DE_API_BASE_URL",
     "DEFAULT_ORGANISM",
     "DEFAULT_TEST",
+    "NORMAL_DISEASE_ID",
     "SOURCE_NAME",
     "CACHE_DIR",
+    "DE_COLUMNS",
     "list_tissues",
     "list_cell_types",
+    "list_diseases",
     "query_markers",
     "get_tissue_markers",
     "get_all_markers",
+    "differential_expression",
+    "disease_vs_normal",
     "to_gmt",
 ]

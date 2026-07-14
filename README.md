@@ -44,7 +44,7 @@ Each source module aims to provide **both** modes, so you can prototype against 
 | **[SNOMED CT](https://www.snomed.org/)** (OHDSI-flavoured) — clinical terminology: diagnoses, procedures, findings, body sites | [`biodb.snomed`](src/biodb/snomed.py) | ✅ Per-concept lookups via OLS4 | ✅ Local CONCEPT.csv parser. SNOMED CT licensing prohibits us from redistributing bytes — obtain a vocabulary bundle from [OHDSI Athena](https://athena.ohdsi.org) after accepting the SNOMED CT license, then point bioDB at the local file. |
 | **[Cell Taxonomy](https://ngdc.cncb.ac.cn/celltaxonomy/)** (CNCB-NGDC) — curated cross-species cell-type marker genes with **native Cell Ontology (CL) ids**; ~26k markers / ~3.1k cell types / 34 species | [`biodb.celltaxonomy`](src/biodb/celltaxonomy.py) | ✅ In-memory `query_markers` by CL id / name | ✅ Bulk TSV → normalized ranked gene lists per CL term (score = literature support), GMT export |
 | **[CellMarker 2.0](http://bio-bigdata.hrbmu.edu.cn/CellMarker/)** — manually curated human/mouse cell-type markers (~83k entries) carrying a native `cellontology_id` | [`biodb.cellmarker`](src/biodb/cellmarker.py) | ✅ In-memory `query_markers` by CL id / name | ✅ Bulk XLSX → normalized ranked gene lists per CL term (score = PMID support), GMT export |
-| **[CZ CELLxGENE Discover](https://cellxgene.cziscience.com/)** — single-cell corpus; CZI's precomputed **Marker Score** per (CL cell type × tissue) served by the WMG REST API | [`biodb.cellxgene`](src/biodb/cellxgene.py) | ✅ `query_markers` — WMG Marker Score for one CL term / tissue | ✅ `get_tissue_markers` — every cell type in a tissue; GMT export |
+| **[CZ CELLxGENE Discover](https://cellxgene.cziscience.com/)** — single-cell corpus; CZI's precomputed **Marker Score** per (CL cell type × tissue) + served **disease-vs-normal differential expression** — all via REST | [`biodb.cellxgene`](src/biodb/cellxgene.py) | ✅ `query_markers` (Marker Score) + `disease_vs_normal` (DE effect size / logFC) per CL term / tissue | ✅ `get_tissue_markers` / `get_all_markers` (whole corpus per species); GMT export |
 
 ### Cross-cutting helpers
 
@@ -160,9 +160,15 @@ ct.to_gmt("celltaxonomy.gmt")               # one ranked gene set per CL term
 from biodb import cellmarker as cm
 cm.query_markers("CL:0000540", which="human")
 
-# CELLxGENE computes markers on demand ([cellxgene] extra); effect-size scored.
+# CELLxGENE: CZI's precomputed Marker Score via the WMG REST API (no extra deps).
 from biodb import cellxgene as cx
-cx.query_markers("CL:0000540", tissue="brain", n_top=25)
+cx.query_markers("CL:0000236", tissue="spleen", n_top=25)   # B-cell markers
+cx.get_all_markers(organism="Homo sapiens")                 # whole corpus, one species
+
+# Disease-vs-normal differential per cell type (CZI's served DE, genome-wide).
+cx.list_diseases("lung")                                    # what's available
+cx.disease_vs_normal("CL:0000082", tissue="lung",
+                     disease="interstitial lung disease", n_top=25)
 ```
 
 ## Tutorials
