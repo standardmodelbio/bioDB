@@ -1,0 +1,12 @@
+Species	Tissue_UberonOntology_ID	Tissue_standard	CT_ID	Cell_standard	Specific_Cell_Ontology_ID	Cell_Marker	Gene_ENTREZID	Gene_Alias	Gene_Ensembl_ID	Uniprot	PFAM	GO2	Condition	Disease_Ontology_ID	PMID	Source	Species_tax_ID	Species_alias	Cell_alias_change
+Homo sapiens	NA	Brain	NA	Neuron	CL:0000540	GENEA	101	NA	NA	NA	NA	NA	NA	NA	111	Curated	9606	NA	NA
+Homo sapiens	NA	Brain	NA	Neuron	CL:0000540	GENEA	101	NA	NA	NA	NA	NA	NA	NA	112	Curated	9606	NA	NA
+Homo sapiens	NA	Brain	NA	Neuron	CL:0000540	GENEA	101	NA	NA	NA	NA	NA	NA	NA	113	Curated	9606	NA	NA
+Homo sapiens	NA	Brain	NA	Neuron	CL:0000540	GENEB	102	NA	NA	NA	NA	NA	NA	NA	121	Curated	9606	NA	NA
+Homo sapiens	NA	Brain	NA	Neuron	CL:0000540	GENEB	102	NA	NA	NA	NA	NA	NA	NA	122	Curated	9606	NA	NA
+Homo sapiens	NA	Brain	NA	Neuron	CL:0000540	GENEC	103	NA	NA	NA	NA	NA	NA	NA	131	Curated	9606	NA	NA
+Homo sapiens	NA	Brain	NA	Astrocyte	CL:0000127	GFAP	2670	NA	NA	NA	NA	NA	NA	NA	201	Curated	9606	NA	NA
+Homo sapiens	NA	Brain	NA	Astrocyte	CL:0000127	AQP4	361	NA	NA	NA	NA	NA	NA	NA	202	Curated	9606	NA	NA
+Homo sapiens	NA	Brain	NA	Astrocyte	CL:0000127	AQP4	361	NA	NA	NA	NA	NA	NA	NA	203	Curated	9606	NA	NA
+Mus musculus	NA	Brain	NA	Neuron	CL:0000540	Rbfox3	52897	NA	NA	NA	NA	NA	NA	NA	301	Curated	9606	NA	NA
+Homo sapiens	NA	Blood	NA	Mystery cell	NA	MYSTGENE	999	NA	NA	NA	NA	NA	NA	NA	401	Curated	9606	NA	NA

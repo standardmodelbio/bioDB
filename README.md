@@ -42,6 +42,9 @@ Each source module aims to provide **both** modes, so you can prototype against 
 | **[MSigDB](https://www.gsea-msigdb.org/gsea/msigdb/)** — Broad Institute Molecular Signatures DB (Hallmark + C1–C8) | [`biodb.msigdb`](src/biodb/msigdb.py) | ✅ Per-set JSON | ✅ Bulk GMT for any collection/version |
 | **[PubMed](https://pubmed.ncbi.nlm.nih.gov/)** — NLM's 40 M+ biomedical citation database (titles, abstracts, authors, MeSH) | [`biodb.pubmed`](src/biodb/pubmed.py) | ✅ NCBI E-utilities | ✅ Annual Baseline + Daily Update XML.gz |
 | **[SNOMED CT](https://www.snomed.org/)** (OHDSI-flavoured) — clinical terminology: diagnoses, procedures, findings, body sites | [`biodb.snomed`](src/biodb/snomed.py) | ✅ Per-concept lookups via OLS4 | ✅ Local CONCEPT.csv parser. SNOMED CT licensing prohibits us from redistributing bytes — obtain a vocabulary bundle from [OHDSI Athena](https://athena.ohdsi.org) after accepting the SNOMED CT license, then point bioDB at the local file. |
+| **[Cell Taxonomy](https://ngdc.cncb.ac.cn/celltaxonomy/)** (CNCB-NGDC) — curated cross-species cell-type marker genes with **native Cell Ontology (CL) ids**; ~26k markers / ~3.1k cell types / 34 species | [`biodb.celltaxonomy`](src/biodb/celltaxonomy.py) | ✅ In-memory `query_markers` by CL id / name | ✅ Bulk TSV → normalized ranked gene lists per CL term (score = literature support), GMT export |
+| **[CellMarker 2.0](http://bio-bigdata.hrbmu.edu.cn/CellMarker/)** — manually curated human/mouse cell-type markers (~83k entries) carrying a native `cellontology_id` | [`biodb.cellmarker`](src/biodb/cellmarker.py) | ✅ In-memory `query_markers` by CL id / name | ✅ Bulk XLSX → normalized ranked gene lists per CL term (score = PMID support), GMT export |
+| **[CZ CELLxGENE Discover / Census](https://cellxgene.cziscience.com/)** — single-cell corpus keyed by `cell_type_ontology_term_id`; marker genes computed on demand (one-vs-rest effect size) | [`biodb.cellxgene`](src/biodb/cellxgene.py) | ✅ `query_markers` — Census-computed marker scores per CL term / tissue | ✅ `compute_tissue_markers` — every cell type in a tissue; GMT export. Needs the `[cellxgene]` extra. |
 
 ### Cross-cutting helpers
 
@@ -139,6 +142,27 @@ expanded = expand_keyword_sets_from_ontology(
     ontology_dict=ontology,
     n_hops=2,
 )
+```
+
+### Cell-type marker genes (ranked, Cell Ontology-keyed)
+
+```python
+from biodb import celltaxonomy as ct
+
+# Bulk: normalized (species, tissue, cell type, CL id, gene, score, rank).
+markers = ct.get_markers(species="Homo sapiens", map_to_cl=True)
+
+# Targeted: ranked markers for one cell type (CL:0000540 = neuron).
+neuron = ct.query_markers("CL:0000540")
+ct.to_gmt("celltaxonomy.gmt")               # one ranked gene set per CL term
+
+# CellMarker 2.0 has the same API surface.
+from biodb import cellmarker as cm
+cm.query_markers("CL:0000540", which="human")
+
+# CELLxGENE computes markers on demand ([cellxgene] extra); effect-size scored.
+from biodb import cellxgene as cx
+cx.query_markers("CL:0000540", tissue="brain", n_top=25)
 ```
 
 ## Tutorials

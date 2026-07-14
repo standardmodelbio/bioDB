@@ -32,6 +32,14 @@ Module map:
   ``load_physical_links``, ``physical_ppi_edges``). The physical
   sub-network is direct binding evidence only — closer to "PPI"
   than the full functional-coupling network in ``protein.links``.
+* :mod:`biodb.celltaxonomy` / :mod:`biodb.cellmarker` /
+  :mod:`biodb.cellxgene` -- cell-type marker genes ranked per Cell
+  Ontology (CL) term. Cell Taxonomy + CellMarker are curated bulk
+  flat files with native CL ids (``get_markers`` / ``query_markers`` /
+  ``to_gmt``); CELLxGENE computes markers on demand from the Census
+  (``compute_tissue_markers`` / ``query_markers``). All three emit the
+  shared *(species, tissue, cell type, CL id, gene, score, rank)*
+  schema from :mod:`biodb._celltype`.
 
 Shared utilities live in :mod:`biodb.utils` (random seeding,
 similarity helpers, token counting, ``create_gene_association_matrix``,
@@ -40,6 +48,9 @@ similarity helpers, token counting, ``create_gene_association_matrix``,
 
 from biodb import (
     aou_allxall,
+    cellmarker,
+    celltaxonomy,
+    cellxgene,
     clinvar,
     gprofiler,
     gtr,
@@ -61,9 +72,27 @@ from biodb import (
     uniprot,
     utils,
 )
+from biodb.cellmarker import (
+    get_markers as cellmarker_get_markers,
+)
+from biodb.cellmarker import (
+    query_markers as cellmarker_query_markers,
+)
 
 # A small slice of high-frequency public symbols is re-exported at the
 # top level for convenience. The full APIs live on the submodules.
+from biodb.celltaxonomy import (
+    get_markers as celltaxonomy_get_markers,
+)
+from biodb.celltaxonomy import (
+    query_markers as celltaxonomy_query_markers,
+)
+from biodb.cellxgene import (
+    compute_tissue_markers as cellxgene_compute_tissue_markers,
+)
+from biodb.cellxgene import (
+    query_markers as cellxgene_query_markers,
+)
 from biodb.clinvar import (
     bed_to_sites,
     df_to_bed,
@@ -158,6 +187,15 @@ __all__ = [
     "RANDOM_SEED",
     "aou_allxall",
     "bed_to_sites",
+    "celltaxonomy",
+    "celltaxonomy_get_markers",
+    "celltaxonomy_query_markers",
+    "cellmarker",
+    "cellmarker_get_markers",
+    "cellmarker_query_markers",
+    "cellxgene",
+    "cellxgene_compute_tissue_markers",
+    "cellxgene_query_markers",
     "clinvar",
     "cosine_similarity",
     "count_tokens",
