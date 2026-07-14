@@ -36,9 +36,9 @@ Module map:
   :mod:`biodb.cellxgene` -- cell-type marker genes ranked per Cell
   Ontology (CL) term. Cell Taxonomy + CellMarker are curated bulk
   flat files with native CL ids (``get_markers`` / ``query_markers`` /
-  ``to_gmt``); CELLxGENE computes markers on demand from the Census
-  (``compute_tissue_markers`` / ``query_markers``). All three emit the
-  shared *(species, tissue, cell type, CL id, gene, score, rank)*
+  ``to_gmt``); CELLxGENE fetches CZI's precomputed Marker Score via the
+  WMG REST API (``query_markers`` / ``get_tissue_markers``). All three emit
+  the shared *(species, tissue, cell type, CL id, gene, score, rank)*
   schema from :mod:`biodb._celltype`.
 
 Shared utilities live in :mod:`biodb.utils` (random seeding,
@@ -88,7 +88,7 @@ from biodb.celltaxonomy import (
     query_markers as celltaxonomy_query_markers,
 )
 from biodb.cellxgene import (
-    compute_tissue_markers as cellxgene_compute_tissue_markers,
+    get_tissue_markers as cellxgene_get_tissue_markers,
 )
 from biodb.cellxgene import (
     query_markers as cellxgene_query_markers,
@@ -194,7 +194,7 @@ __all__ = [
     "cellmarker_get_markers",
     "cellmarker_query_markers",
     "cellxgene",
-    "cellxgene_compute_tissue_markers",
+    "cellxgene_get_tissue_markers",
     "cellxgene_query_markers",
     "clinvar",
     "cosine_similarity",

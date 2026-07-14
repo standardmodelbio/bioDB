@@ -1,75 +1,72 @@
-"""CZ CELLxGENE Discover / Census client — compute-on-demand marker genes.
+"""CZ CELLxGENE Discover client — precomputed marker genes via the WMG API.
 
 `CZ CELLxGENE Discover <https://cellxgene.cziscience.com/>`_ aggregates
-single-cell data across studies; its `Census
-<https://chanzuckerberg.github.io/cellxgene-census/>`_ exposes the whole corpus
-as a cloud-hosted TileDB-SOMA store, queryable by
-``cell_type_ontology_term_id`` (native `Cell Ontology
-<https://obofoundry.org/ontology/cl.html>`_ ids) and ``tissue_general``.
+single-cell data across studies and — through its **WMG ("Where's My Gene")**
+backend — serves *precomputed* marker genes for every cell type in every
+tissue, keyed to the `Cell Ontology <https://obofoundry.org/ontology/cl.html>`_
+(CL) and UBERON. This is the same data behind the Discover UI's "Find Marker
+Genes" tool, exposed as a public REST API, so ``bioDB`` fetches CZI's own
+**Marker Score** rather than recomputing anything.
 
-Unlike the curated sources (:mod:`biodb.celltaxonomy`, :mod:`biodb.cellmarker`),
-the Census publishes **no bulk marker file** — its "Marker Score" is a web-UI
-feature. This module therefore *computes* markers on demand from the Census
-expression matrices, replicating the documented Marker Score approach in
-simplified form: for a tissue, each cell type is compared one-vs-rest and every
-gene is scored by its **effect size** (Cohen's d) on log-normalized expression.
-This is not byte-identical to the CELLxGENE UI's Marker Score (the 10th
-percentile of bootstrapped Welch's-t effect sizes) but ranks the same signal.
+The Marker Score is CZI's effect-size metric (roughly the 10th percentile of
+per-comparison Cohen's d from Welch's t-tests of the target cell type against
+the other cell types in the tissue); each gene also carries a **specificity**
+(fraction of the tissue's other cell types the gene distinguishes it from).
 
-Both access modes map onto that one computation:
+``bioDB`` exposes both access modes over the same API:
 
-* **API mode** — :func:`query_markers` returns the top markers for one cell
-  type in one tissue (resolving a plain name to a CL id via OLS if needed).
-* **Bulk mode** — :func:`compute_tissue_markers` returns markers for *every*
-  cell type in a tissue, in the normalized *(species, tissue, cell type, CL id,
-  gene, score, rank)* schema shared across the cell-type sources.
+* **API mode** — :func:`query_markers` returns the ranked markers for one cell
+  type in one tissue (resolving a plain cell-type name to a CL id via OLS if
+  needed).
+* **Bulk mode** — :func:`get_tissue_markers` returns markers for *every* cell
+  type in a tissue, in the normalized *(species, tissue, cell type, CL id, gene,
+  score, rank)* schema shared across the cell-type sources.
   :func:`list_tissues` / :func:`list_cell_types` support discovery.
 
-.. note::
-   Requires the ``[cellxgene]`` extra (``cellxgene-census``, which pulls
-   ``tiledbsoma`` + ``anndata``). The Census store lives in AWS ``us-west-2``
-   (read-only). Computed marker tables are cached under
-   ``~/.cache/biodb/cellxgene/<census_version>/``.
+No heavy dependencies — this is a plain ``requests`` REST client (unlike the
+bulk single-cell ``cellxgene-census`` stack). Cached tables live at
+``~/.cache/biodb/cellxgene/``.
 
 Examples
 --------
 >>> from biodb import cellxgene as cx
->>> tissues = cx.list_tissues()                                  # doctest: +SKIP
->>> markers = cx.query_markers("CL:0000540", tissue="brain")     # doctest: +SKIP
->>> table = cx.compute_tissue_markers("brain")                   # doctest: +SKIP
->>> cx.to_gmt("cellxgene_brain.gmt", tissue="brain")             # doctest: +SKIP
+>>> cx.list_tissues()[:3]                                       # doctest: +SKIP
+['adipose tissue', 'adrenal gland', 'blood']
+>>> markers = cx.query_markers("CL:0000236", tissue="spleen")   # doctest: +SKIP
+>>> markers.iloc[0]["gene_symbol"]                              # doctest: +SKIP
+'CD79A'
+>>> table = cx.get_tissue_markers("spleen")                     # doctest: +SKIP
+>>> cx.to_gmt("cellxgene_spleen.gmt", tissue="spleen")          # doctest: +SKIP
 
 References
 ----------
-* Census: https://chanzuckerberg.github.io/cellxgene-census/
-* Marker Score docs:
+* WMG API base: https://api.cellxgene.cziscience.com/wmg/v2
+* Find Marker Genes docs:
   https://cellxgene.cziscience.com/docs/04__Analyze%20Public%20Data/4_2__Gene%20Expression%20Documentation/4_2_5__Find%20Marker%20Genes
 """
 
 from __future__ import annotations
 
 import logging
-import re
+from functools import lru_cache
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import Any
 
-import numpy as np
 import pandas as pd
+import requests
 
 from biodb import _celltype
-from biodb.utils import RANDOM_SEED
-
-if TYPE_CHECKING:  # pragma: no cover - typing only
-    from anndata import AnnData
 
 logger = logging.getLogger(__name__)
 
-DEFAULT_CENSUS_VERSION = "2025-11-08"
-"""Pinned CELLxGENE Census LTS release for reproducibility. Pass
-``census_version="stable"`` / ``"latest"`` to track the moving pointers."""
+WMG_API_BASE_URL = "https://api.cellxgene.cziscience.com/wmg/v2"
+"""CZ CELLxGENE WMG ("Where's My Gene") REST API root."""
 
 DEFAULT_ORGANISM = "Homo sapiens"
-"""Census organism string (note the space + capitalisation the API expects)."""
+"""Default organism (accepts the label or an ``NCBITaxon:`` id)."""
+
+DEFAULT_TEST = "ttest"
+"""Statistical test backing the Marker Score (the only value WMG exposes)."""
 
 SOURCE_NAME = "cellxgene"
 """Value written into the normalized ``source`` column."""
@@ -77,328 +74,78 @@ SOURCE_NAME = "cellxgene"
 CACHE_DIR = Path("~/.cache/biodb/cellxgene").expanduser()
 CACHE_DIR.mkdir(parents=True, exist_ok=True)
 
-_MIN_CELLS_PER_TYPE = 10
-"""Cell types with fewer cells than this in the (subsampled) pull are skipped —
-too few observations for a stable effect size."""
+_USER_AGENT = "biodb/0.1 (+https://github.com/bschilder/bioDB)"
 
 
-def _require_census() -> Any:
-    """Import ``cellxgene_census`` or raise a helpful error."""
-    try:
-        import cellxgene_census
-    except ImportError as exc:  # pragma: no cover - exercised only without the extra
-        raise ImportError(
-            "biodb.cellxgene requires the 'cellxgene-census' package. "
-            "Install it with:  pip install 'biodb[cellxgene]'"
-        ) from exc
-    return cellxgene_census
+# ─── HTTP + reference-dimension helpers ──────────────────────────────────────
 
 
-def _slug(text: str) -> str:
-    """Filesystem-safe token for a cache filename."""
-    return re.sub(r"[^0-9A-Za-z]+", "-", text.strip().lower()).strip("-")
-
-
-# ─── Discovery ───────────────────────────────────────────────────────────────
-
-
-def list_tissues(
-    *,
-    organism: str = DEFAULT_ORGANISM,
-    census_version: str = DEFAULT_CENSUS_VERSION,
-) -> list[str]:
-    """List the distinct ``tissue_general`` values available for an organism.
-
-    Parameters
-    ----------
-    organism
-        Census organism string (default :data:`DEFAULT_ORGANISM`).
-    census_version
-        Census release (default :data:`DEFAULT_CENSUS_VERSION`).
-
-    Returns
-    -------
-    list[str]
-        Sorted unique tissue names.
-    """
-    census = _require_census()
-    with census.open_soma(census_version=census_version) as store:
-        obs = census.get_obs(
-            store, organism, value_filter="is_primary_data == True", column_names=["tissue_general"]
-        )
-    return sorted(obs["tissue_general"].dropna().unique().tolist())
-
-
-def list_cell_types(
-    *,
-    tissue: str | None = None,
-    organism: str = DEFAULT_ORGANISM,
-    census_version: str = DEFAULT_CENSUS_VERSION,
-) -> pd.DataFrame:
-    """List cell types (and their CL ids + cell counts) for an organism/tissue.
-
-    Parameters
-    ----------
-    tissue
-        Optional ``tissue_general`` filter.
-    organism, census_version
-        See :func:`list_tissues`.
-
-    Returns
-    -------
-    pandas.DataFrame
-        Columns ``cell_ontology_id``, ``cell_type_name``, ``n_cells``, sorted
-        by ``n_cells`` descending.
-    """
-    census = _require_census()
-    value_filter = "is_primary_data == True"
-    if tissue is not None:
-        value_filter += f" and tissue_general == '{tissue}'"
-    with census.open_soma(census_version=census_version) as store:
-        obs = census.get_obs(
-            store,
-            organism,
-            value_filter=value_filter,
-            column_names=["cell_type", "cell_type_ontology_term_id"],
-        )
-    counts = (
-        # observed=True: Census obs columns are categorical carrying every
-        # global category, so the default (observed=False) would emit the full
-        # Cartesian product of unused labels as empty groups.
-        obs.groupby(["cell_type_ontology_term_id", "cell_type"], dropna=False, observed=True)
-        .size()
-        .reset_index(name="n_cells")
-        .rename(
-            columns={
-                "cell_type_ontology_term_id": "cell_ontology_id",
-                "cell_type": "cell_type_name",
-            }
-        )
+def _get(path: str, *, timeout: int = 60) -> dict[str, Any]:
+    """GET a WMG endpoint and return parsed JSON."""
+    resp = requests.get(
+        f"{WMG_API_BASE_URL}/{path.lstrip('/')}",
+        headers={"User-Agent": _USER_AGENT},
+        timeout=timeout,
     )
-    return counts.sort_values("n_cells", ascending=False).reset_index(drop=True)
+    resp.raise_for_status()
+    return resp.json()
 
 
-# ─── Bulk mode — compute markers for a whole tissue ──────────────────────────
+def _post(path: str, payload: dict, *, timeout: int = 120) -> dict[str, Any]:
+    """POST JSON to a WMG endpoint and return parsed JSON."""
+    resp = requests.post(
+        f"{WMG_API_BASE_URL}/{path.lstrip('/')}",
+        json=payload,
+        headers={"User-Agent": _USER_AGENT, "Content-Type": "application/json"},
+        timeout=timeout,
+    )
+    resp.raise_for_status()
+    return resp.json()
 
 
-def compute_tissue_markers(
-    tissue: str,
-    *,
-    organism: str = DEFAULT_ORGANISM,
-    census_version: str = DEFAULT_CENSUS_VERSION,
-    max_cells_per_type: int = 2000,
-    top_n_per_type: int = 100,
-    cache_dir: str | Path | None = None,
-    force: bool = False,
-) -> pd.DataFrame:
-    """Compute one-vs-rest marker genes for every cell type in a tissue.
+@lru_cache(maxsize=1)
+def _primary_filter_dimensions() -> dict[str, Any]:
+    """Fetch (and memoize) WMG's primary filter dimensions.
 
-    Pulls a (subsampled) AnnData for the tissue once, log-normalizes it, and
-    scores every gene per cell type by Cohen's d effect size. The result is
-    cached to parquet so repeated calls are free.
-
-    Parameters
-    ----------
-    tissue
-        A ``tissue_general`` value (see :func:`list_tissues`).
-    organism, census_version
-        See :func:`list_tissues`.
-    max_cells_per_type
-        Cap on cells sampled per cell type (deterministic, seeded) to bound the
-        pull. Default 2000.
-    top_n_per_type
-        Keep this many top-scoring genes per cell type in the cached table.
-    cache_dir, force
-        Cache location override / bypass.
-
-    Returns
-    -------
-    pandas.DataFrame
-        Columns per :data:`biodb._celltype.NORMALIZED_COLUMNS`.
+    Carries the organism list, per-organism tissue list, per-organism
+    gene-id→symbol map, and the current ``snapshot_id``.
     """
-    root = Path(cache_dir).expanduser() if cache_dir else CACHE_DIR / census_version
-    root.mkdir(parents=True, exist_ok=True)
-    cache_path = root / f"{_slug(organism)}__{_slug(tissue)}.parquet"
-    if cache_path.exists() and not force:
-        return pd.read_parquet(cache_path)
-
-    adata = _pull_tissue_adata(
-        tissue,
-        organism=organism,
-        census_version=census_version,
-        max_cells_per_type=max_cells_per_type,
-    )
-    table = _marker_table(adata, tissue=tissue, organism=organism, top_n_per_type=top_n_per_type)
-    table.to_parquet(cache_path, index=False)
-    return table
+    return _get("primary_filter_dimensions")
 
 
-def _pull_tissue_adata(
-    tissue: str,
-    *,
-    organism: str,
-    census_version: str,
-    max_cells_per_type: int,
-) -> AnnData:
-    """Fetch a subsampled AnnData of primary cells for one tissue."""
-    census = _require_census()
-    value_filter = f"is_primary_data == True and tissue_general == '{tissue}'"
-    with census.open_soma(census_version=census_version) as store:
-        obs = census.get_obs(
-            store,
-            organism,
-            value_filter=value_filter,
-            column_names=["soma_joinid", "cell_type_ontology_term_id"],
-        )
-        coords = _subsample_joinids(obs, max_cells_per_type)
-        if not coords:
-            raise ValueError(f"No primary cells found for tissue {tissue!r} in {organism}.")
-        adata = census.get_anndata(
-            store,
-            organism=organism,
-            obs_coords=coords,
-            obs_column_names=["cell_type_ontology_term_id", "cell_type", "tissue_general"],
-            X_name="raw",
-        )
-    return adata
+def _flatten_terms(terms: list[dict[str, str]]) -> dict[str, str]:
+    """Flatten WMG's ``[{"id": "label"}, ...]`` term lists into one dict."""
+    out: dict[str, str] = {}
+    for item in terms:
+        out.update(item)
+    return out
 
 
-def _subsample_joinids(obs: pd.DataFrame, max_per_type: int) -> list[int]:
-    """Deterministically cap cells per cell type; return sorted soma_joinids."""
-    rng = np.random.default_rng(RANDOM_SEED)
-    keep: list[np.ndarray] = []
-    # observed=True: the Census categorical carries all global categories, so
-    # the default would iterate hundreds of empty groups.
-    for _, grp in obs.groupby("cell_type_ontology_term_id", dropna=False, observed=True):
-        ids = grp["soma_joinid"].to_numpy()
-        if len(ids) > max_per_type:
-            ids = rng.choice(ids, size=max_per_type, replace=False)
-        keep.append(np.asarray(ids))
-    if not keep:
-        return []
-    return sorted(int(i) for i in np.concatenate(keep))
+def _resolve_organism(organism: str) -> tuple[str, str]:
+    """Return ``(NCBITaxon id, label)`` for an organism label or id."""
+    terms = _flatten_terms(_primary_filter_dimensions()["organism_terms"])
+    if organism in terms:  # already an id
+        return organism, terms[organism]
+    for oid, label in terms.items():
+        if label.lower() == organism.lower():
+            return oid, label
+    raise ValueError(f"Unknown organism {organism!r}. Available: {sorted(terms.values())}")
 
 
-def _marker_table(
-    adata: AnnData,
-    *,
-    tissue: str,
-    organism: str,
-    top_n_per_type: int,
-) -> pd.DataFrame:
-    """Score every gene per cell type by one-vs-rest Cohen's d effect size."""
-    from scipy.sparse import csr_matrix, diags, issparse
-
-    x = adata.X
-    x = csr_matrix(x) if not issparse(x) else x.tocsr().astype(np.float64)
-    # Library-size normalize to 1e4 then log1p (sparsity-preserving).
-    lib = np.asarray(x.sum(axis=1)).ravel()
-    lib[lib == 0] = 1.0
-    xn = diags(1e4 / lib) @ x
-    xn.data = np.log1p(xn.data)
-
-    total_n = xn.shape[0]
-    g_sum = np.asarray(xn.sum(axis=0)).ravel()
-    g_sq = np.asarray(xn.multiply(xn).sum(axis=0)).ravel()
-
-    var = adata.var
-    gene_symbols = var["feature_name"].to_numpy() if "feature_name" in var else var.index.to_numpy()
-    gene_ids = var["feature_id"].to_numpy() if "feature_id" in var else var.index.to_numpy()
-
-    labels = adata.obs["cell_type_ontology_term_id"].to_numpy()
-    names = adata.obs["cell_type"].to_numpy() if "cell_type" in adata.obs else labels
-
-    frames: list[pd.DataFrame] = []
-    for cl_id in pd.unique(labels):
-        mask = labels == cl_id
-        n1 = int(mask.sum())
-        if n1 < _MIN_CELLS_PER_TYPE or n1 == total_n:
-            continue
-        sub = xn[mask]
-        s1 = np.asarray(sub.sum(axis=0)).ravel()
-        sq1 = np.asarray(sub.multiply(sub).sum(axis=0)).ravel()
-        n2 = total_n - n1
-        m1, m2 = s1 / n1, (g_sum - s1) / n2
-        v1 = np.clip(sq1 / n1 - m1**2, 0, None)
-        v2 = np.clip((g_sq - sq1) / n2 - m2**2, 0, None)
-        pooled = np.sqrt((v1 + v2) / 2.0) + 1e-8
-        cohens_d = (m1 - m2) / pooled
-
-        order = np.argsort(cohens_d)[::-1][:top_n_per_type]
-        order = order[cohens_d[order] > 0]  # keep up-regulated markers only
-        if order.size == 0:
-            continue
-        cell_name = names[mask][0]
-        frames.append(
-            pd.DataFrame(
-                {
-                    "species": organism,
-                    "tissue": tissue,
-                    "cell_type_name": cell_name,
-                    "cell_ontology_id": _celltype.normalize_cl_id(cl_id) or cl_id,
-                    "gene_symbol": gene_symbols[order],
-                    "gene_id": gene_ids[order],
-                    "score": cohens_d[order],
-                    "source": SOURCE_NAME,
-                }
-            )
-        )
-
-    if not frames:
-        return pd.DataFrame(columns=_celltype.NORMALIZED_COLUMNS)
-    table = pd.concat(frames, ignore_index=True)
-    table["rank"] = _celltype.rank_within_group(
-        table, group_cols=["cell_ontology_id"], score_col="score"
-    )
-    return table[_celltype.NORMALIZED_COLUMNS].reset_index(drop=True)
+def _resolve_tissue(tissue: str, organism_id: str) -> tuple[str, str]:
+    """Return ``(UBERON id, label)`` for a tissue label or id in an organism."""
+    terms = _flatten_terms(_primary_filter_dimensions()["tissue_terms"][organism_id])
+    if tissue in terms:  # already an id
+        return tissue, terms[tissue]
+    for tid, label in terms.items():
+        if label.lower() == tissue.lower():
+            return tid, label
+    raise ValueError(f"Unknown tissue {tissue!r} for {organism_id}.")
 
 
-# ─── API mode — one cell type ────────────────────────────────────────────────
-
-
-def query_markers(
-    cell_type: str,
-    *,
-    tissue: str,
-    organism: str = DEFAULT_ORGANISM,
-    census_version: str = DEFAULT_CENSUS_VERSION,
-    n_top: int = 25,
-    max_cells_per_type: int = 2000,
-    cache_dir: str | Path | None = None,
-    force: bool = False,
-) -> pd.DataFrame:
-    """Return the top computed marker genes for one cell type in one tissue.
-
-    Parameters
-    ----------
-    cell_type
-        A CL id (``"CL:0000540"``) or a plain cell-type name; a name is resolved
-        to a CL id via :func:`biodb.ols.find_term` (scoped to ``cl``).
-    tissue
-        The ``tissue_general`` context to compute markers within (required —
-        the Marker Score is tissue-specific).
-    organism, census_version, max_cells_per_type, cache_dir, force
-        Forwarded to :func:`compute_tissue_markers` (the per-tissue table is
-        computed once and cached, then filtered here).
-    n_top
-        Number of top-ranked genes to return.
-
-    Returns
-    -------
-    pandas.DataFrame
-        Normalized rows for the requested cell type, sorted by ``rank``.
-    """
-    cl_id = _resolve_cl_id(cell_type)
-    table = compute_tissue_markers(
-        tissue,
-        organism=organism,
-        census_version=census_version,
-        max_cells_per_type=max_cells_per_type,
-        cache_dir=cache_dir,
-        force=force,
-    )
-    hits = table[table["cell_ontology_id"] == cl_id]
-    return hits.sort_values("rank", na_position="last").head(n_top).reset_index(drop=True)
+def _gene_symbol_map(organism_id: str) -> dict[str, str]:
+    """Return the Ensembl-id → gene-symbol map for an organism."""
+    return _flatten_terms(_primary_filter_dimensions()["gene_terms"][organism_id])
 
 
 def _resolve_cl_id(cell_type: str) -> str:
@@ -414,23 +161,234 @@ def _resolve_cl_id(cell_type: str) -> str:
     return hit["obo_id"]
 
 
+# ─── Discovery ───────────────────────────────────────────────────────────────
+
+
+def list_tissues(*, organism: str = DEFAULT_ORGANISM) -> list[str]:
+    """List the tissues WMG has marker data for, for an organism.
+
+    Parameters
+    ----------
+    organism
+        Organism label (``"Homo sapiens"``) or ``NCBITaxon:`` id.
+
+    Returns
+    -------
+    list[str]
+        Sorted tissue labels.
+    """
+    organism_id, _ = _resolve_organism(organism)
+    terms = _flatten_terms(_primary_filter_dimensions()["tissue_terms"][organism_id])
+    return sorted(terms.values())
+
+
+def list_cell_types(tissue: str, *, organism: str = DEFAULT_ORGANISM) -> pd.DataFrame:
+    """List the cell types present in a tissue (with their CL ids).
+
+    Parameters
+    ----------
+    tissue
+        Tissue label (``"spleen"``) or ``UBERON:`` id.
+    organism
+        Organism label or ``NCBITaxon:`` id.
+
+    Returns
+    -------
+    pandas.DataFrame
+        Columns ``cell_ontology_id``, ``cell_type_name``.
+    """
+    cell_map = _cell_type_map(tissue, organism)
+    return pd.DataFrame(
+        {"cell_ontology_id": list(cell_map), "cell_type_name": list(cell_map.values())}
+    )
+
+
+def _cell_type_map(tissue: str, organism: str) -> dict[str, str]:
+    """CL-id → label map for a tissue, via the WMG ``filters`` endpoint."""
+    organism_id, _ = _resolve_organism(organism)
+    tissue_id, _ = _resolve_tissue(tissue, organism_id)
+    payload = {
+        "filter": {
+            "organism_ontology_term_id": organism_id,
+            "tissue_ontology_term_ids": [tissue_id],
+        }
+    }
+    filters = _post("filters", payload)
+    return _flatten_terms(filters["filter_dims"]["cell_type_terms"])
+
+
+# ─── API mode — one cell type ────────────────────────────────────────────────
+
+
+def query_markers(
+    cell_type: str,
+    *,
+    tissue: str,
+    organism: str = DEFAULT_ORGANISM,
+    n_top: int = 25,
+    test: str = DEFAULT_TEST,
+) -> pd.DataFrame:
+    """Return the top precomputed marker genes for one cell type in one tissue.
+
+    Parameters
+    ----------
+    cell_type
+        A CL id (``"CL:0000236"``) or a plain cell-type name (resolved to a CL
+        id via :func:`biodb.ols.find_term`).
+    tissue
+        Tissue label (``"spleen"``) or ``UBERON:`` id (required — the Marker
+        Score is tissue-specific).
+    organism
+        Organism label or ``NCBITaxon:`` id.
+    n_top
+        Number of top-ranked markers to request.
+    test
+        WMG statistical test (only ``"ttest"`` is exposed).
+
+    Returns
+    -------
+    pandas.DataFrame
+        Columns per :data:`biodb._celltype.NORMALIZED_COLUMNS`, sorted by
+        ``rank`` (``score`` is WMG's Marker Score).
+    """
+    organism_id, organism_label = _resolve_organism(organism)
+    tissue_id, tissue_label = _resolve_tissue(tissue, organism_id)
+    cl_id = _resolve_cl_id(cell_type)
+
+    payload = {
+        "celltype": cl_id,
+        "tissue": tissue_id,
+        "organism": organism_id,
+        "n_markers": n_top,
+        "test": test,
+    }
+    genes = _post("markers", payload).get("marker_genes", [])
+    cell_name = _cell_type_map(tissue, organism).get(cl_id)
+    symbols = _gene_symbol_map(organism_id)
+
+    df = _normalize(genes, organism_label, tissue_label, cell_name, cl_id, symbols)
+    return df.sort_values("rank", na_position="last").reset_index(drop=True)
+
+
+def _normalize(
+    marker_genes: list[dict],
+    organism_label: str,
+    tissue_label: str,
+    cell_name: str | None,
+    cl_id: str,
+    symbols: dict[str, str],
+) -> pd.DataFrame:
+    """Build a normalized-schema frame from WMG ``marker_genes`` records."""
+    rows = [
+        {
+            "species": organism_label,
+            "tissue": tissue_label,
+            "cell_type_name": cell_name,
+            "cell_ontology_id": cl_id,
+            "gene_symbol": symbols.get(g["gene_ontology_term_id"], g["gene_ontology_term_id"]),
+            "gene_id": g["gene_ontology_term_id"],
+            "score": g.get("marker_score"),
+            "source": SOURCE_NAME,
+        }
+        for g in marker_genes
+    ]
+    df = pd.DataFrame(rows, columns=[c for c in _celltype.NORMALIZED_COLUMNS if c != "rank"])
+    if df.empty:
+        df["rank"] = pd.Series(dtype="Int64")
+        return df[_celltype.NORMALIZED_COLUMNS]
+    df["rank"] = _celltype.rank_within_group(df, group_cols=["cell_ontology_id"], score_col="score")
+    return df[_celltype.NORMALIZED_COLUMNS]
+
+
+# ─── Bulk mode — every cell type in a tissue ─────────────────────────────────
+
+
+def get_tissue_markers(
+    tissue: str,
+    *,
+    organism: str = DEFAULT_ORGANISM,
+    n_top_per_type: int = 25,
+    test: str = DEFAULT_TEST,
+    cache_dir: str | Path | None = None,
+    force: bool = False,
+) -> pd.DataFrame:
+    """Fetch marker genes for every cell type in a tissue.
+
+    Iterates the tissue's cell types (:func:`list_cell_types`) and pulls each
+    one's markers, concatenating into the normalized schema. The assembled
+    table is cached to parquet keyed by ``(organism, tissue, snapshot, test)``.
+
+    Parameters
+    ----------
+    tissue
+        Tissue label or ``UBERON:`` id.
+    organism
+        Organism label or ``NCBITaxon:`` id.
+    n_top_per_type
+        Markers to request per cell type.
+    test
+        WMG statistical test.
+    cache_dir, force
+        Cache location override / bypass.
+
+    Returns
+    -------
+    pandas.DataFrame
+        Columns per :data:`biodb._celltype.NORMALIZED_COLUMNS`.
+    """
+    organism_id, organism_label = _resolve_organism(organism)
+    tissue_id, tissue_label = _resolve_tissue(tissue, organism_id)
+    snapshot = _primary_filter_dimensions().get("snapshot_id", "na")
+
+    root = Path(cache_dir).expanduser() if cache_dir else CACHE_DIR
+    root.mkdir(parents=True, exist_ok=True)
+    slug = f"{organism_id}__{tissue_id}__{snapshot}__{test}__n{n_top_per_type}".replace(":", "-")
+    cache_path = root / f"{slug}.parquet"
+    if cache_path.exists() and not force:
+        return pd.read_parquet(cache_path)
+
+    cell_map = _cell_type_map(tissue, organism)
+    symbols = _gene_symbol_map(organism_id)
+    frames: list[pd.DataFrame] = []
+    for cl_id, cell_name in cell_map.items():
+        payload = {
+            "celltype": cl_id,
+            "tissue": tissue_id,
+            "organism": organism_id,
+            "n_markers": n_top_per_type,
+            "test": test,
+        }
+        genes = _post("markers", payload).get("marker_genes", [])
+        if genes:
+            frames.append(
+                _normalize(genes, organism_label, tissue_label, cell_name, cl_id, symbols)
+            )
+
+    table = (
+        pd.concat(frames, ignore_index=True)
+        if frames
+        else pd.DataFrame(columns=_celltype.NORMALIZED_COLUMNS)
+    )
+    table.to_parquet(cache_path, index=False)
+    return table
+
+
 def to_gmt(
     path: str | Path,
     *,
     tissue: str,
     organism: str = DEFAULT_ORGANISM,
-    census_version: str = DEFAULT_CENSUS_VERSION,
     by: str = "cell_ontology_id",
     cache_dir: str | Path | None = None,
 ) -> Path:
-    """Export computed cell-type marker gene sets for a tissue to a GMT file.
+    """Export a tissue's cell-type marker gene sets to a GMT file.
 
     Parameters
     ----------
     path
         Destination ``.gmt`` path.
-    tissue, organism, census_version, cache_dir
-        Forwarded to :func:`compute_tissue_markers`.
+    tissue, organism, cache_dir
+        Forwarded to :func:`get_tissue_markers`.
     by
         Column used as the GMT set id.
 
@@ -439,20 +397,19 @@ def to_gmt(
     pathlib.Path
         The written path.
     """
-    table = compute_tissue_markers(
-        tissue, organism=organism, census_version=census_version, cache_dir=cache_dir
-    )
+    table = get_tissue_markers(tissue, organism=organism, cache_dir=cache_dir)
     return _celltype.celltype_to_gmt(table, path, by=by)
 
 
 __all__ = [
-    "DEFAULT_CENSUS_VERSION",
+    "WMG_API_BASE_URL",
     "DEFAULT_ORGANISM",
+    "DEFAULT_TEST",
     "SOURCE_NAME",
     "CACHE_DIR",
     "list_tissues",
     "list_cell_types",
-    "compute_tissue_markers",
     "query_markers",
+    "get_tissue_markers",
     "to_gmt",
 ]

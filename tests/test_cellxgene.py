@@ -1,113 +1,126 @@
-"""Tests for :mod:`biodb.cellxgene`.
+"""Tests for :mod:`biodb.cellxgene` (WMG REST client).
 
-The Census pull needs the heavy ``[cellxgene]`` extra, but the marker-scoring
-maths is exercised offline against a synthetic AnnData-like object (scipy only).
+Offline tests mock the three WMG endpoints (``primary_filter_dimensions``,
+``filters``, ``markers``) with the ``responses`` library.
 """
 
 from __future__ import annotations
 
-import types
 from pathlib import Path
 
-import numpy as np
-import pandas as pd
 import pytest
+import responses
 
 import biodb
 from biodb import _celltype, cellxgene
+from tests.conftest import is_upstream_outage
+
+BASE = cellxgene.WMG_API_BASE_URL
+
+_PFD = {
+    "snapshot_id": "test-snap",
+    "organism_terms": [{"NCBITaxon:9606": "Homo sapiens"}],
+    "tissue_terms": {"NCBITaxon:9606": [{"UBERON:0002106": "spleen"}]},
+    "gene_terms": {
+        "NCBITaxon:9606": [
+            {"ENSG00000105369": "CD79A"},
+            {"ENSG00000156738": "MS4A1"},
+            {"ENSG00000000003": "TSPAN6"},
+        ]
+    },
+}
+_FILTERS = {
+    "snapshot_id": "test-snap",
+    "filter_dims": {"cell_type_terms": [{"CL:0000236": "B cell"}, {"CL:0000084": "T cell"}]},
+}
+_MARKERS = {
+    "snapshot_id": "test-snap",
+    "marker_genes": [
+        {"gene_ontology_term_id": "ENSG00000105369", "marker_score": 2.3, "specificity": 0.98},
+        {"gene_ontology_term_id": "ENSG00000156738", "marker_score": 2.2, "specificity": 0.98},
+    ],
+}
 
 
-def _fake_adata() -> types.SimpleNamespace:
-    """A minimal AnnData stand-in: two cell types with a clear marker each."""
-    rng = np.random.default_rng(0)
-    n_per = 20
-    # 3 genes; GENE0 marks type A, GENE1 marks type B, GENE2 is background.
-    a = np.column_stack([rng.poisson(50, n_per), rng.poisson(1, n_per), rng.poisson(10, n_per)])
-    b = np.column_stack([rng.poisson(1, n_per), rng.poisson(50, n_per), rng.poisson(10, n_per)])
-    x = np.vstack([a, b]).astype(np.float64)
-    var = pd.DataFrame(
-        {"feature_name": ["GENE0", "GENE1", "GENE2"], "feature_id": ["ENSG0", "ENSG1", "ENSG2"]}
-    )
-    obs = pd.DataFrame(
-        {
-            "cell_type_ontology_term_id": ["CL:0000540"] * n_per + ["CL:0000127"] * n_per,
-            "cell_type": ["Neuron"] * n_per + ["Astrocyte"] * n_per,
-        }
-    )
-    return types.SimpleNamespace(X=x, var=var, obs=obs)
+@pytest.fixture(autouse=True)
+def _clear_pfd_cache() -> None:
+    cellxgene._primary_filter_dimensions.cache_clear()
+
+
+def _register(rsps: responses.RequestsMock) -> None:
+    rsps.add(responses.GET, f"{BASE}/primary_filter_dimensions", json=_PFD)
+    rsps.add(responses.POST, f"{BASE}/filters", json=_FILTERS)
+    rsps.add(responses.POST, f"{BASE}/markers", json=_MARKERS)
 
 
 # ── module surface ────────────────────────────────────────────────────────────
 
 
 def test_module_imports_offline() -> None:
-    # Importing must NOT require cellxgene-census.
     assert cellxgene.__name__ == "biodb.cellxgene"
-    assert cellxgene.DEFAULT_CENSUS_VERSION
+    assert cellxgene.WMG_API_BASE_URL.endswith("/wmg/v2")
     assert cellxgene.DEFAULT_ORGANISM == "Homo sapiens"
     assert cellxgene.CACHE_DIR.exists()
 
 
-def test_slug() -> None:
-    assert cellxgene._slug("Homo sapiens") == "homo-sapiens"
-    assert cellxgene._slug("brain / cortex") == "brain-cortex"
+# ── discovery ─────────────────────────────────────────────────────────────────
 
 
-def test_require_census_guard() -> None:
-    try:
-        import cellxgene_census  # noqa: F401
-
-        pytest.skip("cellxgene-census installed; import-guard path not exercised")
-    except ImportError:
-        pass
-    with pytest.raises(ImportError, match="cellxgene-census"):
-        cellxgene._require_census()
+@responses.activate
+def test_list_tissues() -> None:
+    _register(responses)
+    assert cellxgene.list_tissues() == ["spleen"]
 
 
-# ── marker scoring maths (offline) ────────────────────────────────────────────
+@responses.activate
+def test_list_cell_types() -> None:
+    _register(responses)
+    df = cellxgene.list_cell_types("spleen")
+    assert set(df["cell_ontology_id"]) == {"CL:0000236", "CL:0000084"}
+    mapping = dict(zip(df["cell_ontology_id"], df["cell_type_name"], strict=False))
+    assert mapping["CL:0000236"] == "B cell"
 
 
-def test_marker_table_ranks_expected_markers() -> None:
-    table = cellxgene._marker_table(
-        _fake_adata(), tissue="brain", organism="Homo sapiens", top_n_per_type=3
-    )
-    assert list(table.columns) == _celltype.NORMALIZED_COLUMNS
-    assert (table["source"] == "cellxgene").all()
-
-    neuron_top = table[table["cell_ontology_id"] == "CL:0000540"].sort_values("rank").iloc[0]
-    astro_top = table[table["cell_ontology_id"] == "CL:0000127"].sort_values("rank").iloc[0]
-    assert neuron_top["gene_symbol"] == "GENE0"
-    assert astro_top["gene_symbol"] == "GENE1"
-    assert neuron_top["score"] > 0
-    assert neuron_top["rank"] == 1
+def test_resolve_organism_and_tissue_by_id_or_label() -> None:
+    with responses.RequestsMock(assert_all_requests_are_fired=False) as rsps:
+        _register(rsps)
+        assert cellxgene._resolve_organism("Homo sapiens") == ("NCBITaxon:9606", "Homo sapiens")
+        assert cellxgene._resolve_organism("NCBITaxon:9606")[1] == "Homo sapiens"
+        assert cellxgene._resolve_tissue("spleen", "NCBITaxon:9606")[0] == "UBERON:0002106"
 
 
-def test_subsample_joinids_caps_per_type() -> None:
-    obs = pd.DataFrame(
-        {
-            "soma_joinid": list(range(100)),
-            "cell_type_ontology_term_id": ["CL:1"] * 60 + ["CL:2"] * 40,
-        }
-    )
-    ids = cellxgene._subsample_joinids(obs, max_per_type=10)
-    assert len(ids) == 20  # 10 from each type
-    assert ids == sorted(ids)
-    assert all(isinstance(i, int) for i in ids)
+def test_resolve_organism_unknown() -> None:
+    with responses.RequestsMock(assert_all_requests_are_fired=False) as rsps:
+        _register(rsps)
+        with pytest.raises(ValueError, match="Unknown organism"):
+            cellxgene._resolve_organism("Klingon")
 
 
-# ── CL resolution ─────────────────────────────────────────────────────────────
+# ── query markers ─────────────────────────────────────────────────────────────
 
 
-def test_resolve_cl_id_passthrough() -> None:
-    assert cellxgene._resolve_cl_id("CL:0000540") == "CL:0000540"
-    assert cellxgene._resolve_cl_id("CL_0000540") == "CL:0000540"
+@responses.activate
+def test_query_markers_maps_ensembl_to_symbols_and_ranks() -> None:
+    _register(responses)
+    m = cellxgene.query_markers("CL:0000236", tissue="spleen", n_top=15)
+    assert list(m.columns) == _celltype.NORMALIZED_COLUMNS
+    assert (m["source"] == "cellxgene").all()
+    assert (m["cell_ontology_id"] == "CL:0000236").all()
+    assert m.iloc[0]["gene_symbol"] == "CD79A"  # highest marker_score
+    assert m.iloc[0]["gene_id"] == "ENSG00000105369"
+    assert m.iloc[0]["rank"] == 1
+    assert m.iloc[0]["cell_type_name"] == "B cell"
+    assert float(m.iloc[0]["score"]) == pytest.approx(2.3)
 
 
-def test_resolve_cl_id_by_name(monkeypatch: pytest.MonkeyPatch) -> None:
+@responses.activate
+def test_query_markers_resolves_name_via_ols(monkeypatch: pytest.MonkeyPatch) -> None:
     from biodb import ols
 
-    monkeypatch.setattr(ols, "find_term", lambda *a, **k: {"obo_id": "CL:0000540"})
-    assert cellxgene._resolve_cl_id("neuron") == "CL:0000540"
+    monkeypatch.setattr(ols, "find_term", lambda *a, **k: {"obo_id": "CL:0000236"})
+    _register(responses)
+    m = cellxgene.query_markers("B cell", tissue="spleen")
+    assert (m["cell_ontology_id"] == "CL:0000236").all()
 
 
 def test_resolve_cl_id_unresolvable(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -118,25 +131,45 @@ def test_resolve_cl_id_unresolvable(monkeypatch: pytest.MonkeyPatch) -> None:
         cellxgene._resolve_cl_id("not a real cell type")
 
 
+# ── bulk + GMT ────────────────────────────────────────────────────────────────
+
+
+@responses.activate
+def test_get_tissue_markers_and_gmt(tmp_path: Path) -> None:
+    from biodb.utils import read_gmt
+
+    _register(responses)
+    table = cellxgene.get_tissue_markers("spleen", cache_dir=tmp_path)
+    assert list(table.columns) == _celltype.NORMALIZED_COLUMNS
+    assert set(table["cell_ontology_id"]) == {"CL:0000236", "CL:0000084"}
+
+    out = tmp_path / "cx.gmt"
+    cellxgene.to_gmt(out, tissue="spleen", cache_dir=tmp_path)
+    sets = read_gmt(out, return_format="dict")
+    assert any(k[0] == "CL:0000236" for k in sets)
+
+
 # ── top-level re-export ───────────────────────────────────────────────────────
 
 
 def test_reexports() -> None:
     assert biodb.cellxgene is cellxgene
     assert biodb.cellxgene_query_markers is cellxgene.query_markers
-    assert biodb.cellxgene_compute_tissue_markers is cellxgene.compute_tissue_markers
+    assert biodb.cellxgene_get_tissue_markers is cellxgene.get_tissue_markers
 
 
 # ── live network smoke ────────────────────────────────────────────────────────
 
 
 @pytest.mark.network
-@pytest.mark.slow
-def test_query_markers_live(tmp_path: Path) -> None:
-    pytest.importorskip("cellxgene_census")
-    markers = cellxgene.query_markers(
-        "CL:0000540", tissue="brain", n_top=10, max_cells_per_type=200, cache_dir=tmp_path
-    )
-    assert not markers.empty
-    assert set(markers["cell_ontology_id"]) == {"CL:0000540"}
-    assert (markers["score"] > 0).all()
+def test_query_markers_live() -> None:
+    try:
+        m = cellxgene.query_markers("CL:0000236", tissue="spleen", n_top=10)
+    except Exception as exc:  # noqa: BLE001
+        if is_upstream_outage(exc):
+            pytest.skip(f"CELLxGENE WMG upstream outage: {exc}")
+        raise
+    assert not m.empty
+    assert (m["cell_ontology_id"] == "CL:0000236").all()
+    assert (m["score"] > 0).all()
+    assert m["gene_symbol"].notna().all()

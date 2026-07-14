@@ -65,17 +65,12 @@ clinvar = [
 omicspred = [
     "openpyxl>=3.1",
 ]
-# Cell-type marker sources. celltaxonomy.py is plain TSV (core deps only) and
-# CL resolution goes through the requests-based OLS client, so the only extra
-# dep is the Excel reader cellmarker.py needs for its .xlsx bulk files.
+# Cell-type marker sources. celltaxonomy.py is plain TSV, cellxgene.py is a
+# plain requests REST client (WMG API), and CL resolution goes through the
+# requests-based OLS client — all core deps. The only extra dep is the Excel
+# reader cellmarker.py needs for its .xlsx bulk files.
 celltype = [
     "openpyxl>=3.1",
-]
-# cellxgene.py computes markers on demand from the CZ CELLxGENE Census. Kept
-# as a standalone opt-in extra (like [gget]) — cellxgene-census pulls the heavy
-# tiledbsoma + anndata stack, too large for the default CI install.
-cellxgene = [
-    "cellxgene-census>=1.15",
 ]
 viz = [
     "matplotlib>=3.7",
