@@ -800,7 +800,10 @@ def _cellguide_computational(tag: str, cl_id: str, name: str | None) -> pd.DataF
     tissue_map = _cellguide_tissue_map()
     rows = []
     for r in records:
-        tissue = r.get("groupby_dims", {}).get("tissue_ontology_term_label") or "All Tissues"
+        # Records without a tissue in groupby_dims are the pan-tissue aggregate;
+        # CellGuide omits the field, so we label it "all" (canonical markers,
+        # which do carry CellGuide's own "All Tissues" label, are left as-is).
+        tissue = r.get("groupby_dims", {}).get("tissue_ontology_term_label") or "all"
         rows.append(
             {
                 "species": r.get("groupby_dims", {}).get("organism_ontology_term_label"),

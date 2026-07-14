@@ -287,8 +287,8 @@ def test_cellguide_markers_both() -> None:
     hs = comp[comp["species"] == "Homo sapiens"].iloc[0]
     assert hs["gene_symbol"] == "CD79A" and hs["tissue"] == "spleen" and hs["rank"] == 1
     assert hs["tissue_ontology_id"] == "UBERON:0002106"  # label -> UBERON via tissue_metadata
-    # organism-only entry falls back to "All Tissues"
-    assert "All Tissues" in set(comp["tissue"])
+    # organism-only (pan-tissue) entry falls back to "all"
+    assert "all" in set(comp["tissue"])
     canon = m[m["marker_type"] == "canonical"]
     assert canon.iloc[0]["gene_symbol"] == "MS4A1"
     assert canon["species"].isna().all()  # canonical is cross-species
