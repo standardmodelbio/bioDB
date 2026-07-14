@@ -149,6 +149,14 @@ def test_get_tissue_markers_and_gmt(tmp_path: Path) -> None:
     assert any(k[0] == "CL:0000236" for k in sets)
 
 
+@responses.activate
+def test_get_all_markers_explicit_tissues(tmp_path: Path) -> None:
+    _register(responses)
+    table = cellxgene.get_all_markers(tissues=["spleen"], cache_dir=tmp_path, progress=False)
+    assert list(table.columns) == _celltype.NORMALIZED_COLUMNS
+    assert set(table["cell_ontology_id"]) == {"CL:0000236", "CL:0000084"}
+
+
 # ── top-level re-export ───────────────────────────────────────────────────────
 
 
@@ -156,6 +164,7 @@ def test_reexports() -> None:
     assert biodb.cellxgene is cellxgene
     assert biodb.cellxgene_query_markers is cellxgene.query_markers
     assert biodb.cellxgene_get_tissue_markers is cellxgene.get_tissue_markers
+    assert biodb.cellxgene_get_all_markers is cellxgene.get_all_markers
 
 
 # ── live network smoke ────────────────────────────────────────────────────────

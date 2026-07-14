@@ -88,6 +88,9 @@ from biodb.celltaxonomy import (
     query_markers as celltaxonomy_query_markers,
 )
 from biodb.cellxgene import (
+    get_all_markers as cellxgene_get_all_markers,
+)
+from biodb.cellxgene import (
     get_tissue_markers as cellxgene_get_tissue_markers,
 )
 from biodb.cellxgene import (
@@ -194,6 +197,7 @@ __all__ = [
     "cellmarker_get_markers",
     "cellmarker_query_markers",
     "cellxgene",
+    "cellxgene_get_all_markers",
     "cellxgene_get_tissue_markers",
     "cellxgene_query_markers",
     "clinvar",

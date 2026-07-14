@@ -48,12 +48,14 @@ References
 from __future__ import annotations
 
 import logging
+from concurrent.futures import ThreadPoolExecutor
 from functools import lru_cache
 from pathlib import Path
 from typing import Any
 
 import pandas as pd
 import requests
+from tqdm import tqdm
 
 from biodb import _celltype
 
@@ -309,14 +311,17 @@ def get_tissue_markers(
     organism: str = DEFAULT_ORGANISM,
     n_top_per_type: int = 25,
     test: str = DEFAULT_TEST,
+    max_workers: int = 8,
     cache_dir: str | Path | None = None,
     force: bool = False,
+    progress: bool = False,
 ) -> pd.DataFrame:
     """Fetch marker genes for every cell type in a tissue.
 
     Iterates the tissue's cell types (:func:`list_cell_types`) and pulls each
-    one's markers, concatenating into the normalized schema. The assembled
-    table is cached to parquet keyed by ``(organism, tissue, snapshot, test)``.
+    one's markers concurrently, concatenating into the normalized schema. The
+    assembled table is cached to parquet keyed by
+    ``(organism, tissue, snapshot, test, n)``.
 
     Parameters
     ----------
@@ -328,8 +333,13 @@ def get_tissue_markers(
         Markers to request per cell type.
     test
         WMG statistical test.
+    max_workers
+        Concurrent ``markers`` requests. Kept modest by default — WMG is a
+        free public service.
     cache_dir, force
         Cache location override / bypass.
+    progress
+        Show a tqdm bar over the tissue's cell types.
 
     Returns
     -------
@@ -349,8 +359,9 @@ def get_tissue_markers(
 
     cell_map = _cell_type_map(tissue, organism)
     symbols = _gene_symbol_map(organism_id)
-    frames: list[pd.DataFrame] = []
-    for cl_id, cell_name in cell_map.items():
+
+    def _fetch(item: tuple[str, str]) -> pd.DataFrame | None:
+        cl_id, cell_name = item
         payload = {
             "celltype": cl_id,
             "tissue": tissue_id,
@@ -359,10 +370,17 @@ def get_tissue_markers(
             "test": test,
         }
         genes = _post("markers", payload).get("marker_genes", [])
-        if genes:
-            frames.append(
-                _normalize(genes, organism_label, tissue_label, cell_name, cl_id, symbols)
+        if not genes:
+            return None
+        return _normalize(genes, organism_label, tissue_label, cell_name, cl_id, symbols)
+
+    with ThreadPoolExecutor(max_workers=max_workers) as pool:
+        results = pool.map(_fetch, cell_map.items())
+        if progress:
+            results = tqdm(
+                results, total=len(cell_map), desc=f"markers:{tissue_label}", leave=False
             )
+        frames = [df for df in results if df is not None]
 
     table = (
         pd.concat(frames, ignore_index=True)
@@ -371,6 +389,68 @@ def get_tissue_markers(
     )
     table.to_parquet(cache_path, index=False)
     return table
+
+
+def get_all_markers(
+    *,
+    organism: str = DEFAULT_ORGANISM,
+    tissues: list[str] | None = None,
+    n_top_per_type: int = 25,
+    test: str = DEFAULT_TEST,
+    max_workers: int = 8,
+    cache_dir: str | Path | None = None,
+    force: bool = False,
+    progress: bool = True,
+) -> pd.DataFrame:
+    """Fetch markers for **every cell type in every tissue** for one organism.
+
+    The corpus-wide dump: enumerates all tissues (:func:`list_tissues`) and, for
+    each, every cell type WMG serves — which already spans multiple levels of
+    the Cell Ontology, since CZI rolls each cell up its CL lineage. Delegates to
+    :func:`get_tissue_markers` per tissue, so the per-tissue parquet cache makes
+    the whole run resumable: an interrupted dump picks up where it left off.
+
+    Run this **once per organism** — human and mouse are separate corpora (and
+    the cache keys already namespace by organism id, so they never mix).
+
+    Parameters
+    ----------
+    organism
+        Organism label (``"Homo sapiens"``) or ``NCBITaxon:`` id.
+    tissues
+        Optional explicit tissue subset (labels or ``UBERON:`` ids). Defaults to
+        every tissue the organism has.
+    n_top_per_type, test, max_workers, cache_dir, force
+        Forwarded to :func:`get_tissue_markers`.
+    progress
+        Show a tqdm bar over tissues.
+
+    Returns
+    -------
+    pandas.DataFrame
+        The full *(species, tissue, cell type, CL id, gene, score, rank)* table
+        for the organism.
+    """
+    tissue_list = tissues if tissues is not None else list_tissues(organism=organism)
+    iterator = tqdm(tissue_list, desc=f"tissues:{organism}") if progress else tissue_list
+    frames: list[pd.DataFrame] = []
+    for tissue in iterator:
+        frames.append(
+            get_tissue_markers(
+                tissue,
+                organism=organism,
+                n_top_per_type=n_top_per_type,
+                test=test,
+                max_workers=max_workers,
+                cache_dir=cache_dir,
+                force=force,
+            )
+        )
+    return (
+        pd.concat(frames, ignore_index=True)
+        if frames
+        else pd.DataFrame(columns=_celltype.NORMALIZED_COLUMNS)
+    )
 
 
 def to_gmt(
@@ -411,5 +491,6 @@ __all__ = [
     "list_cell_types",
     "query_markers",
     "get_tissue_markers",
+    "get_all_markers",
     "to_gmt",
 ]
