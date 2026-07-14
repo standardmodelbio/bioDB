@@ -102,7 +102,9 @@ def build_celltaxonomy_dataset(
 
 def _celltaxonomy_card(df: pd.DataFrame) -> str:
     return f"""---
-license: cc-by-4.0
+license: other
+license_name: academic-use-only
+license_link: https://ngdc.cncb.ac.cn/celltaxonomy/
 language:
   - en
 tags:
@@ -153,8 +155,10 @@ Or straight from `bioDB`: `from biodb import celltaxonomy; celltaxonomy.get_mark
 {_species_counts_md(df)}
 
 ## Provenance & license
-Data from Cell Taxonomy (CNCB-NGDC), CC-BY 4.0. Cite Jiang et al., *Nucleic Acids
-Research* 2023 (D853–D860). Reproduce:
+Data from Cell Taxonomy (CNCB-NGDC), **free for academic use** (see the
+[Cell Taxonomy site](https://ngdc.cncb.ac.cn/celltaxonomy/) for terms; not
+formally CC-BY). Cite Jiang et al., *Nucleic Acids Research* 2023 (D853–D860).
+Reproduce:
 ```python
 from biodb import hf_datasets as hd
 hd.build_celltaxonomy_dataset("biodb_celltaxonomy")
@@ -197,7 +201,9 @@ def build_cellmarker_dataset(
 
 def _cellmarker_card(df: pd.DataFrame, which: str) -> str:
     return f"""---
-license: cc-by-4.0
+license: other
+license_name: academic-use-only
+license_link: https://bio-bigdata.hrbmu.edu.cn/CellMarker/
 language:
   - en
 tags:
