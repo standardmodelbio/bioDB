@@ -237,8 +237,13 @@ def list_cell_types(tissue: str, *, organism: str = DEFAULT_ORGANISM) -> pd.Data
     )
 
 
+@lru_cache(maxsize=256)
 def _filter_dims(tissue: str, organism: str) -> dict[str, Any]:
-    """Return WMG ``filter_dims`` for a tissue (cell types, diseases, sex, …)."""
+    """Return WMG ``filter_dims`` for a tissue (cell types, diseases, sex, …).
+
+    Cached per (tissue, organism): the bulk DEG build resolves the same tissue's
+    diseases and cell types thousands of times, so this avoids hammering WMG.
+    """
     organism_id, _ = _resolve_organism(organism)
     tissue_id, _ = _resolve_tissue(tissue, organism_id)
     payload = {

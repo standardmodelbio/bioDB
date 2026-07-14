@@ -106,6 +106,7 @@ _CG_CANON = [
 @pytest.fixture(autouse=True)
 def _clear_pfd_cache() -> None:
     cellxgene._primary_filter_dimensions.cache_clear()
+    cellxgene._filter_dims.cache_clear()
     cellxgene._cellguide_snapshot.cache_clear()
     cellxgene.list_cellguide_cell_types.cache_clear()
 
