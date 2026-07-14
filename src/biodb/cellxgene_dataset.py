@@ -235,7 +235,11 @@ def build_dataset(
     for species in organisms:
         if species in markers:
             path = out / "markers" / f"computational_{_slug(species)}.parquet"
-            comp = markers[species].drop(columns=redundant, errors="ignore")
+            # drop redundant constants + all-null columns (e.g. `publication`,
+            # which is a canonical-only field).
+            comp = (
+                markers[species].drop(columns=redundant, errors="ignore").dropna(axis=1, how="all")
+            )
             comp.to_parquet(path, index=False)
             written[species] = len(comp)
 
