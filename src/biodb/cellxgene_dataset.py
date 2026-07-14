@@ -345,6 +345,18 @@ per species, from CELLxGENE's Differential Expression API: `effect_size`,
 
 {counts}
 
+## Species coverage
+
+CZ CELLxGENE's **served** marker/DEG products (WMG Marker Score, CellGuide, the
+Differential Expression API) cover **human and mouse only** — this dataset
+includes exactly those. The underlying Census (release `2025-11-08`) also
+contains three primates — *Macaca mulatta*, *Callithrix jacchus*, *Pan
+troglodytes* — but they have **no served Marker Score and no disease DEG**, and
+only 1–2 tissues each, so they are intentionally **not** included here (adding
+them would require locally computed, lower-coverage markers of a different
+provenance). Cross-species curated markers for a longer tail of organisms are
+available separately via `biodb.celltaxonomy`.
+
 ## Provenance & license
 
 All data derives from CZ CELLxGENE Discover (CellGuide + WMG + DE APIs) under
