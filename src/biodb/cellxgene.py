@@ -531,6 +531,7 @@ DE_COLUMNS = [
     "cell_type_name",
     "cell_ontology_id",
     "disease",
+    "disease_ontology_id",
     "gene_symbol",
     "gene_id",
     "effect_size",
@@ -674,6 +675,7 @@ def disease_vs_normal(
     de.insert(3, "cell_type_name", cell_name)
     de.insert(4, "cell_ontology_id", cl_id)
     de.insert(5, "disease", disease_label)
+    de.insert(6, "disease_ontology_id", disease_id)
     de["rank"] = _celltype.rank_within_group(
         de, group_cols=["cell_ontology_id"], score_col="effect_size"
     )

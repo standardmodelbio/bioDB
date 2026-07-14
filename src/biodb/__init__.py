@@ -59,6 +59,7 @@ from biodb import (
     harmonizome,
     hf_datasets,
     mapping,
+    markers,
     monarch,
     msigdb,
     ols,
@@ -147,6 +148,7 @@ from biodb.harmonizome import (
     list_datasets as harmonizome_list_datasets,
 )
 from biodb.mapping import map_gene_ids
+from biodb.markers import load_markers
 from biodb.monarch import (
     get_gene_associations as monarch_get_gene_associations,
 )
@@ -256,8 +258,10 @@ __all__ = [
     "list_available_versions",
     "list_datasets",
     "load_gene_attribute_matrix",
+    "load_markers",
     "map_gene_ids",
     "mapping",
+    "markers",
     "monarch",
     "monarch_get_gene_associations",
     "msigdb",

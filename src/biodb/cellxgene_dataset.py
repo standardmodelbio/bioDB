@@ -11,15 +11,16 @@ served CELLxGENE data (no local recomputation), built on :mod:`biodb.cellxgene`:
    *(disease × tissue × cell type)*, per species. Source: CELLxGENE's served
    Differential Expression API (:func:`biodb.cellxgene.disease_vs_normal`).
 
-Layout written by :func:`build_dataset`::
+Layout written by :func:`build_dataset` (species encoded in file/dir names, so
+no ``species`` column; no ``source``/``marker_type`` columns either)::
 
     <out_dir>/
-      README.md                                  # dataset card (with configs)
+      README.md                                    # dataset card (with configs)
       markers/computational_homo_sapiens.parquet
       markers/computational_mus_musculus.parquet
-      markers/canonical.parquet
-      disease_deg/homo_sapiens.parquet           # optional (long build)
-      disease_deg/mus_musculus.parquet
+      markers/canonical.parquet                    # cross-species (no species)
+      disease_deg/homo_sapiens/part_*.parquet      # optional; sharded per pair
+      disease_deg/mus_musculus/part_*.parquet
 
 :func:`push_to_hub` uploads the directory to the Hub (requires ``huggingface_hub``).
 
@@ -96,7 +97,7 @@ def _cell_types_under_disease(tissue_id: str, disease_id: str, organism_id: str)
     return _flatten_terms(dims["cell_type_terms"])
 
 
-def build_disease_deg(
+def _iter_disease_deg(
     organism: str,
     *,
     tissues: list[str] | None = None,
@@ -104,33 +105,13 @@ def build_disease_deg(
     cache_dir: str | Path | None = None,
     force: bool = False,
     progress: bool = True,
-) -> pd.DataFrame:
-    """Build disease-vs-normal DEG vectors for every (disease × tissue × cell type).
+):
+    """Yield one DEG DataFrame per (tissue × disease) pair — memory-safe.
 
-    For each tissue, enumerates its diseases (:func:`biodb.cellxgene.list_diseases`),
-    the cell types present under each disease, and calls
-    :func:`biodb.cellxgene.disease_vs_normal` for each. Results are cached to a
-    per-(tissue, disease) parquet under ``cache_dir`` so the (long) build is
-    **resumable** — an interrupted run continues where it stopped.
-
-    Parameters
-    ----------
-    organism
-        ``"Homo sapiens"`` or ``"Mus musculus"``.
-    tissues
-        Optional tissue subset (labels or ``UBERON:`` ids); defaults to all.
-    max_workers
-        Concurrent DE requests per (tissue, disease).
-    cache_dir, force
-        Per-(tissue, disease) parquet cache location / bypass.
-    progress
-        Show a tqdm bar over (tissue, disease) pairs.
-
-    Returns
-    -------
-    pandas.DataFrame
-        All DEG rows (columns per :data:`biodb.cellxgene.DE_COLUMNS`, minus the
-        single-cell-type ``rank``; a global ``rank`` is not meaningful here).
+    Computes + caches each pair's genome-wide DE to its own parquet (resumable),
+    yielding one pair at a time so the full (multi-GB) corpus is never held in
+    memory at once. Backfills ``disease_ontology_id`` / ``tissue_ontology_id``
+    into parquets cached before those columns existed.
     """
     from concurrent.futures import ThreadPoolExecutor
 
@@ -147,7 +128,6 @@ def build_disease_deg(
             pairs.append((tissue, row["disease_ontology_term_id"], row["disease"]))
 
     iterator = tqdm(pairs, desc=f"deg:{organism}") if progress else pairs
-    frames: list[pd.DataFrame] = []
     for tissue, disease_id, disease_label in iterator:
         cache_path = root / f"{organism_id}__{_slug(tissue)}__{disease_id}.parquet".replace(
             ":", "-"
@@ -155,11 +135,13 @@ def build_disease_deg(
         tissue_id, _ = _resolve_tissue(tissue, organism_id)
         if cache_path.exists() and not force:
             cached = pd.read_parquet(cache_path)
-            # Backfill tissue_ontology_id for parquets cached before the column
-            # existed, so resumed builds keep a consistent schema.
+            # Backfill ontology-id columns for parquets cached before they existed.
             if not cached.empty and "tissue_ontology_id" not in cached.columns:
                 cached.insert(2, "tissue_ontology_id", tissue_id)
-            frames.append(cached)
+            if not cached.empty and "disease_ontology_id" not in cached.columns:
+                pos = cached.columns.get_loc("disease") + 1 if "disease" in cached.columns else 6
+                cached.insert(pos, "disease_ontology_id", disease_id)
+            yield cached
             continue
         cell_types = _cell_types_under_disease(tissue_id, disease_id, organism_id)
 
@@ -176,9 +158,17 @@ def build_disease_deg(
             pd.concat(got, ignore_index=True) if got else pd.DataFrame(columns=cellxgene.DE_COLUMNS)
         )
         pair_df.to_parquet(cache_path, index=False)
-        if not pair_df.empty:
-            frames.append(pair_df)
+        yield pair_df
 
+
+def build_disease_deg(organism: str, **kwargs) -> pd.DataFrame:
+    """Concatenate all (tissue × disease) DEG for an organism into one frame.
+
+    Thin wrapper over :func:`_iter_disease_deg`. **Memory-heavy** for the full
+    genome-wide corpus (many GB); the dataset builder writes sharded parquet via
+    the iterator instead. Prefer :func:`_iter_disease_deg` for large runs.
+    """
+    frames = [df for df in _iter_disease_deg(organism, **kwargs) if not df.empty]
     return (
         pd.concat(frames, ignore_index=True)
         if frames
@@ -220,36 +210,39 @@ def build_dataset(
     out = Path(out_dir).expanduser()
     (out / "markers").mkdir(parents=True, exist_ok=True)
 
+    # ``species`` (encoded in the file name), ``source`` (always "cellxgene"), and
+    # ``marker_type`` (implied by the file) are dropped — see the dataset card.
+    drop = ["species", "source", "marker_type"]
     markers = build_markers(cache_dir=cache_dir, force=force)
-    # ``source`` (always "cellxgene") and ``marker_type`` (always "canonical" or
-    # "computational" within a given file) are constant per file — the dataset
-    # name + config/file name already encode them, so don't ship them as columns.
-    # Canonical markers are also curated + organism-agnostic, so their per-species
-    # / score columns are uniformly empty; drop all-null columns too.
-    redundant = ["source", "marker_type"]
-    canonical = (
-        markers["canonical"].dropna(axis=1, how="all").drop(columns=redundant, errors="ignore")
-    )
+    canonical = markers["canonical"].dropna(axis=1, how="all").drop(columns=drop, errors="ignore")
     canonical.to_parquet(out / "markers" / "canonical.parquet", index=False)
     written = {"canonical": len(canonical)}
     for species in organisms:
         if species in markers:
-            path = out / "markers" / f"computational_{_slug(species)}.parquet"
-            # drop redundant constants + all-null columns (e.g. `publication`,
-            # which is a canonical-only field).
-            comp = (
-                markers[species].drop(columns=redundant, errors="ignore").dropna(axis=1, how="all")
+            # per-species file (species inferred from the name); also drop the
+            # all-null `publication` column (a canonical-only field).
+            comp = markers[species].drop(columns=drop, errors="ignore").dropna(axis=1, how="all")
+            comp.to_parquet(
+                out / "markers" / f"computational_{_slug(species)}.parquet", index=False
             )
-            comp.to_parquet(path, index=False)
             written[species] = len(comp)
 
     deg_written: dict[str, int] = {}
     if include_deg:
-        (out / "disease_deg").mkdir(parents=True, exist_ok=True)
         for species in organisms:
-            deg = build_disease_deg(species, cache_dir=cache_dir, force=force)
-            deg.to_parquet(out / "disease_deg" / f"{_slug(species)}.parquet", index=False)
-            deg_written[species] = len(deg)
+            sp_dir = out / "disease_deg" / _slug(species)
+            sp_dir.mkdir(parents=True, exist_ok=True)
+            n_shards = n_rows = 0
+            for shard in _iter_disease_deg(species, cache_dir=cache_dir, force=force):
+                if shard.empty:
+                    continue
+                shard = shard.reindex(columns=cellxgene.DE_COLUMNS).drop(
+                    columns=drop, errors="ignore"
+                )
+                shard.to_parquet(sp_dir / f"part_{n_shards:04d}.parquet", index=False)
+                n_shards += 1
+                n_rows += len(shard)
+            deg_written[species] = n_rows
 
     (out / "README.md").write_text(
         _dataset_card(organisms, written, deg_written, include_deg), encoding="utf-8"
@@ -316,7 +309,7 @@ def _dataset_card(
             if species in deg_written:
                 configs.append(
                     f"  - config_name: disease_deg_{_slug(species)}\n"
-                    f"    data_files: disease_deg/{_slug(species)}.parquet"
+                    f"    data_files: disease_deg/{_slug(species)}/*.parquet"
                 )
     counts = "\n".join(
         f"- **{k}**: {v:,} rows" for k, v in {**markers_written, **deg_written}.items()
@@ -343,24 +336,35 @@ Cell-type knowledge from [CZ CELLxGENE Discover](https://cellxgene.cziscience.co
 assembled by [`bioDB`](https://github.com/bschilder/bioDB) entirely from CZI's
 **served** data (no recomputation), keyed to the **Cell Ontology (CL)** and UBERON.
 
+> **Species is encoded in the file/directory name, not a column.** Every file is
+> single-species (e.g. `computational_homo_sapiens.parquet`,
+> `disease_deg/mus_musculus/`), so a `species` column would be constant and is
+> omitted. Likewise there is no `source` column (all rows are CELLxGENE) or
+> `marker_type` column (implied by the file: computational vs canonical).
+
 ## Contents
 
 ### Marker genes (`markers/`)
-Per **species** computational markers + a shared **canonical** table, from the
+Per-**species** computational markers + a shared **canonical** table, from the
 CellGuide snapshot.
 
 - `computational_<species>.parquet` — CZI's **Marker Score** (effect size) per
   gene × cell type × tissue, with `specificity`, `mean_expression`,
-  `pct_expressing`, `rank`. One file per species (human, mouse).
-- `canonical.parquet` — curated reference marker genes (from HuBMAP ASCT+B tables
-  + literature), organized **by tissue, not organism**. CZI does not attach an
-  organism to these, so this table has **no `species` (or score) column** — just
-  `cell_ontology_id`, `cell_type_name`, `tissue`, `gene_symbol`, `publication`.
+  `pct_expressing`, `rank`, `tissue`/`tissue_ontology_id`, `cell_type_name`/
+  `cell_ontology_id`, `gene_symbol`/`gene_id`. One file per species (human, mouse).
+- `canonical.parquet` — curated reference marker genes (HuBMAP ASCT+B + literature),
+  organized **by tissue, not organism** (cross-species; CZI attaches no organism):
+  `cell_ontology_id`, `cell_type_name`, `tissue`, `tissue_ontology_id`,
+  `gene_symbol`, `publication`.
 
-### Disease DEG (`disease_deg/`){"" if include_deg else " — *not yet built (follow-up run)*"}
+### Disease DEG (`disease_deg/<species>/`){"" if include_deg else " — *not yet built (follow-up run)*"}
 Disease-vs-normal differential expression per *(disease × tissue × cell type)*,
-per species, from CELLxGENE's Differential Expression API: `effect_size`,
-`log_fold_change`, `adjusted_p_value` (positive effect = up in disease).
+from CELLxGENE's Differential Expression API. **Sharded** as one parquet per
+(tissue × disease) pair under a per-species directory. Columns: `tissue`/
+`tissue_ontology_id`, `cell_type_name`/`cell_ontology_id`, `disease`/
+`disease_ontology_id`, `gene_symbol`/`gene_id`, `effect_size`, `log_fold_change`,
+`adjusted_p_value`, `rank` (positive effect = up in disease). Genome-wide (all
+tested genes per contrast).
 
 ## Row counts
 

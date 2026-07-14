@@ -261,6 +261,7 @@ def test_disease_vs_normal() -> None:
     assert de.iloc[0]["gene_symbol"] == "CD74"  # highest effect_size
     assert de.iloc[0]["rank"] == 1
     assert (de["disease"] == "interstitial lung disease").all()
+    assert (de["disease_ontology_id"] == "MONDO:0015925").all()
     assert (de["cell_ontology_id"] == "CL:0000236").all()
     assert (de["source"] == "cellxgene").all()
 
