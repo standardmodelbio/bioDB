@@ -611,6 +611,7 @@ def disease_vs_normal(
     disease: str,
     organism: str = DEFAULT_ORGANISM,
     exclude_overlapping_cells: str = "retainBoth",
+    include_descendants: bool = False,
     n_top: int | None = None,
 ) -> pd.DataFrame:
     """Disease-vs-normal differential expression for one cell type in a tissue.
@@ -634,6 +635,12 @@ def disease_vs_normal(
         Organism label or ``NCBITaxon:`` id.
     exclude_overlapping_cells
         Forwarded to :func:`differential_expression`.
+    include_descendants
+        If True, **roll the disease up the MONDO ontology**: pool the disease
+        with all its MONDO descendants that are present in the tissue (via
+        :func:`biodb.ols.get_descendants`) into a single case group. Turns a
+        specific disease into a better-powered *category* contrast (e.g. all
+        carcinoma subtypes vs normal).
     n_top
         If given, keep only the top-``n_top`` genes by effect size.
 
@@ -658,13 +665,21 @@ def disease_vs_normal(
         raise ValueError(f"Disease {disease!r} not found in {tissue_label}. See list_diseases().")
     disease_label = diseases.get(disease_id, disease_id)
 
+    case_ids = [disease_id]
+    if include_descendants:
+        from biodb import ols
+
+        desc = set(ols.get_descendants("mondo", disease_id).get("obo_id", []))
+        present = {d for d in diseases if d != NORMAL_DISEASE_ID}
+        case_ids = sorted({disease_id} | (desc & present))
+
     base = {
         "organism_ontology_term_id": organism_id,
         "tissue_ontology_term_ids": [tissue_id],
         "cell_type_ontology_term_ids": [cl_id],
     }
     de = differential_expression(
-        {**base, "disease_ontology_term_ids": [disease_id]},
+        {**base, "disease_ontology_term_ids": case_ids},
         {**base, "disease_ontology_term_ids": [NORMAL_DISEASE_ID]},
         exclude_overlapping_cells=exclude_overlapping_cells,
     )

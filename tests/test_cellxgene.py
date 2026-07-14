@@ -273,6 +273,44 @@ def test_disease_vs_normal_bad_disease() -> None:
         cellxgene.disease_vs_normal("CL:0000236", tissue="spleen", disease="dragon pox")
 
 
+@responses.activate
+def test_disease_vs_normal_include_descendants_pools_diseases(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import pandas as pd
+
+    from biodb import ols
+
+    _register(responses)
+    # a MONDO descendant of MONDO:0015925 that is also present in the tissue
+    monkeypatch.setattr(
+        ols, "get_descendants", lambda *a, **k: pd.DataFrame({"obo_id": ["MONDO:0018956"]})
+    )
+    # add the descendant to the tissue's present diseases via the filters mock
+    filt = {
+        "snapshot_id": "s",
+        "filter_dims": {
+            "cell_type_terms": _FILTERS["filter_dims"]["cell_type_terms"],
+            "disease_terms": [
+                *_FILTERS["filter_dims"]["disease_terms"],
+                {"MONDO:0018956": "pulmonary fibrosis"},
+            ],
+        },
+    }
+    responses.replace(responses.POST, f"{BASE}/filters", json=filt)
+    cellxgene._filter_dims.cache_clear()
+    cellxgene.disease_vs_normal(
+        "CL:0000236", tissue="spleen", disease="MONDO:0015925", include_descendants=True
+    )
+    # the DE request's case group should pool both the disease and its descendant
+    de_call = [c for c in responses.calls if c.request.url.endswith("/differentialExpression")][-1]
+    import json
+
+    body = json.loads(de_call.request.body)
+    case_ids = body["queryGroup1Filters"]["disease_ontology_term_ids"]
+    assert set(case_ids) == {"MONDO:0015925", "MONDO:0018956"}
+
+
 # ── CellGuide markers (computational + canonical) ─────────────────────────────
 
 

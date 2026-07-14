@@ -176,6 +176,117 @@ def build_disease_deg(organism: str, **kwargs) -> pd.DataFrame:
     )
 
 
+def _mondo_graph():
+    """Load the MONDO ontology graph (child→parent edges) via obonet."""
+    import obonet
+
+    return obonet.read_obo("http://purl.obolibrary.org/obo/mondo/mondo-base.obo")
+
+
+def _iter_disease_deg_rollup(
+    organism: str,
+    *,
+    tissues: list[str] | None = None,
+    min_pool: int = 2,
+    max_workers: int = 8,
+    cache_dir: str | Path | None = None,
+    force: bool = False,
+    progress: bool = True,
+):
+    """Yield **MONDO-category** DEG frames — descendant diseases pooled vs normal.
+
+    For each tissue, walks the MONDO ancestors of the diseases present and, for
+    every ancestor node that pools ``>= min_pool`` present diseases, contrasts
+    the union of those diseases against ``normal`` (per cell type). This creates
+    better-powered *disease-category* vectors (e.g. all carcinoma subtypes vs
+    normal) — computed entirely via the served DE API (grouped disease filters),
+    no recomputation. One parquet per (tissue × MONDO node), resumable.
+    """
+    from concurrent.futures import ThreadPoolExecutor
+
+    import networkx as nx
+    from tqdm import tqdm
+
+    organism_id, organism_label = _resolve_organism(organism)
+    root = Path(cache_dir).expanduser() if cache_dir else cellxgene.CACHE_DIR / "disease_deg_rollup"
+    root.mkdir(parents=True, exist_ok=True)
+    graph = _mondo_graph()
+
+    tissue_list = tissues if tissues is not None else cellxgene.list_tissues(organism=organism)
+    tasks: list[tuple[str, str, str, list[str]]] = []  # (tissue, node, node_label, pooled ids)
+    for tissue in tissue_list:
+        present = {
+            row["disease_ontology_term_id"]: row["disease"]
+            for _, row in cellxgene.list_diseases(tissue, organism=organism).iterrows()
+        }
+        node_pool: dict[str, set[str]] = {}
+        for d in present:
+            if d not in graph:
+                continue
+            for node in {d, *nx.descendants(graph, d)}:  # d + its MONDO ancestors
+                node_pool.setdefault(node, set()).add(d)
+        for node, pooled in node_pool.items():
+            if len(pooled) < min_pool:
+                continue  # only genuine multi-disease aggregations
+            label = graph.nodes.get(node, {}).get("name", node)
+            tasks.append((tissue, node, label, sorted(pooled)))
+
+    iterator = tqdm(tasks, desc=f"deg-rollup:{organism}") if progress else tasks
+    for tissue, node, node_label, pooled in iterator:
+        cache_path = root / f"{organism_id}__{_slug(tissue)}__{node}.parquet".replace(":", "-")
+        tissue_id, tissue_label = _resolve_tissue(tissue, organism_id)
+        if cache_path.exists() and not force:
+            yield pd.read_parquet(cache_path)
+            continue
+        cell_map: dict[str, str] = {}
+        for d in pooled:
+            cell_map.update(_cell_types_under_disease(tissue_id, d, organism_id))
+
+        def _fetch(
+            item: tuple[str, str],
+            *,
+            _p=pooled,
+            _tid=tissue_id,
+            _tl=tissue_label,
+            _node=node,
+            _nl=node_label,
+        ) -> pd.DataFrame | None:
+            cl_id, cell_name = item
+            base = {
+                "organism_ontology_term_id": organism_id,
+                "tissue_ontology_term_ids": [_tid],
+                "cell_type_ontology_term_ids": [cl_id],
+            }
+            try:
+                de = cellxgene.differential_expression(
+                    {**base, "disease_ontology_term_ids": _p},
+                    {**base, "disease_ontology_term_ids": [cellxgene.NORMAL_DISEASE_ID]},
+                )
+            except Exception as exc:  # noqa: BLE001
+                logger.warning("rollup skip %s/%s/%s: %s", _tl, _node, cl_id, exc)
+                return None
+            if de.empty:
+                return None
+            de.insert(0, "species", organism_label)
+            de.insert(1, "tissue", _tl)
+            de.insert(2, "tissue_ontology_id", _tid)
+            de.insert(3, "cell_type_name", cell_name)
+            de.insert(4, "cell_ontology_id", cl_id)
+            de.insert(5, "disease", _nl)
+            de.insert(6, "disease_ontology_id", _node)
+            de["rank"] = de["effect_size"].rank(ascending=False, method="dense").astype("Int64")
+            de["source"] = cellxgene.SOURCE_NAME
+            return de.reindex(columns=cellxgene.DE_COLUMNS)
+
+        with ThreadPoolExecutor(max_workers=max_workers) as pool:
+            got = [d for d in pool.map(_fetch, cell_map.items()) if d is not None and not d.empty]
+        pair_df = (
+            pd.concat(got, ignore_index=True) if got else pd.DataFrame(columns=cellxgene.DE_COLUMNS)
+        )
+        pair_df.to_parquet(cache_path, index=False)
+        yield pair_df
+
+
 # ─── Dataset assembly + push ─────────────────────────────────────────────────
 
 
@@ -184,6 +295,7 @@ def build_dataset(
     *,
     organisms: list[str] | None = None,
     include_deg: bool = False,
+    include_deg_rollup: bool = False,
     cache_dir: str | Path | None = None,
     force: bool = False,
 ) -> Path:
@@ -196,8 +308,10 @@ def build_dataset(
     organisms
         Species to include (default :data:`DATASET_ORGANISMS`).
     include_deg
-        Also build + write the disease-DEG tables (the long step). Default
-        False — markers only, per the "markers now, DEG follow-up" plan.
+        Also build + write the leaf disease-DEG tables (the long step).
+    include_deg_rollup
+        Also build + write the MONDO **disease-category** DEG (descendant
+        diseases pooled vs normal) under ``disease_deg_rollup/<species>/``.
     cache_dir, force
         Forwarded to the builders.
 
@@ -244,8 +358,26 @@ def build_dataset(
                 n_rows += len(shard)
             deg_written[species] = n_rows
 
+    rollup_written: dict[str, int] = {}
+    if include_deg_rollup:
+        for species in organisms:
+            sp_dir = out / "disease_deg_rollup" / _slug(species)
+            sp_dir.mkdir(parents=True, exist_ok=True)
+            n_shards = n_rows = 0
+            for shard in _iter_disease_deg_rollup(species, cache_dir=cache_dir, force=force):
+                if shard.empty:
+                    continue
+                shard = shard.reindex(columns=cellxgene.DE_COLUMNS).drop(
+                    columns=drop, errors="ignore"
+                )
+                shard.to_parquet(sp_dir / f"part_{n_shards:04d}.parquet", index=False)
+                n_shards += 1
+                n_rows += len(shard)
+            rollup_written[species] = n_rows
+
     (out / "README.md").write_text(
-        _dataset_card(organisms, written, deg_written, include_deg), encoding="utf-8"
+        _dataset_card(organisms, written, deg_written, rollup_written, include_deg),
+        encoding="utf-8",
     )
     logger.info("Built biodb_cellxgene dataset at %s (%s)", out, written)
     return out
@@ -292,6 +424,7 @@ def _dataset_card(
     organisms: list[str],
     markers_written: dict[str, int],
     deg_written: dict[str, int],
+    rollup_written: dict[str, int],
     include_deg: bool,
 ) -> str:
     """Render the dataset-card README (YAML front matter + docs)."""
@@ -304,15 +437,25 @@ def _dataset_card(
                 f"  - config_name: computational_markers_{_slug(species)}\n"
                 f"    data_files: markers/computational_{_slug(species)}.parquet"
             )
-    if include_deg:
-        for species in organisms:
-            if species in deg_written:
-                configs.append(
-                    f"  - config_name: disease_deg_{_slug(species)}\n"
-                    f"    data_files: disease_deg/{_slug(species)}/*.parquet"
-                )
+    for species in organisms:
+        if species in deg_written:
+            configs.append(
+                f"  - config_name: disease_deg_{_slug(species)}\n"
+                f"    data_files: disease_deg/{_slug(species)}/*.parquet"
+            )
+    for species in organisms:
+        if species in rollup_written:
+            configs.append(
+                f"  - config_name: disease_deg_rollup_{_slug(species)}\n"
+                f"    data_files: disease_deg_rollup/{_slug(species)}/*.parquet"
+            )
     counts = "\n".join(
-        f"- **{k}**: {v:,} rows" for k, v in {**markers_written, **deg_written}.items()
+        f"- **{k}**: {v:,} rows"
+        for k, v in {
+            **markers_written,
+            **{f"DEG {k}": v for k, v in deg_written.items()},
+            **{f"DEG-rollup {k}": v for k, v in rollup_written.items()},
+        }.items()
     )
     return f"""---
 license: cc-by-4.0
@@ -365,6 +508,14 @@ from CELLxGENE's Differential Expression API. **Sharded** as one parquet per
 `disease_ontology_id`, `gene_symbol`/`gene_id`, `effect_size`, `log_fold_change`,
 `adjusted_p_value`, `rank` (positive effect = up in disease). Genome-wide (all
 tested genes per contrast).
+
+### Disease-category DEG (`disease_deg_rollup/<species>/`)
+The same disease-vs-normal contrast, but with diseases **rolled up the MONDO
+ontology**: for each MONDO node that pools ≥2 present diseases, all descendant
+diseases are combined into one case group vs normal (per cell type). This gives
+better-powered *category* vectors (e.g. all carcinoma subtypes vs normal). Same
+columns; `disease`/`disease_ontology_id` name the MONDO **category** node.
+Computed via grouped disease filters on the served DE API — no recomputation.
 
 ## Row counts
 
