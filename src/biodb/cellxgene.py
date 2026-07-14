@@ -162,7 +162,10 @@ def list_cell_types(
             column_names=["cell_type", "cell_type_ontology_term_id"],
         )
     counts = (
-        obs.groupby(["cell_type_ontology_term_id", "cell_type"], dropna=False)
+        # observed=True: Census obs columns are categorical carrying every
+        # global category, so the default (observed=False) would emit the full
+        # Cartesian product of unused labels as empty groups.
+        obs.groupby(["cell_type_ontology_term_id", "cell_type"], dropna=False, observed=True)
         .size()
         .reset_index(name="n_cells")
         .rename(
@@ -264,7 +267,9 @@ def _subsample_joinids(obs: pd.DataFrame, max_per_type: int) -> list[int]:
     """Deterministically cap cells per cell type; return sorted soma_joinids."""
     rng = np.random.default_rng(RANDOM_SEED)
     keep: list[np.ndarray] = []
-    for _, grp in obs.groupby("cell_type_ontology_term_id", dropna=False):
+    # observed=True: the Census categorical carries all global categories, so
+    # the default would iterate hundreds of empty groups.
+    for _, grp in obs.groupby("cell_type_ontology_term_id", dropna=False, observed=True):
         ids = grp["soma_joinid"].to_numpy()
         if len(ids) > max_per_type:
             ids = rng.choice(ids, size=max_per_type, replace=False)
