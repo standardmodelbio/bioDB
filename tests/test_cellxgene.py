@@ -108,6 +108,7 @@ def _clear_pfd_cache() -> None:
     cellxgene._primary_filter_dimensions.cache_clear()
     cellxgene._filter_dims.cache_clear()
     cellxgene._cellguide_snapshot.cache_clear()
+    cellxgene._cellguide_tissue_map.cache_clear()
     cellxgene.list_cellguide_cell_types.cache_clear()
 
 
@@ -118,9 +119,13 @@ def _register(rsps: responses.RequestsMock) -> None:
     rsps.add(responses.POST, f"{cellxgene.DE_API_BASE_URL}/differentialExpression", json=_DE)
 
 
+_CG_TISSUE_META = {"UBERON:0002106": {"name": "spleen", "id": "UBERON:0002106"}}
+
+
 def _register_cellguide(rsps: responses.RequestsMock) -> None:
     rsps.add(responses.GET, f"{_CG}/latest_snapshot_identifier", body=_CG_SNAP)
     rsps.add(responses.GET, f"{_CG}/{_CG_SNAP}/celltype_metadata.json", json=_CG_META)
+    rsps.add(responses.GET, f"{_CG}/{_CG_SNAP}/tissue_metadata.json", json=_CG_TISSUE_META)
     for cl in _CG_META:
         tag = cl.replace(":", "_")
         rsps.add(
@@ -281,6 +286,7 @@ def test_cellguide_markers_both() -> None:
     # human spleen computational entry mapped correctly + ranked
     hs = comp[comp["species"] == "Homo sapiens"].iloc[0]
     assert hs["gene_symbol"] == "CD79A" and hs["tissue"] == "spleen" and hs["rank"] == 1
+    assert hs["tissue_ontology_id"] == "UBERON:0002106"  # label -> UBERON via tissue_metadata
     # organism-only entry falls back to "All Tissues"
     assert "All Tissues" in set(comp["tissue"])
     canon = m[m["marker_type"] == "canonical"]

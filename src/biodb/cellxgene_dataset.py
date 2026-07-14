@@ -152,10 +152,15 @@ def build_disease_deg(
         cache_path = root / f"{organism_id}__{_slug(tissue)}__{disease_id}.parquet".replace(
             ":", "-"
         )
-        if cache_path.exists() and not force:
-            frames.append(pd.read_parquet(cache_path))
-            continue
         tissue_id, _ = _resolve_tissue(tissue, organism_id)
+        if cache_path.exists() and not force:
+            cached = pd.read_parquet(cache_path)
+            # Backfill tissue_ontology_id for parquets cached before the column
+            # existed, so resumed builds keep a consistent schema.
+            if not cached.empty and "tissue_ontology_id" not in cached.columns:
+                cached.insert(2, "tissue_ontology_id", tissue_id)
+            frames.append(cached)
+            continue
         cell_types = _cell_types_under_disease(tissue_id, disease_id, organism_id)
 
         def _fetch(cl_id: str, *, _t=tissue, _d=disease_label) -> pd.DataFrame | None:
@@ -216,17 +221,23 @@ def build_dataset(
     (out / "markers").mkdir(parents=True, exist_ok=True)
 
     markers = build_markers(cache_dir=cache_dir, force=force)
-    # Canonical markers are curated, organism-agnostic reference markers, so the
-    # per-species/score columns are uniformly empty — drop them rather than ship
-    # all-null columns (keeps tissue/cell type/CL id/gene/publication).
-    canonical = markers["canonical"].dropna(axis=1, how="all")
+    # ``source`` (always "cellxgene") and ``marker_type`` (always "canonical" or
+    # "computational" within a given file) are constant per file — the dataset
+    # name + config/file name already encode them, so don't ship them as columns.
+    # Canonical markers are also curated + organism-agnostic, so their per-species
+    # / score columns are uniformly empty; drop all-null columns too.
+    redundant = ["source", "marker_type"]
+    canonical = (
+        markers["canonical"].dropna(axis=1, how="all").drop(columns=redundant, errors="ignore")
+    )
     canonical.to_parquet(out / "markers" / "canonical.parquet", index=False)
     written = {"canonical": len(canonical)}
     for species in organisms:
         if species in markers:
             path = out / "markers" / f"computational_{_slug(species)}.parquet"
-            markers[species].to_parquet(path, index=False)
-            written[species] = len(markers[species])
+            comp = markers[species].drop(columns=redundant, errors="ignore")
+            comp.to_parquet(path, index=False)
+            written[species] = len(comp)
 
     deg_written: dict[str, int] = {}
     if include_deg:

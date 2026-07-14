@@ -38,6 +38,7 @@ logger = logging.getLogger(__name__)
 NORMALIZED_COLUMNS: list[str] = [
     "species",
     "tissue",
+    "tissue_ontology_id",
     "cell_type_name",
     "cell_ontology_id",
     "gene_symbol",
@@ -61,23 +62,19 @@ re-fetched from OLS."""
 _CL_RESOLUTION_COLUMNS = ["label", "cell_ontology_id", "cl_label", "match_quality"]
 
 
-def normalize_cl_id(value: object) -> str | None:
-    """Coerce a Cell Ontology identifier to canonical ``CL:0000000`` form.
+def normalize_obo_id(value: object, prefix: str) -> str | None:
+    """Coerce an OBO identifier to canonical ``PREFIX:0000000`` form.
 
-    CellMarker stores them as ``CL_0000449`` and pads/omits inconsistently;
-    Cell Taxonomy uses ``CL:0000007``. Everything downstream (and
-    :func:`biodb.ols.get_term`) expects the colon form.
+    Sources vary between ``PREFIX_0000000`` (underscore) and ``PREFIX:0000000``
+    (colon); this returns the colon form, or ``None`` for missing / non-matching
+    values (``NaN``, ``"NA"``, ``""``, wrong prefix).
 
     Parameters
     ----------
     value
-        A CL identifier, or any non-string / missing value.
-
-    Returns
-    -------
-    str or None
-        ``"CL:0000449"`` for a recognisable CL id, else ``None`` (covers
-        ``NaN``, ``"NA"``, ``""``, and non-CL strings).
+        A candidate identifier, or any non-string / missing value.
+    prefix
+        Expected OBO prefix (e.g. ``"CL"``, ``"UBERON"``).
     """
     if not isinstance(value, str):
         return None
@@ -85,10 +82,27 @@ def normalize_cl_id(value: object) -> str | None:
     if not text or text.upper() in {"NA", "NAN", "NONE"}:
         return None
     text = text.replace("_", ":")
-    if not text.upper().startswith("CL:"):
+    if not text.upper().startswith(f"{prefix.upper()}:"):
         return None
-    local = text.split(":", 1)[1]
-    return f"CL:{local}"
+    return f"{prefix}:{text.split(':', 1)[1]}"
+
+
+def normalize_cl_id(value: object) -> str | None:
+    """Coerce a Cell Ontology identifier to canonical ``CL:0000000`` form.
+
+    CellMarker stores them as ``CL_0000449``; Cell Taxonomy uses ``CL:0000007``.
+    Everything downstream (and :func:`biodb.ols.get_term`) expects the colon form.
+    """
+    return normalize_obo_id(value, "CL")
+
+
+def normalize_uberon_id(value: object) -> str | None:
+    """Coerce a UBERON tissue identifier to canonical ``UBERON:0000000`` form.
+
+    CellMarker stores them as ``UBERON_0000916``; Cell Taxonomy uses the colon
+    form; CELLxGENE/WMG uses the colon form.
+    """
+    return normalize_obo_id(value, "UBERON")
 
 
 def resolve_cl(
@@ -265,7 +279,9 @@ def celltype_to_gmt(
 __all__ = [
     "NORMALIZED_COLUMNS",
     "CL_RESOLUTION_CACHE",
+    "normalize_obo_id",
     "normalize_cl_id",
+    "normalize_uberon_id",
     "resolve_cl",
     "rank_within_group",
     "celltype_to_gmt",

@@ -46,6 +46,8 @@ def test_get_markers_normalizes_cl_underscore() -> None:
     # CellMarker stores CL_0000540; we normalize to CL:0000540.
     assert "CL:0000540" in set(df["cell_ontology_id"])
     assert not any(str(v).startswith("CL_") for v in df["cell_ontology_id"])
+    # UBERON_0000955 -> UBERON:0000955 (normalized from uberonongology_id).
+    assert "UBERON:0000955" in set(df["tissue_ontology_id"].dropna())
 
 
 def test_get_markers_ranking_from_pmid_counts() -> None:

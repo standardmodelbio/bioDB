@@ -74,6 +74,7 @@ both computational (Marker Score) and canonical (curated) marker genes."""
 CELLGUIDE_COLUMNS = [
     "species",
     "tissue",
+    "tissue_ontology_id",
     "cell_type_name",
     "cell_ontology_id",
     "gene_symbol",
@@ -334,7 +335,7 @@ def query_markers(
     cell_name = _cell_type_map(tissue, organism).get(cl_id)
     symbols = _gene_symbol_map(organism_id)
 
-    df = _normalize(genes, organism_label, tissue_label, cell_name, cl_id, symbols)
+    df = _normalize(genes, organism_label, tissue_label, tissue_id, cell_name, cl_id, symbols)
     return df.sort_values("rank", na_position="last").reset_index(drop=True)
 
 
@@ -342,6 +343,7 @@ def _normalize(
     marker_genes: list[dict],
     organism_label: str,
     tissue_label: str,
+    tissue_id: str,
     cell_name: str | None,
     cl_id: str,
     symbols: dict[str, str],
@@ -351,6 +353,7 @@ def _normalize(
         {
             "species": organism_label,
             "tissue": tissue_label,
+            "tissue_ontology_id": tissue_id,
             "cell_type_name": cell_name,
             "cell_ontology_id": cl_id,
             "gene_symbol": symbols.get(g["gene_ontology_term_id"], g["gene_ontology_term_id"]),
@@ -438,7 +441,7 @@ def get_tissue_markers(
         genes = _post("markers", payload).get("marker_genes", [])
         if not genes:
             return None
-        return _normalize(genes, organism_label, tissue_label, cell_name, cl_id, symbols)
+        return _normalize(genes, organism_label, tissue_label, tissue_id, cell_name, cl_id, symbols)
 
     with ThreadPoolExecutor(max_workers=max_workers) as pool:
         results = pool.map(_fetch, cell_map.items())
@@ -524,6 +527,7 @@ def get_all_markers(
 DE_COLUMNS = [
     "species",
     "tissue",
+    "tissue_ontology_id",
     "cell_type_name",
     "cell_ontology_id",
     "disease",
@@ -666,9 +670,10 @@ def disease_vs_normal(
     cell_name = _cell_type_map(tissue, organism).get(cl_id)
     de.insert(0, "species", organism_label)
     de.insert(1, "tissue", tissue_label)
-    de.insert(2, "cell_type_name", cell_name)
-    de.insert(3, "cell_ontology_id", cl_id)
-    de.insert(4, "disease", disease_label)
+    de.insert(2, "tissue_ontology_id", tissue_id)
+    de.insert(3, "cell_type_name", cell_name)
+    de.insert(4, "cell_ontology_id", cl_id)
+    de.insert(5, "disease", disease_label)
     de["rank"] = _celltype.rank_within_group(
         de, group_cols=["cell_ontology_id"], score_col="effect_size"
     )
@@ -721,6 +726,13 @@ def _cellguide_records(path: str) -> list[dict] | None:
     except requests.exceptions.JSONDecodeError:
         logger.warning("CellGuide file %s returned a non-JSON body; skipping.", path)
         return None
+
+
+@lru_cache(maxsize=1)
+def _cellguide_tissue_map() -> dict[str, str]:
+    """Tissue label → UBERON id, from CellGuide's ``tissue_metadata.json``."""
+    meta = _cellguide_get("tissue_metadata.json")
+    return {v.get("name"): uid for uid, v in meta.items() if v.get("name")}
 
 
 @lru_cache(maxsize=1)
@@ -785,24 +797,28 @@ def _cellguide_computational(tag: str, cl_id: str, name: str | None) -> pd.DataF
     records = _cellguide_records(f"computational_marker_genes/{tag}.json")
     if not records:
         return pd.DataFrame(columns=CELLGUIDE_COLUMNS)
-    rows = [
-        {
-            "species": r.get("groupby_dims", {}).get("organism_ontology_term_label"),
-            "tissue": r.get("groupby_dims", {}).get("tissue_ontology_term_label") or "All Tissues",
-            "cell_type_name": name,
-            "cell_ontology_id": cl_id,
-            "gene_symbol": r.get("symbol"),
-            "gene_id": r.get("gene_ontology_term_id"),
-            "marker_type": "computational",
-            "marker_score": r.get("marker_score"),
-            "specificity": r.get("specificity"),
-            "mean_expression": r.get("me"),
-            "pct_expressing": r.get("pc"),
-            "publication": None,
-            "source": SOURCE_NAME,
-        }
-        for r in records
-    ]
+    tissue_map = _cellguide_tissue_map()
+    rows = []
+    for r in records:
+        tissue = r.get("groupby_dims", {}).get("tissue_ontology_term_label") or "All Tissues"
+        rows.append(
+            {
+                "species": r.get("groupby_dims", {}).get("organism_ontology_term_label"),
+                "tissue": tissue,
+                "tissue_ontology_id": tissue_map.get(tissue),
+                "cell_type_name": name,
+                "cell_ontology_id": cl_id,
+                "gene_symbol": r.get("symbol"),
+                "gene_id": r.get("gene_ontology_term_id"),
+                "marker_type": "computational",
+                "marker_score": r.get("marker_score"),
+                "specificity": r.get("specificity"),
+                "mean_expression": r.get("me"),
+                "pct_expressing": r.get("pc"),
+                "publication": None,
+                "source": SOURCE_NAME,
+            }
+        )
     df = pd.DataFrame(rows, columns=[c for c in CELLGUIDE_COLUMNS if c != "rank"])
     if df.empty:
         df["rank"] = pd.Series(dtype="Int64")
@@ -817,10 +833,12 @@ def _cellguide_canonical(tag: str, cl_id: str, name: str | None) -> pd.DataFrame
     records = _cellguide_records(f"canonical_marker_genes/{tag}.json")
     if not records:
         return pd.DataFrame(columns=CELLGUIDE_COLUMNS)
+    tissue_map = _cellguide_tissue_map()
     rows = [
         {
             "species": None,  # canonical markers are curated + cross-species
             "tissue": r.get("tissue"),
+            "tissue_ontology_id": tissue_map.get(r.get("tissue")),
             "cell_type_name": name,
             "cell_ontology_id": cl_id,
             "gene_symbol": r.get("symbol"),

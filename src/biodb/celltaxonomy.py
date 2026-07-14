@@ -66,6 +66,7 @@ CACHE_DIR.mkdir(parents=True, exist_ok=True)
 # Raw column names in Cell_Taxonomy_resource.txt → normalized-schema fields.
 _SPECIES_COL = "Species"
 _TISSUE_COL = "Tissue_standard"
+_TISSUE_ID_COL = "Tissue_UberonOntology_ID"
 _CELL_NAME_COL = "Cell_standard"
 _CL_COL = "Specific_Cell_Ontology_ID"
 _GENE_SYMBOL_COL = "Cell_Marker"
@@ -179,6 +180,7 @@ def get_markers(
         {
             "species": raw[_SPECIES_COL],
             "tissue": raw[_TISSUE_COL],
+            "tissue_ontology_id": raw[_TISSUE_ID_COL].map(_celltype.normalize_uberon_id),
             "cell_type_name": raw[_CELL_NAME_COL],
             "cell_ontology_id": raw[_CL_COL].map(_celltype.normalize_cl_id),
             "gene_symbol": raw[_GENE_SYMBOL_COL],
@@ -193,6 +195,7 @@ def get_markers(
         df.groupby(["species", "cell_type_name", "cell_ontology_id", "gene_symbol"], dropna=False)
         .agg(
             tissue=("tissue", "first"),
+            tissue_ontology_id=("tissue_ontology_id", "first"),
             gene_id=("gene_id", "first"),
             n_pmid=("pmid", "nunique"),
             n_records=("pmid", "size"),
