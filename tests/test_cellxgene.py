@@ -69,9 +69,45 @@ _DE = {
 }
 
 
+_CG = cellxgene.CELLGUIDE_CDN_BASE
+_CG_SNAP = "999"
+_CG_META = {
+    "CL:0000236": {"name": "B cell"},
+    "CL:0000084": {"name": "T cell"},
+}
+_CG_COMP = [
+    {
+        "me": 2.9,
+        "pc": 0.65,
+        "marker_score": 2.3,
+        "specificity": 0.99,
+        "gene_ontology_term_id": "ENSG00000105369",
+        "symbol": "CD79A",
+        "groupby_dims": {
+            "organism_ontology_term_label": "Homo sapiens",
+            "tissue_ontology_term_label": "spleen",
+        },
+    },
+    {
+        "me": 2.5,
+        "pc": 0.6,
+        "marker_score": 1.5,
+        "specificity": 0.95,
+        "gene_ontology_term_id": "ENSMUSG00000040592",
+        "symbol": "Cd79b",
+        "groupby_dims": {"organism_ontology_term_label": "Mus musculus"},
+    },
+]
+_CG_CANON = [
+    {"tissue": "spleen", "symbol": "MS4A1", "publication": "PMID:123", "publication_titles": ""}
+]
+
+
 @pytest.fixture(autouse=True)
 def _clear_pfd_cache() -> None:
     cellxgene._primary_filter_dimensions.cache_clear()
+    cellxgene._cellguide_snapshot.cache_clear()
+    cellxgene.list_cellguide_cell_types.cache_clear()
 
 
 def _register(rsps: responses.RequestsMock) -> None:
@@ -79,6 +115,19 @@ def _register(rsps: responses.RequestsMock) -> None:
     rsps.add(responses.POST, f"{BASE}/filters", json=_FILTERS)
     rsps.add(responses.POST, f"{BASE}/markers", json=_MARKERS)
     rsps.add(responses.POST, f"{cellxgene.DE_API_BASE_URL}/differentialExpression", json=_DE)
+
+
+def _register_cellguide(rsps: responses.RequestsMock) -> None:
+    rsps.add(responses.GET, f"{_CG}/latest_snapshot_identifier", body=_CG_SNAP)
+    rsps.add(responses.GET, f"{_CG}/{_CG_SNAP}/celltype_metadata.json", json=_CG_META)
+    for cl in _CG_META:
+        tag = cl.replace(":", "_")
+        rsps.add(
+            responses.GET, f"{_CG}/{_CG_SNAP}/computational_marker_genes/{tag}.json", json=_CG_COMP
+        )
+        rsps.add(
+            responses.GET, f"{_CG}/{_CG_SNAP}/canonical_marker_genes/{tag}.json", json=_CG_CANON
+        )
 
 
 # ── module surface ────────────────────────────────────────────────────────────
@@ -215,6 +264,47 @@ def test_disease_vs_normal_bad_disease() -> None:
     _register(responses)
     with pytest.raises(ValueError, match="not found"):
         cellxgene.disease_vs_normal("CL:0000236", tissue="spleen", disease="dragon pox")
+
+
+# ── CellGuide markers (computational + canonical) ─────────────────────────────
+
+
+@responses.activate
+def test_cellguide_markers_both() -> None:
+    _register_cellguide(responses)
+    m = cellxgene.cellguide_markers("CL:0000236", kind="both")
+    assert list(m.columns) == cellxgene.CELLGUIDE_COLUMNS
+    assert set(m["marker_type"]) == {"computational", "canonical"}
+    comp = m[m["marker_type"] == "computational"]
+    assert set(comp["species"].dropna()) == {"Homo sapiens", "Mus musculus"}
+    # human spleen computational entry mapped correctly + ranked
+    hs = comp[comp["species"] == "Homo sapiens"].iloc[0]
+    assert hs["gene_symbol"] == "CD79A" and hs["tissue"] == "spleen" and hs["rank"] == 1
+    # organism-only entry falls back to "All Tissues"
+    assert "All Tissues" in set(comp["tissue"])
+    canon = m[m["marker_type"] == "canonical"]
+    assert canon.iloc[0]["gene_symbol"] == "MS4A1"
+    assert canon["species"].isna().all()  # canonical is cross-species
+
+
+@responses.activate
+def test_get_all_cellguide_markers(tmp_path: Path) -> None:
+    _register_cellguide(responses)
+    allm = cellxgene.get_all_cellguide_markers(cache_dir=tmp_path, progress=False)
+    assert set(allm["cell_ontology_id"]) == {"CL:0000236", "CL:0000084"}
+    assert set(allm["marker_type"]) == {"computational", "canonical"}
+
+
+@responses.activate
+def test_dataset_build_markers_splits_by_species() -> None:
+    from biodb import cellxgene_dataset as cxd
+
+    _register_cellguide(responses)
+    tables = cxd.build_markers(progress=False)
+    assert "canonical" in tables
+    assert "Homo sapiens" in tables and "Mus musculus" in tables
+    assert (tables["Homo sapiens"]["species"] == "Homo sapiens").all()
+    assert (tables["canonical"]["marker_type"] == "canonical").all()
 
 
 # ── top-level re-export ───────────────────────────────────────────────────────

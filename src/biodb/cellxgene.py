@@ -67,6 +67,30 @@ WMG_API_BASE_URL = "https://api.cellxgene.cziscience.com/wmg/v2"
 DE_API_BASE_URL = "https://api.cellxgene.cziscience.com/de/v1"
 """CZ CELLxGENE Differential Expression REST API root."""
 
+CELLGUIDE_CDN_BASE = "https://cellguide.cellxgene.cziscience.com"
+"""CZ CELLxGENE CellGuide CDN root. Serves per-cell-type snapshot JSON with
+both computational (Marker Score) and canonical (curated) marker genes."""
+
+CELLGUIDE_COLUMNS = [
+    "species",
+    "tissue",
+    "cell_type_name",
+    "cell_ontology_id",
+    "gene_symbol",
+    "gene_id",
+    "marker_type",
+    "marker_score",
+    "specificity",
+    "mean_expression",
+    "pct_expressing",
+    "publication",
+    "rank",
+    "source",
+]
+"""Schema for CellGuide markers (:func:`cellguide_markers`). ``marker_type`` is
+``"computational"`` (Marker Score, per species × tissue) or ``"canonical"``
+(curated, cross-species — ``species`` is left null)."""
+
 DEFAULT_ORGANISM = "Homo sapiens"
 """Default organism (accepts the label or an ``NCBITaxon:`` id)."""
 
@@ -649,6 +673,226 @@ def disease_vs_normal(
     return de[DE_COLUMNS].reset_index(drop=True)
 
 
+# ─── CellGuide — precomputed computational + canonical markers (CDN) ─────────
+
+
+@lru_cache(maxsize=1)
+def _cellguide_snapshot() -> str:
+    """Latest CellGuide snapshot id (its data is versioned by this token)."""
+    resp = requests.get(
+        f"{CELLGUIDE_CDN_BASE}/latest_snapshot_identifier",
+        headers={"User-Agent": _USER_AGENT},
+        timeout=30,
+    )
+    resp.raise_for_status()
+    return resp.text.strip()
+
+
+def _cellguide_get(path: str, *, timeout: int = 120) -> Any:
+    """GET a CellGuide snapshot JSON file (raises on 404 for missing cell types)."""
+    snapshot = _cellguide_snapshot()
+    resp = requests.get(
+        f"{CELLGUIDE_CDN_BASE}/{snapshot}/{path}",
+        headers={"User-Agent": _USER_AGENT},
+        timeout=timeout,
+    )
+    resp.raise_for_status()
+    return resp.json()
+
+
+def _cellguide_records(path: str) -> list[dict] | None:
+    """GET a per-cell-type CellGuide file, or ``None`` if it's absent/unparseable.
+
+    CellGuide serves a file per cell type; a cell type without markers of a given
+    kind returns 404, and the CDN occasionally serves an empty/invalid body — both
+    mean "no data" here rather than a hard error, so the bulk build can skip them.
+    """
+    try:
+        return _cellguide_get(path)
+    except requests.exceptions.HTTPError as exc:
+        if exc.response is not None and exc.response.status_code == 404:
+            return None
+        raise
+    except requests.exceptions.JSONDecodeError:
+        logger.warning("CellGuide file %s returned a non-JSON body; skipping.", path)
+        return None
+
+
+@lru_cache(maxsize=1)
+def list_cellguide_cell_types() -> pd.DataFrame:
+    """List every cell type in CellGuide's metadata (CL id + name).
+
+    Returns
+    -------
+    pandas.DataFrame
+        Columns ``cell_ontology_id``, ``cell_type_name``. Not every entry has
+        marker files — :func:`cellguide_markers` returns empty for those.
+    """
+    meta = _cellguide_get("celltype_metadata.json")
+    rows = [{"cell_ontology_id": cid, "cell_type_name": v.get("name")} for cid, v in meta.items()]
+    return pd.DataFrame(rows, columns=["cell_ontology_id", "cell_type_name"])
+
+
+def cellguide_markers(cell_type: str, *, kind: str = "both") -> pd.DataFrame:
+    """Precomputed CellGuide markers for a cell type (all tissues / species).
+
+    Fetches CZI's per-cell-type CellGuide snapshot files — the source behind the
+    Discover "Find Marker Genes" / CellGuide UI. Unlike :func:`query_markers`
+    (one tissue, live WMG), one call returns **every tissue and organism** for
+    that cell type, plus the curated canonical markers.
+
+    Parameters
+    ----------
+    cell_type
+        CL id or plain name (resolved via OLS).
+    kind
+        ``"computational"`` (Marker Score, per species × tissue),
+        ``"canonical"`` (curated, cross-species), or ``"both"`` (default).
+
+    Returns
+    -------
+    pandas.DataFrame
+        Columns per :data:`CELLGUIDE_COLUMNS`.
+    """
+    cl_id = _resolve_cl_id(cell_type)
+    tag = cl_id.replace(":", "_")
+    name = _cellguide_name(cl_id)
+    frames: list[pd.DataFrame] = []
+    if kind in ("computational", "both"):
+        frames.append(_cellguide_computational(tag, cl_id, name))
+    if kind in ("canonical", "both"):
+        frames.append(_cellguide_canonical(tag, cl_id, name))
+    if kind not in ("computational", "canonical", "both"):
+        raise ValueError(f"kind must be computational/canonical/both, got {kind!r}")
+    out = (
+        pd.concat(frames, ignore_index=True) if frames else pd.DataFrame(columns=CELLGUIDE_COLUMNS)
+    )
+    return out.reset_index(drop=True)
+
+
+def _cellguide_name(cl_id: str) -> str | None:
+    meta = list_cellguide_cell_types()
+    hit = meta[meta["cell_ontology_id"] == cl_id]
+    return None if hit.empty else hit.iloc[0]["cell_type_name"]
+
+
+def _cellguide_computational(tag: str, cl_id: str, name: str | None) -> pd.DataFrame:
+    records = _cellguide_records(f"computational_marker_genes/{tag}.json")
+    if not records:
+        return pd.DataFrame(columns=CELLGUIDE_COLUMNS)
+    rows = [
+        {
+            "species": r.get("groupby_dims", {}).get("organism_ontology_term_label"),
+            "tissue": r.get("groupby_dims", {}).get("tissue_ontology_term_label") or "All Tissues",
+            "cell_type_name": name,
+            "cell_ontology_id": cl_id,
+            "gene_symbol": r.get("symbol"),
+            "gene_id": r.get("gene_ontology_term_id"),
+            "marker_type": "computational",
+            "marker_score": r.get("marker_score"),
+            "specificity": r.get("specificity"),
+            "mean_expression": r.get("me"),
+            "pct_expressing": r.get("pc"),
+            "publication": None,
+            "source": SOURCE_NAME,
+        }
+        for r in records
+    ]
+    df = pd.DataFrame(rows, columns=[c for c in CELLGUIDE_COLUMNS if c != "rank"])
+    if df.empty:
+        df["rank"] = pd.Series(dtype="Int64")
+        return df[CELLGUIDE_COLUMNS]
+    df["rank"] = _celltype.rank_within_group(
+        df, group_cols=["species", "tissue", "cell_ontology_id"], score_col="marker_score"
+    )
+    return df[CELLGUIDE_COLUMNS]
+
+
+def _cellguide_canonical(tag: str, cl_id: str, name: str | None) -> pd.DataFrame:
+    records = _cellguide_records(f"canonical_marker_genes/{tag}.json")
+    if not records:
+        return pd.DataFrame(columns=CELLGUIDE_COLUMNS)
+    rows = [
+        {
+            "species": None,  # canonical markers are curated + cross-species
+            "tissue": r.get("tissue"),
+            "cell_type_name": name,
+            "cell_ontology_id": cl_id,
+            "gene_symbol": r.get("symbol"),
+            "gene_id": None,
+            "marker_type": "canonical",
+            "marker_score": None,
+            "specificity": None,
+            "mean_expression": None,
+            "pct_expressing": None,
+            "publication": r.get("publication") or None,
+            "rank": None,
+            "source": SOURCE_NAME,
+        }
+        for r in records
+    ]
+    return pd.DataFrame(rows, columns=CELLGUIDE_COLUMNS)
+
+
+def get_all_cellguide_markers(
+    *,
+    kind: str = "both",
+    max_workers: int = 16,
+    cache_dir: str | Path | None = None,
+    force: bool = False,
+    progress: bool = True,
+) -> pd.DataFrame:
+    """Fetch CellGuide markers for **every** cell type (all tissues + species).
+
+    Iterates :func:`list_cellguide_cell_types` and pulls each cell type's
+    CellGuide files concurrently. The assembled table is cached to parquet
+    (keyed by snapshot + kind) so re-runs are instant.
+
+    Parameters
+    ----------
+    kind
+        ``"computational"``, ``"canonical"``, or ``"both"``.
+    max_workers
+        Concurrent CDN fetches.
+    cache_dir, force
+        Cache location override / bypass.
+    progress
+        Show a tqdm bar over cell types.
+
+    Returns
+    -------
+    pandas.DataFrame
+        Columns per :data:`CELLGUIDE_COLUMNS`.
+    """
+    snapshot = _cellguide_snapshot()
+    root = Path(cache_dir).expanduser() if cache_dir else CACHE_DIR / "cellguide"
+    root.mkdir(parents=True, exist_ok=True)
+    cache_path = root / f"cellguide_markers__{snapshot}__{kind}.parquet"
+    if cache_path.exists() and not force:
+        return pd.read_parquet(cache_path)
+
+    cl_ids = list_cellguide_cell_types()["cell_ontology_id"].tolist()
+
+    def _fetch(cl_id: str) -> pd.DataFrame:
+        try:
+            return cellguide_markers(cl_id, kind=kind)
+        except Exception as exc:  # noqa: BLE001 - one bad cell type shouldn't abort the dump
+            logger.warning("CellGuide markers skip %s: %s", cl_id, exc)
+            return pd.DataFrame(columns=CELLGUIDE_COLUMNS)
+
+    with ThreadPoolExecutor(max_workers=max_workers) as pool:
+        results = pool.map(_fetch, cl_ids)
+        if progress:
+            results = tqdm(results, total=len(cl_ids), desc=f"cellguide:{kind}")
+        frames = [df for df in results if not df.empty]
+
+    table = (
+        pd.concat(frames, ignore_index=True) if frames else pd.DataFrame(columns=CELLGUIDE_COLUMNS)
+    )
+    table.to_parquet(cache_path, index=False)
+    return table
+
+
 def to_gmt(
     path: str | Path,
     *,
@@ -680,12 +924,14 @@ def to_gmt(
 __all__ = [
     "WMG_API_BASE_URL",
     "DE_API_BASE_URL",
+    "CELLGUIDE_CDN_BASE",
     "DEFAULT_ORGANISM",
     "DEFAULT_TEST",
     "NORMAL_DISEASE_ID",
     "SOURCE_NAME",
     "CACHE_DIR",
     "DE_COLUMNS",
+    "CELLGUIDE_COLUMNS",
     "list_tissues",
     "list_cell_types",
     "list_diseases",
@@ -694,5 +940,8 @@ __all__ = [
     "get_all_markers",
     "differential_expression",
     "disease_vs_normal",
+    "list_cellguide_cell_types",
+    "cellguide_markers",
+    "get_all_cellguide_markers",
     "to_gmt",
 ]

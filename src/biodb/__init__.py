@@ -51,6 +51,7 @@ from biodb import (
     cellmarker,
     celltaxonomy,
     cellxgene,
+    cellxgene_dataset,
     clinvar,
     gprofiler,
     gtr,
@@ -88,6 +89,9 @@ from biodb.celltaxonomy import (
     query_markers as celltaxonomy_query_markers,
 )
 from biodb.cellxgene import (
+    cellguide_markers as cellxgene_cellguide_markers,
+)
+from biodb.cellxgene import (
     disease_vs_normal as cellxgene_disease_vs_normal,
 )
 from biodb.cellxgene import (
@@ -98,6 +102,9 @@ from biodb.cellxgene import (
 )
 from biodb.cellxgene import (
     query_markers as cellxgene_query_markers,
+)
+from biodb.cellxgene_dataset import (
+    build_dataset as cellxgene_build_dataset,
 )
 from biodb.clinvar import (
     bed_to_sites,
@@ -200,6 +207,9 @@ __all__ = [
     "cellmarker_get_markers",
     "cellmarker_query_markers",
     "cellxgene",
+    "cellxgene_build_dataset",
+    "cellxgene_cellguide_markers",
+    "cellxgene_dataset",
     "cellxgene_disease_vs_normal",
     "cellxgene_get_all_markers",
     "cellxgene_get_tissue_markers",
