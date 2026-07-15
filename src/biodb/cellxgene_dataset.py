@@ -183,40 +183,44 @@ def _mondo_graph():
     return obonet.read_obo("http://purl.obolibrary.org/obo/mondo/mondo-base.obo")
 
 
+ROLLUP_COLUMNS = [*cellxgene.DE_COLUMNS[:-2], "n_diseases", "rank"]
+"""DEG-rollup schema: :data:`biodb.cellxgene.DE_COLUMNS` (minus ``rank``/``source``)
+plus ``n_diseases`` (how many member diseases were aggregated) + ``rank``."""
+
+
 def _iter_disease_deg_rollup(
     organism: str,
     *,
     tissues: list[str] | None = None,
     min_pool: int = 2,
-    max_workers: int = 8,
+    agg: str = "median",
     cache_dir: str | Path | None = None,
     force: bool = False,
     progress: bool = True,
 ):
-    """Yield **MONDO-category** DEG frames — descendant diseases pooled vs normal.
+    """Yield **MONDO disease-category** DEG frames by aggregating the leaf DEG.
 
-    For each tissue, walks the MONDO ancestors of the diseases present and, for
-    every ancestor node that pools ``>= min_pool`` present diseases, contrasts
-    the union of those diseases against ``normal`` (per cell type). This creates
-    better-powered *disease-category* vectors (e.g. all carcinoma subtypes vs
-    normal) — computed entirely via the served DE API (grouped disease filters),
-    no recomputation. One parquet per (tissue × MONDO node), resumable.
+    A roll-up is a *local aggregation of already-computed vectors*, not new
+    computation: for every MONDO node that pools ``>= min_pool`` of a tissue's
+    diseases, it reads those diseases' cached leaf DE (:func:`_iter_disease_deg`
+    output) and aggregates each *(cell type × gene)* across the member diseases
+    (``agg`` = ``"median"`` or ``"mean"`` of ``effect_size`` / ``log_fold_change``
+    / ``adjusted_p_value``), adding ``n_diseases``. Fast (seconds), reproducible,
+    resumable. For a rigorous *single pooled* contrast on demand, use
+    :func:`biodb.cellxgene.disease_vs_normal` with ``include_descendants=True``.
     """
-    from concurrent.futures import ThreadPoolExecutor
-
     import networkx as nx
     from tqdm import tqdm
 
     organism_id, organism_label = _resolve_organism(organism)
+    leaf_root = cellxgene.CACHE_DIR / "disease_deg"
     root = Path(cache_dir).expanduser() if cache_dir else cellxgene.CACHE_DIR / "disease_deg_rollup"
     root.mkdir(parents=True, exist_ok=True)
     graph = _mondo_graph()
-    # is_a subgraph only — the full MONDO graph also has xref/relationship edges
-    # (incl. non-MONDO URL nodes), which are not ontology ancestors.
     isa = graph.edge_subgraph([(u, v, k) for u, v, k in graph.edges(keys=True) if k == "is_a"])
 
+    key = ["cell_ontology_id", "cell_type_name", "gene_symbol", "gene_id"]
     tissue_list = tissues if tissues is not None else cellxgene.list_tissues(organism=organism)
-    tasks: list[tuple[str, str, str, list[str]]] = []  # (tissue, node, node_label, pooled ids)
     for tissue in tissue_list:
         present = {
             row["disease_ontology_term_id"]: row["disease"]
@@ -226,69 +230,71 @@ def _iter_disease_deg_rollup(
         for d in present:
             if d not in isa:
                 continue
-            for node in {d, *nx.descendants(isa, d)}:  # d + its is_a MONDO ancestors
-                if str(node).startswith("MONDO:"):  # drop xref / non-MONDO nodes
+            for node in {d, *nx.descendants(isa, d)}:
+                if str(node).startswith("MONDO:"):
                     node_pool.setdefault(node, set()).add(d)
-        for node, pooled in node_pool.items():
-            if len(pooled) < min_pool:
-                continue  # only genuine multi-disease aggregations
-            label = graph.nodes.get(node, {}).get("name", node)
-            tasks.append((tissue, node, label, sorted(pooled)))
-
-    iterator = tqdm(tasks, desc=f"deg-rollup:{organism}") if progress else tasks
-    for tissue, node, node_label, pooled in iterator:
-        cache_path = root / f"{organism_id}__{_slug(tissue)}__{node}.parquet".replace(":", "-")
-        tissue_id, tissue_label = _resolve_tissue(tissue, organism_id)
-        if cache_path.exists() and not force:
-            yield pd.read_parquet(cache_path)
+        nodes = {n: p for n, p in node_pool.items() if len(p) >= min_pool}
+        if not nodes:
             continue
-        cell_map: dict[str, str] = {}
-        for d in pooled:
-            cell_map.update(_cell_types_under_disease(tissue_id, d, organism_id))
+        tissue_id, tissue_label = _resolve_tissue(tissue, organism_id)
 
-        def _fetch(
-            item: tuple[str, str],
-            *,
-            _p=pooled,
-            _tid=tissue_id,
-            _tl=tissue_label,
-            _node=node,
-            _nl=node_label,
-        ) -> pd.DataFrame | None:
-            cl_id, cell_name = item
-            base = {
-                "organism_ontology_term_id": organism_id,
-                "tissue_ontology_term_ids": [_tid],
-                "cell_type_ontology_term_ids": [cl_id],
-            }
-            try:
-                de = cellxgene.differential_expression(
-                    {**base, "disease_ontology_term_ids": _p},
-                    {**base, "disease_ontology_term_ids": [cellxgene.NORMAL_DISEASE_ID]},
-                )
-            except Exception as exc:  # noqa: BLE001
-                logger.warning("rollup skip %s/%s/%s: %s", _tl, _node, cl_id, exc)
-                return None
-            if de.empty:
-                return None
-            de.insert(0, "species", organism_label)
-            de.insert(1, "tissue", _tl)
-            de.insert(2, "tissue_ontology_id", _tid)
-            de.insert(3, "cell_type_name", cell_name)
-            de.insert(4, "cell_ontology_id", cl_id)
-            de.insert(5, "disease", _nl)
-            de.insert(6, "disease_ontology_id", _node)
-            de["rank"] = de["effect_size"].rank(ascending=False, method="dense").astype("Int64")
-            de["source"] = cellxgene.SOURCE_NAME
-            return de.reindex(columns=cellxgene.DE_COLUMNS)
+        # load this tissue's member leaf-DE parquets once (only diseases used by
+        # some rollup node), keyed by disease id
+        cols = [
+            "cell_ontology_id",
+            "cell_type_name",
+            "gene_symbol",
+            "gene_id",
+            "effect_size",
+            "log_fold_change",
+            "adjusted_p_value",
+        ]
+        leaf: dict[str, pd.DataFrame] = {}
+        for d in {d for p in nodes.values() for d in p}:
+            lp = leaf_root / f"{organism_id}__{_slug(tissue)}__{d}.parquet".replace(":", "-")
+            if lp.exists():
+                df = pd.read_parquet(lp, columns=cols)  # only what we aggregate
+                if not df.empty:
+                    df["disease_ontology_id"] = d  # stamp (older caches lack it)
+                    leaf[d] = df
 
-        with ThreadPoolExecutor(max_workers=max_workers) as pool:
-            got = [d for d in pool.map(_fetch, cell_map.items()) if d is not None and not d.empty]
-        pair_df = (
-            pd.concat(got, ignore_index=True) if got else pd.DataFrame(columns=cellxgene.DE_COLUMNS)
+        iterator = (
+            tqdm(nodes.items(), desc=f"rollup:{organism}:{tissue_label}", leave=False)
+            if progress
+            else nodes.items()
         )
-        pair_df.to_parquet(cache_path, index=False)
-        yield pair_df
+        for node, pooled in iterator:
+            cache_path = root / f"{organism_id}__{_slug(tissue)}__{node}.parquet".replace(":", "-")
+            if cache_path.exists() and not force:
+                yield pd.read_parquet(cache_path)
+                continue
+            members = [leaf[d] for d in pooled if d in leaf and not leaf[d].empty]
+            if not members:
+                continue
+            combined = pd.concat(members, ignore_index=True)
+            grouped = (
+                combined.groupby(key, dropna=False)
+                .agg(
+                    effect_size=("effect_size", agg),
+                    log_fold_change=("log_fold_change", agg),
+                    adjusted_p_value=("adjusted_p_value", agg),
+                    n_diseases=("disease_ontology_id", "nunique"),
+                )
+                .reset_index()
+            )
+            grouped["species"] = organism_label
+            grouped["tissue"] = tissue_label
+            grouped["tissue_ontology_id"] = tissue_id
+            grouped["disease"] = graph.nodes.get(node, {}).get("name", node)
+            grouped["disease_ontology_id"] = node
+            grouped["rank"] = (
+                grouped.groupby("cell_ontology_id", dropna=False)["effect_size"]
+                .rank(method="dense", ascending=False)
+                .astype("Int64")
+            )
+            out = grouped.reindex(columns=ROLLUP_COLUMNS)
+            out.to_parquet(cache_path, index=False)
+            yield out
 
 
 # ─── Dataset assembly + push ─────────────────────────────────────────────────
@@ -371,9 +377,7 @@ def build_dataset(
             for shard in _iter_disease_deg_rollup(species, cache_dir=cache_dir, force=force):
                 if shard.empty:
                     continue
-                shard = shard.reindex(columns=cellxgene.DE_COLUMNS).drop(
-                    columns=drop, errors="ignore"
-                )
+                shard = shard.drop(columns=["species", "source"], errors="ignore")
                 shard.to_parquet(sp_dir / f"part_{n_shards:04d}.parquet", index=False)
                 n_shards += 1
                 n_rows += len(shard)
@@ -514,12 +518,15 @@ from CELLxGENE's Differential Expression API. **Sharded** as one parquet per
 tested genes per contrast).
 
 ### Disease-category DEG (`disease_deg_rollup/<species>/`)
-The same disease-vs-normal contrast, but with diseases **rolled up the MONDO
-ontology**: for each MONDO node that pools ≥2 present diseases, all descendant
-diseases are combined into one case group vs normal (per cell type). This gives
-better-powered *category* vectors (e.g. all carcinoma subtypes vs normal). Same
-columns; `disease`/`disease_ontology_id` name the MONDO **category** node.
-Computed via grouped disease filters on the served DE API — no recomputation.
+Diseases **rolled up the MONDO ontology**: for each MONDO node that pools ≥2 of a
+tissue's diseases, the member diseases' leaf DE vectors are **aggregated locally**
+(median `effect_size` / `log_fold_change` / `adjusted_p_value` per gene × cell
+type) into a *category* signature — a fast meta-summary of vectors already in
+`disease_deg/`, not a re-run. `disease`/`disease_ontology_id` name the MONDO
+category; `n_diseases` = how many member diseases were aggregated. For a
+statistically rigorous *single pooled* contrast on a specific query, use
+`biodb.cellxgene.disease_vs_normal(..., include_descendants=True)` (re-queries the
+DE API with the descendant diseases as one case group).
 
 ## Row counts
 
