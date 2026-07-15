@@ -337,10 +337,19 @@ def build_dataset(
     # ``species`` (encoded in the file name), ``source`` (always "cellxgene"), and
     # ``marker_type`` (implied by the file) are dropped — see the dataset card.
     drop = ["species", "source", "marker_type"]
+
+    # A *gene vector* is one ranked gene list = a distinct grouping key. For
+    # markers that key is (tissue, cell type); each DEG shard is a single
+    # (tissue x disease) pair, so its vector count is its distinct cell types.
+    def _marker_vectors(df: pd.DataFrame) -> int:
+        cols = [c for c in ("tissue", "cell_ontology_id") if c in df.columns]
+        return int(df[cols].drop_duplicates().shape[0]) if cols else 0
+
     markers = build_markers(cache_dir=cache_dir, force=force)
     canonical = markers["canonical"].dropna(axis=1, how="all").drop(columns=drop, errors="ignore")
     canonical.to_parquet(out / "markers" / "canonical.parquet", index=False)
     written = {"canonical": len(canonical)}
+    vectors = {"canonical": _marker_vectors(canonical)}
     for species in organisms:
         if species in markers:
             # per-species file (species inferred from the name); also drop the
@@ -350,13 +359,15 @@ def build_dataset(
                 out / "markers" / f"computational_{_slug(species)}.parquet", index=False
             )
             written[species] = len(comp)
+            vectors[species] = _marker_vectors(comp)
 
     deg_written: dict[str, int] = {}
+    deg_vectors: dict[str, int] = {}
     if include_deg:
         for species in organisms:
             sp_dir = out / "disease_deg" / _slug(species)
             sp_dir.mkdir(parents=True, exist_ok=True)
-            n_shards = n_rows = 0
+            n_shards = n_rows = n_vec = 0
             for shard in _iter_disease_deg(species, cache_dir=cache_dir, force=force):
                 if shard.empty:
                     continue
@@ -366,14 +377,17 @@ def build_dataset(
                 shard.to_parquet(sp_dir / f"part_{n_shards:04d}.parquet", index=False)
                 n_shards += 1
                 n_rows += len(shard)
+                n_vec += int(shard["cell_ontology_id"].nunique())
             deg_written[species] = n_rows
+            deg_vectors[species] = n_vec
 
     rollup_written: dict[str, int] = {}
+    rollup_vectors: dict[str, int] = {}
     if include_deg_rollup:
         for species in organisms:
             sp_dir = out / "disease_deg_rollup" / _slug(species)
             sp_dir.mkdir(parents=True, exist_ok=True)
-            n_shards = n_rows = 0
+            n_shards = n_rows = n_vec = 0
             for shard in _iter_disease_deg_rollup(species, cache_dir=cache_dir, force=force):
                 if shard.empty:
                     continue
@@ -381,10 +395,21 @@ def build_dataset(
                 shard.to_parquet(sp_dir / f"part_{n_shards:04d}.parquet", index=False)
                 n_shards += 1
                 n_rows += len(shard)
+                n_vec += int(shard["cell_ontology_id"].nunique())
             rollup_written[species] = n_rows
+            rollup_vectors[species] = n_vec
 
     (out / "README.md").write_text(
-        _dataset_card(organisms, written, deg_written, rollup_written, include_deg),
+        _dataset_card(
+            organisms,
+            written,
+            deg_written,
+            rollup_written,
+            include_deg,
+            vectors,
+            deg_vectors,
+            rollup_vectors,
+        ),
         encoding="utf-8",
     )
     logger.info("Built biodb_cellxgene dataset at %s (%s)", out, written)
@@ -434,8 +459,14 @@ def _dataset_card(
     deg_written: dict[str, int],
     rollup_written: dict[str, int],
     include_deg: bool,
+    markers_vectors: dict[str, int] | None = None,
+    deg_vectors: dict[str, int] | None = None,
+    rollup_vectors: dict[str, int] | None = None,
 ) -> str:
     """Render the dataset-card README (YAML front matter + docs)."""
+    markers_vectors = markers_vectors or {}
+    deg_vectors = deg_vectors or {}
+    rollup_vectors = rollup_vectors or {}
     configs = [
         "  - config_name: canonical_markers\n    data_files: markers/canonical.parquet",
     ]
@@ -465,6 +496,36 @@ def _dataset_card(
             **{f"DEG-rollup {k}": v for k, v in rollup_written.items()},
         }.items()
     )
+
+    # Gene-vector counts: one ranked gene list per distinct grouping key.
+    marker_v = sum(markers_vectors.values())
+    leaf_v = sum(deg_vectors.values())
+    rollup_v = sum(rollup_vectors.values())
+    rows = [
+        ("**Marker genes**", "", f"**{marker_v:,}**"),
+        (
+            "&nbsp;&nbsp;↳ computational (per species)",
+            "tissue × cell type",
+            f"{sum(v for k, v in markers_vectors.items() if k != 'canonical'):,}",
+        ),
+        (
+            "&nbsp;&nbsp;↳ canonical",
+            "tissue × cell type",
+            f"{markers_vectors.get('canonical', 0):,}",
+        ),
+    ]
+    if deg_vectors:
+        rows.append(("**Disease DEG (leaf)**", "tissue × disease × cell type", f"**{leaf_v:,}**"))
+    if rollup_vectors:
+        rows.append(
+            (
+                "**Disease-category DEG (rollup)**",
+                "tissue × MONDO-category × cell type",
+                f"**{rollup_v:,}**",
+            )
+        )
+    rows.append(("**Total**", "", f"**{marker_v + leaf_v + rollup_v:,}**"))
+    vector_table = "\n".join(f"| {name} | {grp} | {n} |" for name, grp, n in rows)
     return f"""---
 license: cc-by-4.0
 language:
@@ -527,6 +588,16 @@ category; `n_diseases` = how many member diseases were aggregated. For a
 statistically rigorous *single pooled* contrast on a specific query, use
 `biodb.cellxgene.disease_vs_normal(..., include_descendants=True)` (re-queries the
 DE API with the descendant diseases as one case group).
+
+## Gene-vector counts
+
+A **gene vector** is one ranked/scored gene list keyed to a distinct grouping.
+Counts are per-provenance (leaf and rollup are counted separately; the rollup is
+a derived meta-summary of the leaf DEG, not new measurements).
+
+| Component | Grouping key | Vectors |
+|---|---|--:|
+{vector_table}
 
 ## Row counts
 
