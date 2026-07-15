@@ -211,6 +211,9 @@ def _iter_disease_deg_rollup(
     root = Path(cache_dir).expanduser() if cache_dir else cellxgene.CACHE_DIR / "disease_deg_rollup"
     root.mkdir(parents=True, exist_ok=True)
     graph = _mondo_graph()
+    # is_a subgraph only — the full MONDO graph also has xref/relationship edges
+    # (incl. non-MONDO URL nodes), which are not ontology ancestors.
+    isa = graph.edge_subgraph([(u, v, k) for u, v, k in graph.edges(keys=True) if k == "is_a"])
 
     tissue_list = tissues if tissues is not None else cellxgene.list_tissues(organism=organism)
     tasks: list[tuple[str, str, str, list[str]]] = []  # (tissue, node, node_label, pooled ids)
@@ -221,10 +224,11 @@ def _iter_disease_deg_rollup(
         }
         node_pool: dict[str, set[str]] = {}
         for d in present:
-            if d not in graph:
+            if d not in isa:
                 continue
-            for node in {d, *nx.descendants(graph, d)}:  # d + its MONDO ancestors
-                node_pool.setdefault(node, set()).add(d)
+            for node in {d, *nx.descendants(isa, d)}:  # d + its is_a MONDO ancestors
+                if str(node).startswith("MONDO:"):  # drop xref / non-MONDO nodes
+                    node_pool.setdefault(node, set()).add(d)
         for node, pooled in node_pool.items():
             if len(pooled) < min_pool:
                 continue  # only genuine multi-disease aggregations
