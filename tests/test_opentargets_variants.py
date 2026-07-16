@@ -136,5 +136,6 @@ def test_get_credible_set_live_schema():
         if any(s in msg for s in ("timeout", "connection", "502", "503", "504")):
             _pytest.skip(f"upstream OT outage: {exc}")
         raise
+    assert out.height > 0  # guard: an empty frame makes the .all() below vacuous
     assert {"variantId", "pip", "beta", "studyType"}.issubset(out.columns)
     assert (out["studyType"] == "gwas").all()

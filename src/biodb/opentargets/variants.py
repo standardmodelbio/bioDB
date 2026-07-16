@@ -39,6 +39,14 @@ def get_credible_set(
     length. ``studyType`` is not present in ``credible_set`` itself; pass
     ``study_type`` to join it from the ``study`` dataset and filter.
 
+    .. note::
+       ``pip`` is ``locus[0].posteriorProbability`` -- the posterior of the
+       *first* tag variant in the credible set, which equals the lead
+       variant's PIP only when OT emits ``locus`` sorted by posterior (the
+       usual gentropy output, but not a guaranteed contract). Consumers that
+       need the lead-variant PIP specifically should not assume the row's
+       top-level ``variantId`` and ``pip`` refer to the same variant.
+
     Parameters
     ----------
     version : str
