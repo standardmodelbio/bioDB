@@ -195,8 +195,6 @@ query Disease($efoId: String!, $assocSize: Int!, $phenoSize: Int!) {
       count
       rows {
         score
-        noveltyDirect
-        noveltyIndirect
         datatypeScores { id score }
         target { id approvedSymbol approvedName biotype }
       }
@@ -225,8 +223,8 @@ query Drug($chemblId: String!, $aeSize: Int!) {
     description
     drugType
     maximumClinicalStage
-    tradeNames
-    synonyms
+    tradeNames { label source }
+    synonyms { label source }
     crossReferences { source ids }
     drugWarnings {
       id
