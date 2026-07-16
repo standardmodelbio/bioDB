@@ -80,3 +80,44 @@ def test_get_credible_set_study_type_filter(credible_set_fixture, study_fixture,
     assert out.height == 1
     assert out["studyId"][0] == "GCST001"
     assert out["studyType"][0] == "gwas"
+
+
+@pytest.fixture
+def variant_fixture(tmp_path):
+    """A tiny `variant` shard with the nested `variantEffect` list-of-struct column."""
+    df = pl.DataFrame(
+        {
+            "variantId": ["1_100_A_T", "2_200_C_G"],
+            "variantEffect": [
+                [
+                    {"method": "SIFT", "normalisedScore": 0.9},
+                    {"method": "PolyPhen", "normalisedScore": 0.5},
+                ],
+                [{"method": "AlphaMissense", "normalisedScore": -0.2}],
+            ],
+        }
+    )
+    path = tmp_path / "variant-0.parquet"
+    df.write_parquet(path)
+    return path
+
+
+def test_get_variant_effects_max(variant_fixture, monkeypatch):
+    monkeypatch.setattr(variants, "ensure_cached_shards", lambda *a, **k: [variant_fixture])
+    out = variants.get_variant_effects(aggregate="max")
+    assert out.columns == ["variantId", "vep_score"]
+    row = out.filter(pl.col("variantId") == "1_100_A_T")
+    assert abs(row["vep_score"][0] - 0.9) < 1e-6
+
+
+def test_get_variant_effects_mean(variant_fixture, monkeypatch):
+    monkeypatch.setattr(variants, "ensure_cached_shards", lambda *a, **k: [variant_fixture])
+    out = variants.get_variant_effects(aggregate="mean")
+    row = out.filter(pl.col("variantId") == "1_100_A_T")
+    assert abs(row["vep_score"][0] - 0.7) < 1e-6
+
+
+def test_get_variant_effects_bad_aggregate(variant_fixture, monkeypatch):
+    monkeypatch.setattr(variants, "ensure_cached_shards", lambda *a, **k: [variant_fixture])
+    with pytest.raises(ValueError, match="aggregate"):
+        variants.get_variant_effects(aggregate="bogus")

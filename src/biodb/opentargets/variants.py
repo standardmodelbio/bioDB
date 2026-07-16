@@ -69,3 +69,48 @@ def get_credible_set(
         out = studies.attach_study_type(out, study_df)
         out = out.filter(pl.col("studyType").is_in(wanted))
     return out
+
+
+_VEP_AGGREGATES = {"max", "mean", "median"}
+
+
+def get_variant_effects(
+    *,
+    version: str = DEFAULT_VERSION,
+    aggregate: str = "max",
+    cache_dir: str | Path | None = None,
+    limit_files: int | None = None,
+) -> pl.DataFrame:
+    """Per-variant VEP-style deleteriousness score from the OT ``variant`` dataset.
+
+    OT ships one ``normalisedScore`` (on a −1…+1 axis) per predictor method
+    inside the ``variantEffect`` list-of-struct column, but no single scalar.
+    This aggregates them per variant.
+
+    Parameters
+    ----------
+    aggregate : {"max", "mean", "median"}
+        How to combine predictor scores. ``"max"`` (default) takes the most
+        deleterious predictor.
+
+    Returns
+    -------
+    polars.DataFrame with columns ``variantId, vep_score``.
+    """
+    if aggregate not in _VEP_AGGREGATES:
+        raise ValueError(f"aggregate must be one of {sorted(_VEP_AGGREGATES)}, got {aggregate!r}")
+    shards = ensure_cached_shards(
+        "variant", version=version, cache_dir=cache_dir, limit_files=limit_files
+    )
+    lazy = pl.concat([pl.scan_parquet(p) for p in shards])
+    score = (
+        pl.col("variantEffect")
+        .list.eval(pl.element().struct.field("normalisedScore"))
+        .alias("_scores")
+    )
+    agg = {
+        "max": pl.col("_scores").list.max(),
+        "mean": pl.col("_scores").list.mean(),
+        "median": pl.col("_scores").list.median(),
+    }[aggregate]
+    return lazy.select("variantId", score).select("variantId", agg.alias("vep_score")).collect()
