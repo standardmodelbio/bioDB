@@ -53,7 +53,7 @@ Seven modules under `src/biodb/`, split between **vendored AoU ports** (heavy, f
 
 | Module | Role | Notes |
 |---|---|---|
-| `opentargets.py` | Open Targets **FTP/bulk** mode — `list_datasets`, `get_dataset`, `ensure_cached_shards`, parquet readers, gene-association matrix builders, pathway/expression/essentiality helpers. | Uses `gget` as a runtime backend for some paths (opt-in `[gget]` extra). 4.6k lines, **vendored**. |
+| `opentargets/` | Open Targets **FTP/bulk** mode — now a **package**: `_bulk.py` is the original flat-module surface (`list_datasets`, `get_dataset`, `ensure_cached_shards`, parquet readers, gene-association matrix builders, pathway/expression/essentiality helpers); `variants.py` and `studies.py` are first-party submodules built on `_bulk.ensure_cached_shards`. | `_bulk.py` uses `gget` as a runtime backend for some paths (opt-in `[gget]` extra). 4.6k lines, **vendored**. `variants.py` — first-party: `get_credible_set` (variant coords + beta + p-value + pip + credibleSetSize, with optional `studyType` join/filter) and `get_variant_effects` (per-variant `vep_score` aggregated from `variantEffect[*].normalisedScore`). `studies.py` — first-party: `get_study` (studyId/studyType/traitFromSource/projectId/nSamples) and `attach_study_type` (left-joins `studyType` onto another frame). `opentargets/__init__.py` re-exports every `_bulk` name (public and private) programmatically so existing `from biodb.opentargets import get_dataset`-style imports are unaffected by the package split. |
 | `opentargets_graphql.py` | Open Targets **API/targeted** mode — `query_target`, `query_disease`, `query_drug`, `query_variant`. | Independent `httpx`-based GraphQL client with exponential backoff. Intentionally separate from `opentargets.py` so the lightweight query path has no `gget` dep. First-party. Note: `httpx` is currently **not declared** in `pyproject.toml` — known bug, fix when next touching the file. |
 | `monarch.py` | Monarch Initiative TSV association readers. | API mode is the `🚧` stub. **Vendored**. |
 | `ontology.py` | OBO/OWL loaders, N-hop keyword-set expansion, hierarchical keyword sets, attention-weight analysis, gene-phenotype matrix, ontological similarity, **plus** the generic owlready2 primitives that work for any OBO Foundry OWL file (`get_ontology`, `get_descendants`, `get_ancestors`, `get_mrca`, …) — formerly in `ontology_owl.py`, merged here per user directive. | ~5.6k lines, **vendored** (AoU port + appended owl helpers). `matplotlib` / `datashader` / `owlready2` are lazy-imported only when needed. |
@@ -71,21 +71,21 @@ Seven modules under `src/biodb/`, split between **vendored AoU ports** (heavy, f
 
 ### Vendored AoU modules — important convention
 
-`opentargets.py`, `monarch.py`, and `ontology.py` are **verbatim ports from `AoU.phenome`** (~13,900 lines total). They are configured in `pyproject.toml` as out-of-bounds for both ruff and coverage:
+`opentargets/_bulk.py`, `monarch.py`, and `ontology.py` are **verbatim ports from `AoU.phenome`** (~13,900 lines total). They are configured in `pyproject.toml` as out-of-bounds for both ruff and coverage:
 
 ```toml
 [tool.ruff]
-extend-exclude = ["src/biodb/opentargets.py", "src/biodb/monarch.py", "src/biodb/ontology.py"]
+extend-exclude = ["src/biodb/opentargets/_bulk.py", "src/biodb/monarch.py", "src/biodb/ontology.py"]
 
 [tool.coverage.run]
-omit = ["src/biodb/opentargets.py", "src/biodb/monarch.py", "src/biodb/ontology.py"]
+omit = ["src/biodb/opentargets/_bulk.py", "src/biodb/monarch.py", "src/biodb/ontology.py"]
 ```
 
 The reason is stated inline: *"Treat as third-party — style fixes belong upstream in AoU, not here."* When editing these modules:
 
 - Don't reflow / reformat for style — keep diffs minimal so re-syncing from AoU stays cheap.
 - Tests (`tests/test_opentargets.py`, etc.) intentionally only cover the import surface and public-function signatures — live-network behaviour is not exercised in CI.
-- `utils.py`, `opentargets_graphql.py`, `ontology_owl.py`, and `uniprot.py` are *not* vendored — they're held to the full ruff ruleset and the full coverage report. When adding **new** first-party functionality, prefer a sibling module to editing a vendored one.
+- `utils.py`, `opentargets_graphql.py`, `opentargets/variants.py`, `opentargets/studies.py`, `ontology_owl.py`, and `uniprot.py` are *not* vendored — they're held to the full ruff ruleset and the full coverage report. When adding **new** first-party functionality, prefer a sibling module to editing a vendored one.
 
 ### Caching
 

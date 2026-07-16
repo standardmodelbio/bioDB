@@ -159,7 +159,7 @@ omit = [
     # that are unreachable without live network access or optional
     # heavy deps. The CPU/no-net CI exercises the import surface +
     # signature shape only.
-    "src/biodb/opentargets.py",
+    "src/biodb/opentargets/_bulk.py",
     "src/biodb/monarch.py",
     "src/biodb/ontology.py",
     "src/biodb/clinvar.py",
@@ -184,7 +184,7 @@ extend-exclude = [
     # Vendored ports of AoU.phenome.{opentargets,monarch,ontology} +
     # VEP_protein.clinvar — treat as third-party (style fixes belong
     # upstream, not here).
-    "src/biodb/opentargets.py",
+    "src/biodb/opentargets/_bulk.py",
     "src/biodb/monarch.py",
     "src/biodb/ontology.py",
     "src/biodb/clinvar.py",
