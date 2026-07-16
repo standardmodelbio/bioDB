@@ -121,3 +121,20 @@ def test_get_variant_effects_bad_aggregate(variant_fixture, monkeypatch):
     monkeypatch.setattr(variants, "ensure_cached_shards", lambda *a, **k: [variant_fixture])
     with pytest.raises(ValueError, match="aggregate"):
         variants.get_variant_effects(aggregate="bogus")
+
+
+@pytest.mark.network
+@pytest.mark.slow
+def test_get_credible_set_live_schema():
+    """Live OT read (1 shard) — asserts the real schema still parses."""
+    try:
+        out = variants.get_credible_set(study_type="gwas", limit_files=1)
+    except Exception as exc:  # noqa: BLE001
+        import pytest as _pytest
+
+        msg = str(exc).lower()
+        if any(s in msg for s in ("timeout", "connection", "502", "503", "504")):
+            _pytest.skip(f"upstream OT outage: {exc}")
+        raise
+    assert {"variantId", "pip", "beta", "studyType"}.issubset(out.columns)
+    assert (out["studyType"] == "gwas").all()
