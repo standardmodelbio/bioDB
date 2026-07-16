@@ -195,6 +195,7 @@ query Disease($efoId: String!, $assocSize: Int!, $phenoSize: Int!) {
       count
       rows {
         score
+        novelty
         datatypeScores { id score }
         target { id approvedSymbol approvedName biotype }
       }
