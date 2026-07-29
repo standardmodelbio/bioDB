@@ -52,6 +52,9 @@ Module map:
   (tested pairs with matched negatives) as a labelled pair table.
 * :mod:`biodb.rfam` -- Rfam RNA family models, seed alignments, and
   Infernal-based genome annotation with per-hit consensus structures.
+* :mod:`biodb.orphanet` -- Orphanet rare-disease epidemiology
+  (Orphadata ``en_product9_prev``, CC-BY-4.0): per-ORPHAcode prevalence
+  band → per-individual K for liability-threshold effect modeling.
 * :mod:`biodb.string` -- STRING database physical PPI edges with
   continuous combined-score weights (``download_physical_links``,
   ``load_physical_links``, ``physical_ppi_edges``). The physical
@@ -86,6 +89,7 @@ from biodb import (
     ontology_owl,
     opentargets,
     opentargets_graphql,
+    orphanet,
     panukbb,
     pubmed,
     rfam,
@@ -248,6 +252,7 @@ __all__ = [
     "ontology_owl",
     "opentargets",
     "opentargets_graphql",
+    "orphanet",
     "panukbb",
     "pubmed",
     "rfam",
