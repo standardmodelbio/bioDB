@@ -45,6 +45,7 @@ Each source module aims to provide **both** modes, so you can prototype against 
 
 ### Cross-cutting helpers
 
+* [`biodb.intervals`](src/biodb/intervals.py) — `read_bed` / `to_bed`, `overlap_join`, `nearest`, `merge` — 0-based half-open GRCh38 interval joins shared by the coordinate sources (no liftover by design)
 * [`biodb.mapping`](src/biodb/mapping.py) — `map_gene_ids` — gProfiler-backed cross-namespace gene-ID conversion (Ensembl ↔ HGNC ↔ Entrez ↔ UniProt …)
 * [`biodb.transform`](src/biodb/transform.py) — `create_gene_association_matrix` — pivot a long `(sourceId, targetId, score)` DataFrame into a sparse/dense (samples × genes) matrix with AnnData-shaped metadata
 * [`biodb.utils`](src/biodb/utils.py) — `read_gmt` (GMT format reader used by MSigDB / Harmonizome / gProfiler), `filter_adaptive` (per-sample top-percentile keep), similarity helpers

@@ -45,6 +45,8 @@ the full All-of-Us pipeline.
   (`gene_sets` / `aggregate_gene_sets` / `to_gmt`) and embeddable panel
   text (`panel_text`) with a `support_count` importance prior. See
   [Querying genetic tests with GTR](gtr.md).
+- **`intervals`** — genomic-interval helpers: BED I/O, overlap joins, nearest
+  neighbour, merge; 0-based half-open, GRCh38, no liftover.
 - **`string`** — STRING protein–protein interaction client. Bulk physical
   sub-network (direct-binding) edges keyed by gene symbol with continuous
   combined-score weights (`download_physical_links`, `load_physical_links`,

@@ -13,6 +13,7 @@ API Reference
    ontology
    uniprot
    harmonizome
+   intervals
    clinvar
    gwas_atlas
    aou_allxall

@@ -9,6 +9,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+* `biodb.intervals` — BED I/O and interval joins (`read_bed`, `to_bed`,
+  `overlap_join`, `nearest`, `merge`) on 0-based half-open `chrom`/`start`/`end`
+  polars frames; the cross-cutting helper the coordinate sources share.
 * `ols.find_terms` / `ols.find_term` — ranked term lookup wrapping the
   existing Solr-backed `search` with a deterministic exact-label /
   exact-synonym / prefix / regex re-ranker. Adds an explicit
