@@ -9,6 +9,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+* `biodb.ensembl_compara` — Ensembl Compara homology dumps (`download_homologies`,
+  `load_homologies`) and the human paralogue catalogue derived from them:
+  `paralog_pairs` (unordered, deduplicated, `within_species_paralog` +
+  `other_paralog`, optional two-sided identity floor) and `paralog_families`
+  (connected components of the paralogue graph, the exclusion set a
+  coevolution or co-function benchmark needs).
+
 * `ols.find_terms` / `ols.find_term` — ranked term lookup wrapping the
   existing Solr-backed `search` with a deterministic exact-label /
   exact-synonym / prefix / regex re-ranker. Adds an explicit

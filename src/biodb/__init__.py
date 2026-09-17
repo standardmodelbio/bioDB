@@ -27,6 +27,9 @@ Module map:
   (~3,600 phenotypes × ~414k WGS participants); public-API client for
   per-phenotype gene-burden tables (pLoF/missenseLC/synonymous) with
   concurrent bulk download + consolidated Parquet output.
+* :mod:`biodb.ensembl_compara` -- Ensembl Compara homology dumps: the
+  human paralogue catalogue as deduplicated gene pairs and as connected
+  families (``paralog_pairs``, ``paralog_families``), plus the raw table.
 * :mod:`biodb.string` -- STRING database physical PPI edges with
   continuous combined-score weights (``download_physical_links``,
   ``load_physical_links``, ``physical_ppi_edges``). The physical
@@ -41,6 +44,7 @@ similarity helpers, token counting, ``create_gene_association_matrix``,
 from biodb import (
     aou_allxall,
     clinvar,
+    ensembl_compara,
     gprofiler,
     gtr,
     gwas_atlas,

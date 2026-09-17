@@ -20,6 +20,7 @@ API Reference
    gprofiler
    gtr
    msigdb
+   ensembl_compara
    mapping
    transform
    utils
