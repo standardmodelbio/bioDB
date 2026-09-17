@@ -225,6 +225,7 @@ __all__ = [
     "set_random_seed",
     "simplify_annotations",
     "snomed",
+    "ensembl_compara",
     "string",
     "string_physical_ppi_edges",
     "transform",
