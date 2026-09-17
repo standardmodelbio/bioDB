@@ -27,6 +27,11 @@ Module map:
   (~3,600 phenotypes × ~414k WGS participants); public-API client for
   per-phenotype gene-burden tables (pLoF/missenseLC/synonymous) with
   concurrent bulk download + consolidated Parquet output.
+* :mod:`biodb.constraint_tracks` -- per-base constraint: UCSC phyloP /
+  phastCons bigWigs (241-, 100-, 447-, 470-way) read in place over HTTPS,
+  and GPN-Star calibrated entropy / LLR Parquet shards at a pinned Hub
+  revision (``open_track``, ``score_intervals``, ``score_positions``,
+  ``load_gpn_star``).
 * :mod:`biodb.string` -- STRING database physical PPI edges with
   continuous combined-score weights (``download_physical_links``,
   ``load_physical_links``, ``physical_ppi_edges``). The physical
@@ -41,6 +46,7 @@ similarity helpers, token counting, ``create_gene_association_matrix``,
 from biodb import (
     aou_allxall,
     clinvar,
+    constraint_tracks,
     gprofiler,
     gtr,
     gwas_atlas,

@@ -9,6 +9,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+* `biodb.constraint_tracks` — per-base constraint tracks. `TRACKS` pins the
+  UCSC phyloP / phastCons bigWigs for hg38 (Zoonomia 241-way, 100-way,
+  447-way whole and primates-only, 470-way) and GPN-Star's entropy bigWigs;
+  `open_track` reads any of them in place over HTTPS (pyBigWig, `[bigwig]`
+  extra) and `score_intervals` / `score_positions` pull only the bases
+  asked for. `download_gpn_star` / `load_gpn_star` read GPN-Star's
+  canonical per-chromosome Parquet shards (`entropy_calibrated`,
+  `llr_calibrated`, `abs_llr_calibrated`) at a pinned dataset revision,
+  keeping the published 1-based `pos` beside a derived 0-based `start`.
+
 * `ols.find_terms` / `ols.find_term` — ranked term lookup wrapping the
   existing Solr-backed `search` with a deterministic exact-label /
   exact-synonym / prefix / regex re-ranker. Adds an explicit
