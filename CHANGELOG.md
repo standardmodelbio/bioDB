@@ -9,6 +9,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+* `biodb.encode_re2g` — ENCODE-rE2G CRISPRi enhancer–gene benchmark:
+  `download_crispri_benchmark` / `load_crispri_benchmark` (the published
+  `EPCrisprBenchmark_ensemble_data_GRCh38.tsv`, pinned to a repository
+  revision) and `crispri_pairs` (one labelled row per tested element–gene
+  pair, 0-based half-open GRCh38, with TSS distance).
 * `ols.find_terms` / `ols.find_term` — ranked term lookup wrapping the
   existing Solr-backed `search` with a deterministic exact-label /
   exact-synonym / prefix / regex re-ranker. Adds an explicit

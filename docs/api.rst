@@ -14,6 +14,7 @@ API Reference
    uniprot
    harmonizome
    clinvar
+   encode_re2g
    gwas_atlas
    aou_allxall
    omicspred
