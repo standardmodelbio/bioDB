@@ -27,6 +27,9 @@ Module map:
   (~3,600 phenotypes × ~414k WGS participants); public-API client for
   per-phenotype gene-burden tables (pLoF/missenseLC/synonymous) with
   concurrent bulk download + consolidated Parquet output.
+* :mod:`biodb.traitgym` -- TraitGym causal-variant benchmarks (Mendelian and
+  complex-trait positives with matched negatives) and their precomputed
+  feature tables, at a pinned Hub revision.
 * :mod:`biodb.string` -- STRING database physical PPI edges with
   continuous combined-score weights (``download_physical_links``,
   ``load_physical_links``, ``physical_ppi_edges``). The physical
@@ -58,6 +61,7 @@ from biodb import (
     pubmed,
     snomed,
     string,
+    traitgym,
     transform,
     uniprot,
     utils,
@@ -223,6 +227,7 @@ __all__ = [
     "snomed",
     "string",
     "string_physical_ppi_edges",
+    "traitgym",
     "transform",
     "uniprot",
     "utils",

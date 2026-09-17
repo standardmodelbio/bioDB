@@ -9,6 +9,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+* `biodb.traitgym` — TraitGym causal-variant benchmarks: `download_split` /
+  `load_variants` (chrom normalised to `chrN`), `list_features` and
+  `load_feature` (row-aligned predictor features such as `GPN-MSA_absLLR`),
+  read from the Hub at a pinned dataset revision over plain HTTPS.
 * `ols.find_terms` / `ols.find_term` — ranked term lookup wrapping the
   existing Solr-backed `search` with a deterministic exact-label /
   exact-synonym / prefix / regex re-ranker. Adds an explicit

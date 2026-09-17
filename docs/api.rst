@@ -21,5 +21,6 @@ API Reference
    gtr
    msigdb
    mapping
+   traitgym
    transform
    utils
