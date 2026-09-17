@@ -9,6 +9,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+* `biodb.corum` — CORUM protein complexes through the public FastAPI:
+  `list_releases`, `download_complexes` / `load_complexes` (current or an
+  archived version, human or complete), and `complex_pairs` (every
+  unordered pair of subunit gene symbols per complex).
 * `ols.find_terms` / `ols.find_term` — ranked term lookup wrapping the
   existing Solr-backed `search` with a deterministic exact-label /
   exact-synonym / prefix / regex re-ranker. Adds an explicit

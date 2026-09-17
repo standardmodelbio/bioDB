@@ -45,6 +45,8 @@ the full All-of-Us pipeline.
   (`gene_sets` / `aggregate_gene_sets` / `to_gmt`) and embeddable panel
   text (`panel_text`) with a `support_count` importance prior. See
   [Querying genetic tests with GTR](gtr.md).
+- **`corum`** — CORUM curated protein complexes, current or archived release,
+  and the co-complex gene-pair table they imply.
 - **`string`** — STRING protein–protein interaction client. Bulk physical
   sub-network (direct-binding) edges keyed by gene symbol with continuous
   combined-score weights (`download_physical_links`, `load_physical_links`,

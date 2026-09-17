@@ -14,6 +14,7 @@ API Reference
    uniprot
    harmonizome
    clinvar
+   corum
    gwas_atlas
    aou_allxall
    omicspred

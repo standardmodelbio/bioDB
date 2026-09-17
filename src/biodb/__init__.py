@@ -27,6 +27,8 @@ Module map:
   (~3,600 phenotypes × ~414k WGS participants); public-API client for
   per-phenotype gene-burden tables (pLoF/missenseLC/synonymous) with
   concurrent bulk download + consolidated Parquet output.
+* :mod:`biodb.corum` -- CORUM curated protein complexes as co-complex
+  gene pairs, current or by archived release.
 * :mod:`biodb.string` -- STRING database physical PPI edges with
   continuous combined-score weights (``download_physical_links``,
   ``load_physical_links``, ``physical_ppi_edges``). The physical
@@ -41,6 +43,7 @@ similarity helpers, token counting, ``create_gene_association_matrix``,
 from biodb import (
     aou_allxall,
     clinvar,
+    corum,
     gprofiler,
     gtr,
     gwas_atlas,
@@ -160,6 +163,7 @@ __all__ = [
     "aou_allxall",
     "bed_to_sites",
     "clinvar",
+    "corum",
     "cosine_similarity",
     "count_tokens",
     "create_gene_association_matrix",
