@@ -27,6 +27,9 @@ Module map:
   (~3,600 phenotypes × ~414k WGS participants); public-API client for
   per-phenotype gene-burden tables (pLoF/missenseLC/synonymous) with
   concurrent bulk download + consolidated Parquet output.
+* :mod:`biodb.coessentiality` -- the Wainberg et al. 2021 co-essential
+  network from DepMap CRISPR screens (GLS p-value matrices, memory-mapped):
+  ``coessential_pairs`` at a BH FDR, ``pair_p_values`` for explicit pairs.
 * :mod:`biodb.string` -- STRING database physical PPI edges with
   continuous combined-score weights (``download_physical_links``,
   ``load_physical_links``, ``physical_ppi_edges``). The physical
@@ -41,6 +44,7 @@ similarity helpers, token counting, ``create_gene_association_matrix``,
 from biodb import (
     aou_allxall,
     clinvar,
+    coessentiality,
     gprofiler,
     gtr,
     gwas_atlas,

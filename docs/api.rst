@@ -20,6 +20,7 @@ API Reference
    gprofiler
    gtr
    msigdb
+   coessentiality
    mapping
    transform
    utils
