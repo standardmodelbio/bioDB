@@ -227,6 +227,7 @@ __all__ = [
     "set_random_seed",
     "simplify_annotations",
     "snomed",
+    "constraint_tracks",
     "string",
     "string_physical_ppi_edges",
     "transform",
