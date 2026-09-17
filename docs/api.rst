@@ -15,6 +15,7 @@ API Reference
    harmonizome
    clinvar
    gwas_atlas
+   rfam
    aou_allxall
    omicspred
    gprofiler
