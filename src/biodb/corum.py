@@ -35,6 +35,7 @@ Examples
 
 from __future__ import annotations
 
+import csv
 import logging
 from itertools import combinations
 from pathlib import Path
@@ -124,13 +125,24 @@ def load_complexes(
     path = download_complexes(
         file_id=file_id, version=version, cache_dir=cache_dir, force=force, progress=progress
     )
-    frame = pl.read_csv(
-        path,
-        separator="\t",
-        quote_char=None,
-        infer_schema_length=0,
-        null_values=[""],
-        encoding="utf8-lossy",
+    # Free-text columns (comments, drug annotations) carry newlines inside
+    # quoted cells, so the file is a tab-separated CSV dialect rather than one
+    # row per line; the standard csv reader is what parses it faithfully.
+    # Short rows are padded and long rows truncated to the header.
+    with path.open(encoding="utf-8", errors="replace", newline="") as handle:
+        reader = csv.reader(handle, delimiter="\t", quotechar='"')
+        header = next(reader)
+        width = len(header)
+        rows = []
+        for fields in reader:
+            if not fields:
+                continue
+            if len(fields) < width:
+                fields = fields + [""] * (width - len(fields))
+            rows.append(fields[:width])
+    frame = pl.DataFrame(
+        {name: [row[i] or None for row in rows] for i, name in enumerate(header)},
+        schema={name: pl.Utf8 for name in header},
     )
     frame = frame.with_columns(pl.col("complex_id").cast(pl.Int64))
     logger.info("Loaded %d CORUM complexes from %s", frame.height, path.name)

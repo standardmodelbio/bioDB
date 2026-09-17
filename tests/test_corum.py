@@ -35,6 +35,11 @@ def _text() -> str:
                 _row(3, "Mouse thing", "Mouse", "X;Y"),
                 _row(4, "Solo", "Human", "ONLY"),
                 _row(5, "Repeat", "Human", "BCL6;HDAC4;HDAC4"),
+                # A quoted multi-line comment, as the real file has.
+                _row(6, "Multiline", "Human", "P;Q").replace(
+                    "\t1\t", '\t1\t"first line\nsecond line"\t', 1
+                ),
+                "7\tShort\t\tHuman",
             ]
         )
         + "\n"
@@ -62,7 +67,9 @@ def test_urls_distinguish_current_and_archived() -> None:
 def test_load_and_pairs(tmp_path: Path) -> None:
     responses.add(responses.GET, corum._download_url("human", "5.3"), body=_text(), status=200)
     frame = corum.load_complexes(version="5.3", cache_dir=tmp_path, progress=False)
-    assert frame.height == 5 and frame.schema["complex_id"] == pl.Int64
+    assert frame.height == 7 and frame.schema["complex_id"] == pl.Int64
+    assert "second line" in frame.filter(pl.col("complex_id") == 6)["comment_complex"].item()
+    assert frame.filter(pl.col("complex_id") == 7)["subunits_gene_name"].item() is None
     assert (tmp_path / "5.3" / "corum_humanComplexes.txt").exists()
 
     pairs = corum.complex_pairs(version="5.3", cache_dir=tmp_path, progress=False)
@@ -75,8 +82,9 @@ def test_load_and_pairs(tmp_path: Path) -> None:
     assert bool((pairs["gene_a"] < pairs["gene_b"]).all())
     repeat = pairs.filter(pl.col("complex_id") == 5)
     assert repeat.height == 1 and repeat["subunits"].item() == 2
+    assert pairs.filter(pl.col("complex_id") == 6).height == 1  # the multi-line row parses
     assert (
-        pairs.unique(["gene_a", "gene_b"]).height == 4
+        pairs.unique(["gene_a", "gene_b"]).height == 5
     )  # BCL6-HDAC4 once across complexes 1 and 5
     assert len(responses.calls) == 1
 
