@@ -160,7 +160,10 @@ def crispri_pairs(
     cell_type : str, optional
         Keep only this ``CellType`` (default ``"K562"``; ``None`` keeps all).
     valid_only : bool
-        Keep only rows the source marks ``ValidConnection`` (default True).
+        Keep only rows the source marks ``ValidConnection`` *and* that carry a
+        ``Regulated`` verdict (default True). One Gasperini2019 row
+        (RP1-40E16.9, chr6) is ``ValidConnection`` with ``Regulated = NA``; a
+        tested pair without a verdict is neither a positive nor a negative.
 
     Returns
     -------
@@ -178,7 +181,7 @@ def crispri_pairs(
     if cell_type is not None:
         frame = frame.filter(pl.col("CellType") == cell_type)
     if valid_only and "ValidConnection" in frame.columns:
-        frame = frame.filter(pl.col("ValidConnection"))
+        frame = frame.filter(pl.col("ValidConnection") & pl.col("Regulated").is_not_null())
     midpoint = (pl.col("chromStart") + pl.col("chromEnd")) // 2
     return frame.select(
         pl.col("chrom"),

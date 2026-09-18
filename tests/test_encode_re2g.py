@@ -43,6 +43,8 @@ def _text() -> str:
         _row("chr1", 100, 600, "GENEC", "NA", "FALSE"),
         _row("chr19", 3000, 3500, "GENED", 4000, "TRUE", cell="HCT116"),
         _row("chr19", 4000, 4500, "GENEE", 8000, "FALSE", valid="FALSE"),
+        # Valid but with no verdict, like Gasperini2019's RP1-40E16.9 row.
+        _row("chr6", 3202858, 3203698, "GENEF", 3195755, "NA"),
     ]
     return "\n".join(rows) + "\n"
 
@@ -68,18 +70,21 @@ def test_download_and_load_are_cached_and_typed(tmp_path: Path) -> None:
     frame = encode_re2g.load_crispri_benchmark(
         revision="abc123", cache_dir=tmp_path, progress=False
     )
-    assert frame.height == 5
+    assert frame.height == 6
     assert frame.schema["chromStart"] == pl.Int64 and frame.schema["startTSS"] == pl.Int64
     assert frame.schema["Regulated"] == pl.Boolean and frame.schema["ValidConnection"] == pl.Boolean
-    assert frame["startTSS"].null_count() == 1  # the NA row
+    assert frame["startTSS"].null_count() == 1  # the NA TSS row
+    assert frame["Regulated"].null_count() == 1  # the NA verdict row stays null, not False
 
 
 @responses.activate
 def test_crispri_pairs_labels_filters_and_distances(tmp_path: Path) -> None:
     responses.add(responses.GET, encode_re2g._benchmark_url("abc123"), body=_text(), status=200)
     pairs = encode_re2g.crispri_pairs(revision="abc123", cache_dir=tmp_path, progress=False)
-    # K562 and valid only: drops the HCT116 row and the ValidConnection=FALSE row.
+    # K562 and valid only: drops the HCT116 row, the ValidConnection=FALSE row
+    # and the row whose Regulated is NA (a null label is not a negative).
     assert pairs.height == 3
+    assert pairs["label"].null_count() == 0
     assert pairs.columns[:7] == ["chrom", "start", "end", "gene", "tss_chrom", "tss", "label"]
     assert pairs["label"].to_list() == [
         0,
@@ -91,7 +96,8 @@ def test_crispri_pairs_labels_filters_and_distances(tmp_path: Path) -> None:
     everything = encode_re2g.crispri_pairs(
         cell_type=None, valid_only=False, revision="abc123", cache_dir=tmp_path, progress=False
     )
-    assert everything.height == 5
+    assert everything.height == 6
+    assert everything["label"].null_count() == 1, "valid_only=False keeps the unlabelled row"
 
 
 @pytest.mark.network
