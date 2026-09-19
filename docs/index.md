@@ -60,6 +60,8 @@ the full All-of-Us pipeline.
   sub-network (direct-binding) edges keyed by gene symbol with continuous
   combined-score weights (`download_physical_links`, `load_physical_links`,
   `physical_ppi_edges`).
+- **`coessentiality`** — Wainberg et al. 2021 co-essential network from
+  DepMap CRISPR screens (`coessential_pairs` at a BH FDR, `pair_p_values`).
 - **`ensembl_compara`** — Ensembl Compara homology dumps; the human paralogue
   catalogue as deduplicated gene pairs (`paralog_pairs`) and connected
   families (`paralog_families`).

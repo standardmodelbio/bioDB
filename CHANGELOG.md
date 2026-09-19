@@ -9,6 +9,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+* `biodb.coessentiality` — Wainberg et al. 2021 co-essential network:
+  `download_matrices` (genes, GLS p, GLS sign; memory-mapped), `load_genes`,
+  `coessential_pairs` (positive pairs at a Benjamini–Hochberg FDR computed over
+  every pair, or a raw p cutoff, optionally restricted to a gene list) and
+  `pair_p_values` for explicit gene pairs.
+
 * `biodb.ensembl_compara` — Ensembl Compara homology dumps (`download_homologies`,
   `load_homologies`) and the human paralogue catalogue derived from them:
   `paralog_pairs` (unordered, deduplicated, `within_species_paralog` +

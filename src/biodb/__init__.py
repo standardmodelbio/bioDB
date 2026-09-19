@@ -27,6 +27,9 @@ Module map:
   (~3,600 phenotypes × ~414k WGS participants); public-API client for
   per-phenotype gene-burden tables (pLoF/missenseLC/synonymous) with
   concurrent bulk download + consolidated Parquet output.
+* :mod:`biodb.coessentiality` -- the Wainberg et al. 2021 co-essential
+  network from DepMap CRISPR screens (GLS p-value matrices, memory-mapped):
+  ``coessential_pairs`` at a BH FDR, ``pair_p_values`` for explicit pairs.
 * :mod:`biodb.ensembl_compara` -- Ensembl Compara homology dumps: the
   human paralogue catalogue as deduplicated gene pairs and as connected
   families (``paralog_pairs``, ``paralog_families``), plus the raw table.
@@ -59,6 +62,7 @@ similarity helpers, token counting, ``create_gene_association_matrix``,
 from biodb import (
     aou_allxall,
     clinvar,
+    coessentiality,
     constraint_tracks,
     corum,
     encode_re2g,
@@ -250,6 +254,7 @@ __all__ = [
     "set_random_seed",
     "simplify_annotations",
     "snomed",
+    "coessentiality",
     "ensembl_compara",
     "constraint_tracks",
     "string",
