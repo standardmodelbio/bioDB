@@ -45,6 +45,8 @@ the full All-of-Us pipeline.
   (`gene_sets` / `aggregate_gene_sets` / `to_gmt`) and embeddable panel
   text (`panel_text`) with a `support_count` importance prior. See
   [Querying genetic tests with GTR](gtr.md).
+- **`traitgym`** — TraitGym causal-variant benchmarks with matched negatives and
+  precomputed predictor features, at a pinned Hub revision.
 - **`intervals`** — genomic-interval helpers: BED I/O, overlap joins, nearest
   neighbour, merge; 0-based half-open, GRCh38, no liftover.
 - **`corum`** — CORUM curated protein complexes, current or archived release,

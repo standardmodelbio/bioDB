@@ -9,6 +9,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+* `biodb.traitgym` — TraitGym causal-variant benchmarks: `download_split` /
+  `load_variants` (chrom normalised to `chrN`), `list_features` and
+  `load_feature` (row-aligned predictor features such as `GPN-MSA_absLLR`),
+  read from the Hub at a pinned dataset revision over plain HTTPS.
 * `biodb.intervals` — BED I/O and interval joins (`read_bed`, `to_bed`,
   `overlap_join`, `nearest`, `merge`) on 0-based half-open `chrom`/`start`/`end`
   polars frames; the cross-cutting helper the coordinate sources share.

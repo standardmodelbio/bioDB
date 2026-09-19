@@ -27,6 +27,9 @@ Module map:
   (~3,600 phenotypes × ~414k WGS participants); public-API client for
   per-phenotype gene-burden tables (pLoF/missenseLC/synonymous) with
   concurrent bulk download + consolidated Parquet output.
+* :mod:`biodb.traitgym` -- TraitGym causal-variant benchmarks (Mendelian and
+  complex-trait positives with matched negatives) and their precomputed
+  feature tables, at a pinned Hub revision.
 * :mod:`biodb.corum` -- CORUM curated protein complexes as co-complex
   gene pairs, current or by archived release.
 * :mod:`biodb.encode_re2g` -- ENCODE-rE2G CRISPRi enhancer-gene benchmark
@@ -69,6 +72,7 @@ from biodb import (
     rfam,
     snomed,
     string,
+    traitgym,
     transform,
     uniprot,
     utils,
@@ -238,6 +242,7 @@ __all__ = [
     "snomed",
     "string",
     "string_physical_ppi_edges",
+    "traitgym",
     "transform",
     "uniprot",
     "utils",
