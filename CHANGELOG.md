@@ -9,6 +9,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+* `biodb.ensembl_compara` — Ensembl Compara homology dumps (`download_homologies`,
+  `load_homologies`) and the human paralogue catalogue derived from them:
+  `paralog_pairs` (unordered, deduplicated, `within_species_paralog` +
+  `other_paralog`, optional two-sided identity floor) and `paralog_families`
+  (connected components of the paralogue graph, the exclusion set a
+  coevolution or co-function benchmark needs).
+
 * `biodb.constraint_tracks` — per-base constraint tracks. `TRACKS` pins the
   UCSC phyloP / phastCons bigWigs for hg38 (Zoonomia 241-way, 100-way,
   447-way whole and primates-only, 470-way) and GPN-Star's entropy bigWigs;

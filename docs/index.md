@@ -60,6 +60,9 @@ the full All-of-Us pipeline.
   sub-network (direct-binding) edges keyed by gene symbol with continuous
   combined-score weights (`download_physical_links`, `load_physical_links`,
   `physical_ppi_edges`).
+- **`ensembl_compara`** — Ensembl Compara homology dumps; the human paralogue
+  catalogue as deduplicated gene pairs (`paralog_pairs`) and connected
+  families (`paralog_families`).
 - **`constraint_tracks`** — per-base constraint. UCSC phyloP / phastCons
   bigWigs for hg38 (241-, 100-, 447-, 470-way) and GPN-Star entropy bigWigs
   read in place over HTTPS (`open_track`, `score_intervals`,

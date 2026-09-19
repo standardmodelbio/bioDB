@@ -24,6 +24,7 @@ API Reference
    gprofiler
    gtr
    msigdb
+   ensembl_compara
    constraint_tracks
    mapping
    traitgym

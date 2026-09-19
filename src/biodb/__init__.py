@@ -27,6 +27,9 @@ Module map:
   (~3,600 phenotypes × ~414k WGS participants); public-API client for
   per-phenotype gene-burden tables (pLoF/missenseLC/synonymous) with
   concurrent bulk download + consolidated Parquet output.
+* :mod:`biodb.ensembl_compara` -- Ensembl Compara homology dumps: the
+  human paralogue catalogue as deduplicated gene pairs and as connected
+  families (``paralog_pairs``, ``paralog_families``), plus the raw table.
 * :mod:`biodb.constraint_tracks` -- per-base constraint: UCSC phyloP /
   phastCons bigWigs (241-, 100-, 447-, 470-way) read in place over HTTPS,
   and GPN-Star calibrated entropy / LLR Parquet shards at a pinned Hub
@@ -59,6 +62,7 @@ from biodb import (
     constraint_tracks,
     corum,
     encode_re2g,
+    ensembl_compara,
     gprofiler,
     gtr,
     gwas_atlas,
@@ -246,6 +250,7 @@ __all__ = [
     "set_random_seed",
     "simplify_annotations",
     "snomed",
+    "ensembl_compara",
     "constraint_tracks",
     "string",
     "string_physical_ppi_edges",
