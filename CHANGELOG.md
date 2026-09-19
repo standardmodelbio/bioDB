@@ -12,6 +12,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 * `biodb.intervals` — BED I/O and interval joins (`read_bed`, `to_bed`,
   `overlap_join`, `nearest`, `merge`) on 0-based half-open `chrom`/`start`/`end`
   polars frames; the cross-cutting helper the coordinate sources share.
+* `biodb.corum` — CORUM protein complexes through the public FastAPI:
+  `list_releases`, `download_complexes` / `load_complexes` (current or an
+  archived version, human or complete), and `complex_pairs` (every
+  unordered pair of subunit gene symbols per complex).
+* `biodb.encode_re2g` — ENCODE-rE2G CRISPRi enhancer–gene benchmark:
+  `download_crispri_benchmark` / `load_crispri_benchmark` (the published
+  `EPCrisprBenchmark_ensemble_data_GRCh38.tsv`, pinned to a repository
+  revision) and `crispri_pairs` (one labelled row per tested element–gene
+  pair, 0-based half-open GRCh38, with TSS distance).
+* `biodb.rfam` — Rfam release files (`download_models` / `download_seeds` /
+  `download_clanin` at a pinned release), `press_models`, `scan_fasta`
+  (Infernal `cmscan --cut_ga --rfam`), `load_hits` (0-based half-open hits
+  from `--fmt 2` tblout) and `hit_structures` (each hit's WUSS consensus
+  structure projected onto its own bases, local-end markers included), and
+  `seed_structure`.
 * `ols.find_terms` / `ols.find_term` — ranked term lookup wrapping the
   existing Solr-backed `search` with a deterministic exact-label /
   exact-synonym / prefix / regex re-ranker. Adds an explicit

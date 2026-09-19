@@ -15,7 +15,10 @@ API Reference
    harmonizome
    intervals
    clinvar
+   corum
+   encode_re2g
    gwas_atlas
+   rfam
    aou_allxall
    omicspred
    gprofiler

@@ -47,6 +47,13 @@ the full All-of-Us pipeline.
   [Querying genetic tests with GTR](gtr.md).
 - **`intervals`** — genomic-interval helpers: BED I/O, overlap joins, nearest
   neighbour, merge; 0-based half-open, GRCh38, no liftover.
+- **`corum`** — CORUM curated protein complexes, current or archived release,
+  and the co-complex gene-pair table they imply.
+- **`encode_re2g`** — ENCODE-rE2G CRISPRi enhancer–gene benchmark (Gschwind
+  et al. 2023): every tested element–gene pair with its effect size and
+  label, as a polars table ready for interval joins.
+- **`rfam`** — Rfam RNA families: models, seeds and clans from the EBI FTP,
+  and Infernal-driven annotation of a FASTA with per-hit consensus structure.
 - **`string`** — STRING protein–protein interaction client. Bulk physical
   sub-network (direct-binding) edges keyed by gene symbol with continuous
   combined-score weights (`download_physical_links`, `load_physical_links`,
