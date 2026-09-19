@@ -20,6 +20,7 @@ API Reference
    gprofiler
    gtr
    msigdb
+   tads
    mapping
    transform
    utils

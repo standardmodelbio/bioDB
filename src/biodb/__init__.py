@@ -27,6 +27,11 @@ Module map:
   (~3,600 phenotypes × ~414k WGS participants); public-API client for
   per-phenotype gene-burden tables (pLoF/missenseLC/synonymous) with
   concurrent bulk download + consolidated Parquet output.
+* :mod:`biodb.tads` -- topologically associating domains from ENCODE Hi-C
+  contact-domain calls (``list_domain_files``, ``load_domains``,
+  ``boundaries``, ``same_domain``). Two positions in one TAD are in contact
+  and co-regulated, so domain co-membership is the control any paired-position
+  analysis owes its reader.
 * :mod:`biodb.string` -- STRING database physical PPI edges with
   continuous combined-score weights (``download_physical_links``,
   ``load_physical_links``, ``physical_ppi_edges``). The physical
@@ -58,6 +63,7 @@ from biodb import (
     pubmed,
     snomed,
     string,
+    tads,
     transform,
     uniprot,
     utils,
@@ -222,6 +228,7 @@ __all__ = [
     "simplify_annotations",
     "snomed",
     "string",
+    "tads",
     "string_physical_ppi_edges",
     "transform",
     "uniprot",

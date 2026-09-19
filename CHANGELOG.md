@@ -9,6 +9,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+* `biodb.tads` — topologically associating domains from ENCODE Hi-C
+  contact-domain calls on GRCh38. `list_domain_files` queries the portal
+  (reporting every biosample a file's dataset covers, because ENCODE's
+  biosample filter matches the dataset rather than the file and so returns
+  pooled call sets for a single-cell-type query), `load_domains` reads one
+  accession's bedpe as `chrom`/`start`/`end`, `boundaries(flank)` gives the
+  domain edges widened and merged, and `same_domain` answers whether one
+  domain contains both ends of a pair — the covariate a paired-position
+  analysis has to condition on.
+
 * `ols.find_terms` / `ols.find_term` — ranked term lookup wrapping the
   existing Solr-backed `search` with a deterministic exact-label /
   exact-synonym / prefix / regex re-ranker. Adds an explicit
