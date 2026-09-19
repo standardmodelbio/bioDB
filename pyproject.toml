@@ -85,6 +85,10 @@ gget = [
 protein = [
     "biopython>=1.83",
 ]
+# constraint_tracks.py: random-access reads of UCSC / Hugging Face bigWigs.
+bigwig = [
+    "pyBigWig>=0.3.18",
+]
 # Cross-namespace gene-id mapping (biodb.mapping.map_gene_ids).
 mapping = [
     "gprofiler-official>=1.0",
@@ -129,7 +133,7 @@ test = [
     "owlready2>=0.45",
     "networkx>=3.0",
 ]
-dev = ["biodb[ontology,viz,tokens,gget,protein,clinvar,mapping,docs,test]"]
+dev = ["biodb[ontology,viz,tokens,gget,protein,clinvar,mapping,bigwig,docs,test]"]
 
 [project.urls]
 Homepage = "https://github.com/bschilder/bioDB"

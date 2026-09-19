@@ -32,13 +32,34 @@ Module map:
   ``boundaries``, ``same_domain``). Two positions in one TAD are in contact
   and co-regulated, so domain co-membership is the control any paired-position
   analysis owes its reader.
+* :mod:`biodb.coessentiality` -- the Wainberg et al. 2021 co-essential
+  network from DepMap CRISPR screens (GLS p-value matrices, memory-mapped):
+  ``coessential_pairs`` at a BH FDR, ``pair_p_values`` for explicit pairs.
+* :mod:`biodb.ensembl_compara` -- Ensembl Compara homology dumps: the
+  human paralogue catalogue as deduplicated gene pairs and as connected
+  families (``paralog_pairs``, ``paralog_families``), plus the raw table.
+* :mod:`biodb.constraint_tracks` -- per-base constraint: UCSC phyloP /
+  phastCons bigWigs (241-, 100-, 447-, 470-way) read in place over HTTPS,
+  and GPN-Star calibrated entropy / LLR Parquet shards at a pinned Hub
+  revision (``open_track``, ``score_intervals``, ``score_positions``,
+  ``load_gpn_star``).
+* :mod:`biodb.traitgym` -- TraitGym causal-variant benchmarks (Mendelian and
+  complex-trait positives with matched negatives) and their precomputed
+  feature tables, at a pinned Hub revision.
+* :mod:`biodb.corum` -- CORUM curated protein complexes as co-complex
+  gene pairs, current or by archived release.
+* :mod:`biodb.encode_re2g` -- ENCODE-rE2G CRISPRi enhancer-gene benchmark
+  (tested pairs with matched negatives) as a labelled pair table.
+* :mod:`biodb.rfam` -- Rfam RNA family models, seed alignments, and
+  Infernal-based genome annotation with per-hit consensus structures.
 * :mod:`biodb.string` -- STRING database physical PPI edges with
   continuous combined-score weights (``download_physical_links``,
   ``load_physical_links``, ``physical_ppi_edges``). The physical
   sub-network is direct binding evidence only — closer to "PPI"
   than the full functional-coupling network in ``protein.links``.
 
-Shared utilities live in :mod:`biodb.utils` (random seeding,
+Genomic-interval helpers (BED I/O, overlap joins, nearest) live in
+:mod:`biodb.intervals`. Shared utilities live in :mod:`biodb.utils` (random seeding,
 similarity helpers, token counting, ``create_gene_association_matrix``,
 ``filter_adaptive``).
 """
@@ -46,10 +67,16 @@ similarity helpers, token counting, ``create_gene_association_matrix``,
 from biodb import (
     aou_allxall,
     clinvar,
+    coessentiality,
+    constraint_tracks,
+    corum,
+    encode_re2g,
+    ensembl_compara,
     gprofiler,
     gtr,
     gwas_atlas,
     harmonizome,
+    intervals,
     mapping,
     monarch,
     msigdb,
@@ -61,9 +88,11 @@ from biodb import (
     opentargets_graphql,
     panukbb,
     pubmed,
+    rfam,
     snomed,
     string,
     tads,
+    traitgym,
     transform,
     uniprot,
     utils,
@@ -166,7 +195,9 @@ __all__ = [
     "aou_allxall",
     "bed_to_sites",
     "clinvar",
+    "corum",
     "cosine_similarity",
+    "encode_re2g",
     "count_tokens",
     "create_gene_association_matrix",
     "df_to_bed",
@@ -198,6 +229,7 @@ __all__ = [
     "gtr_to_gmt",
     "gwas_atlas",
     "harmonizome",
+    "intervals",
     "harmonizome_download_datasets",
     "harmonizome_get_dataset_metadata",
     "harmonizome_list_datasets",
@@ -218,6 +250,7 @@ __all__ = [
     "opentargets_graphql",
     "panukbb",
     "pubmed",
+    "rfam",
     "query_disease",
     "query_drug",
     "query_protein",
@@ -227,9 +260,13 @@ __all__ = [
     "set_random_seed",
     "simplify_annotations",
     "snomed",
+    "coessentiality",
+    "ensembl_compara",
+    "constraint_tracks",
     "string",
     "tads",
     "string_physical_ppi_edges",
+    "traitgym",
     "transform",
     "uniprot",
     "utils",

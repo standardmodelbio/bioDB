@@ -19,6 +19,51 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   domain contains both ends of a pair — the covariate a paired-position
   analysis has to condition on.
 
+* `biodb.coessentiality` — Wainberg et al. 2021 co-essential network:
+  `download_matrices` (genes, GLS p, GLS sign; memory-mapped), `load_genes`,
+  `coessential_pairs` (positive pairs at a Benjamini–Hochberg FDR computed over
+  every pair, or a raw p cutoff, optionally restricted to a gene list) and
+  `pair_p_values` for explicit gene pairs.
+
+* `biodb.ensembl_compara` — Ensembl Compara homology dumps (`download_homologies`,
+  `load_homologies`) and the human paralogue catalogue derived from them:
+  `paralog_pairs` (unordered, deduplicated, `within_species_paralog` +
+  `other_paralog`, optional two-sided identity floor) and `paralog_families`
+  (connected components of the paralogue graph, the exclusion set a
+  coevolution or co-function benchmark needs).
+
+* `biodb.constraint_tracks` — per-base constraint tracks. `TRACKS` pins the
+  UCSC phyloP / phastCons bigWigs for hg38 (Zoonomia 241-way, 100-way,
+  447-way whole and primates-only, 470-way) and GPN-Star's entropy bigWigs;
+  `open_track` reads any of them in place over HTTPS (pyBigWig, `[bigwig]`
+  extra) and `score_intervals` / `score_positions` pull only the bases
+  asked for. `download_gpn_star` / `load_gpn_star` read GPN-Star's
+  canonical per-chromosome Parquet shards (`entropy_calibrated`,
+  `llr_calibrated`, `abs_llr_calibrated`) at a pinned dataset revision,
+  keeping the published 1-based `pos` beside a derived 0-based `start`.
+
+* `biodb.traitgym` — TraitGym causal-variant benchmarks: `download_split` /
+  `load_variants` (chrom normalised to `chrN`), `list_features` and
+  `load_feature` (row-aligned predictor features such as `GPN-MSA_absLLR`),
+  read from the Hub at a pinned dataset revision over plain HTTPS.
+* `biodb.intervals` — BED I/O and interval joins (`read_bed`, `to_bed`,
+  `overlap_join`, `nearest`, `merge`) on 0-based half-open `chrom`/`start`/`end`
+  polars frames; the cross-cutting helper the coordinate sources share.
+* `biodb.corum` — CORUM protein complexes through the public FastAPI:
+  `list_releases`, `download_complexes` / `load_complexes` (current or an
+  archived version, human or complete), and `complex_pairs` (every
+  unordered pair of subunit gene symbols per complex).
+* `biodb.encode_re2g` — ENCODE-rE2G CRISPRi enhancer–gene benchmark:
+  `download_crispri_benchmark` / `load_crispri_benchmark` (the published
+  `EPCrisprBenchmark_ensemble_data_GRCh38.tsv`, pinned to a repository
+  revision) and `crispri_pairs` (one labelled row per tested element–gene
+  pair, 0-based half-open GRCh38, with TSS distance).
+* `biodb.rfam` — Rfam release files (`download_models` / `download_seeds` /
+  `download_clanin` at a pinned release), `press_models`, `scan_fasta`
+  (Infernal `cmscan --cut_ga --rfam`), `load_hits` (0-based half-open hits
+  from `--fmt 2` tblout) and `hit_structures` (each hit's WUSS consensus
+  structure projected onto its own bases, local-end markers included), and
+  `seed_structure`.
 * `ols.find_terms` / `ols.find_term` — ranked term lookup wrapping the
   existing Solr-backed `search` with a deterministic exact-label /
   exact-synonym / prefix / regex re-ranker. Adds an explicit
