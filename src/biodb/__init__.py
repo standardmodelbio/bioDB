@@ -39,7 +39,8 @@ Module map:
   sub-network is direct binding evidence only — closer to "PPI"
   than the full functional-coupling network in ``protein.links``.
 
-Shared utilities live in :mod:`biodb.utils` (random seeding,
+Genomic-interval helpers (BED I/O, overlap joins, nearest) live in
+:mod:`biodb.intervals`. Shared utilities live in :mod:`biodb.utils` (random seeding,
 similarity helpers, token counting, ``create_gene_association_matrix``,
 ``filter_adaptive``).
 """
@@ -53,6 +54,7 @@ from biodb import (
     gtr,
     gwas_atlas,
     harmonizome,
+    intervals,
     mapping,
     monarch,
     msigdb,
@@ -203,6 +205,7 @@ __all__ = [
     "gtr_to_gmt",
     "gwas_atlas",
     "harmonizome",
+    "intervals",
     "harmonizome_download_datasets",
     "harmonizome_get_dataset_metadata",
     "harmonizome_list_datasets",

@@ -13,6 +13,7 @@ API Reference
    ontology
    uniprot
    harmonizome
+   intervals
    clinvar
    corum
    encode_re2g

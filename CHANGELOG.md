@@ -9,6 +9,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+* `biodb.intervals` — BED I/O and interval joins (`read_bed`, `to_bed`,
+  `overlap_join`, `nearest`, `merge`) on 0-based half-open `chrom`/`start`/`end`
+  polars frames; the cross-cutting helper the coordinate sources share.
 * `biodb.corum` — CORUM protein complexes through the public FastAPI:
   `list_releases`, `download_complexes` / `load_complexes` (current or an
   archived version, human or complete), and `complex_pairs` (every
