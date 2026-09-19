@@ -9,6 +9,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+* `biodb.corum` — CORUM protein complexes through the public FastAPI:
+  `list_releases`, `download_complexes` / `load_complexes` (current or an
+  archived version, human or complete), and `complex_pairs` (every
+  unordered pair of subunit gene symbols per complex).
 * `biodb.encode_re2g` — ENCODE-rE2G CRISPRi enhancer–gene benchmark:
   `download_crispri_benchmark` / `load_crispri_benchmark` (the published
   `EPCrisprBenchmark_ensemble_data_GRCh38.tsv`, pinned to a repository

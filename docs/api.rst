@@ -14,6 +14,7 @@ API Reference
    uniprot
    harmonizome
    clinvar
+   corum
    encode_re2g
    gwas_atlas
    rfam

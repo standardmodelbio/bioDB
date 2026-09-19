@@ -45,6 +45,8 @@ the full All-of-Us pipeline.
   (`gene_sets` / `aggregate_gene_sets` / `to_gmt`) and embeddable panel
   text (`panel_text`) with a `support_count` importance prior. See
   [Querying genetic tests with GTR](gtr.md).
+- **`corum`** — CORUM curated protein complexes, current or archived release,
+  and the co-complex gene-pair table they imply.
 - **`encode_re2g`** — ENCODE-rE2G CRISPRi enhancer–gene benchmark (Gschwind
   et al. 2023): every tested element–gene pair with its effect size and
   label, as a polars table ready for interval joins.
