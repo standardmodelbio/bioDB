@@ -48,6 +48,8 @@ the full All-of-Us pipeline.
 - **`encode_re2g`** — ENCODE-rE2G CRISPRi enhancer–gene benchmark (Gschwind
   et al. 2023): every tested element–gene pair with its effect size and
   label, as a polars table ready for interval joins.
+- **`rfam`** — Rfam RNA families: models, seeds and clans from the EBI FTP,
+  and Infernal-driven annotation of a FASTA with per-hit consensus structure.
 - **`string`** — STRING protein–protein interaction client. Bulk physical
   sub-network (direct-binding) edges keyed by gene symbol with continuous
   combined-score weights (`download_physical_links`, `load_physical_links`,

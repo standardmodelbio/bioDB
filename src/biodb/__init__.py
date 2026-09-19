@@ -29,6 +29,8 @@ Module map:
   concurrent bulk download + consolidated Parquet output.
 * :mod:`biodb.encode_re2g` -- ENCODE-rE2G CRISPRi enhancer-gene benchmark
   (tested pairs with matched negatives) as a labelled pair table.
+* :mod:`biodb.rfam` -- Rfam RNA family models, seed alignments, and
+  Infernal-based genome annotation with per-hit consensus structures.
 * :mod:`biodb.string` -- STRING database physical PPI edges with
   continuous combined-score weights (``download_physical_links``,
   ``load_physical_links``, ``physical_ppi_edges``). The physical
@@ -59,6 +61,7 @@ from biodb import (
     opentargets_graphql,
     panukbb,
     pubmed,
+    rfam,
     snomed,
     string,
     transform,
@@ -216,6 +219,7 @@ __all__ = [
     "opentargets_graphql",
     "panukbb",
     "pubmed",
+    "rfam",
     "query_disease",
     "query_drug",
     "query_protein",
