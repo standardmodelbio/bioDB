@@ -24,6 +24,7 @@ API Reference
    gprofiler
    gtr
    msigdb
+   tads
    coessentiality
    ensembl_compara
    constraint_tracks

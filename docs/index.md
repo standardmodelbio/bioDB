@@ -45,6 +45,13 @@ the full All-of-Us pipeline.
   (`gene_sets` / `aggregate_gene_sets` / `to_gmt`) and embeddable panel
   text (`panel_text`) with a `support_count` importance prior. See
   [Querying genetic tests with GTR](gtr.md).
+- **`tads`** — topologically associating domains from ENCODE Hi-C
+  contact-domain calls (`list_domain_files`, `load_domains`, `boundaries`,
+  `same_domain`). Two positions inside one TAD are in physical contact and
+  share a regulatory environment, so domain co-membership is the control any
+  paired-position analysis needs; note that ENCODE's biosample filter matches
+  the *dataset*, so check `biosample_count` before treating a call set as
+  cell-type specific.
 - **`traitgym`** — TraitGym causal-variant benchmarks with matched negatives and
   precomputed predictor features, at a pinned Hub revision.
 - **`intervals`** — genomic-interval helpers: BED I/O, overlap joins, nearest

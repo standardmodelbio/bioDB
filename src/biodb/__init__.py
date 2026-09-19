@@ -27,6 +27,11 @@ Module map:
   (~3,600 phenotypes × ~414k WGS participants); public-API client for
   per-phenotype gene-burden tables (pLoF/missenseLC/synonymous) with
   concurrent bulk download + consolidated Parquet output.
+* :mod:`biodb.tads` -- topologically associating domains from ENCODE Hi-C
+  contact-domain calls (``list_domain_files``, ``load_domains``,
+  ``boundaries``, ``same_domain``). Two positions in one TAD are in contact
+  and co-regulated, so domain co-membership is the control any paired-position
+  analysis owes its reader.
 * :mod:`biodb.coessentiality` -- the Wainberg et al. 2021 co-essential
   network from DepMap CRISPR screens (GLS p-value matrices, memory-mapped):
   ``coessential_pairs`` at a BH FDR, ``pair_p_values`` for explicit pairs.
@@ -86,6 +91,7 @@ from biodb import (
     rfam,
     snomed,
     string,
+    tads,
     traitgym,
     transform,
     uniprot,
@@ -258,6 +264,7 @@ __all__ = [
     "ensembl_compara",
     "constraint_tracks",
     "string",
+    "tads",
     "string_physical_ppi_edges",
     "traitgym",
     "transform",

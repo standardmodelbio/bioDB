@@ -9,6 +9,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+* `biodb.tads` — topologically associating domains from ENCODE Hi-C
+  contact-domain calls on GRCh38. `list_domain_files` queries the portal
+  (reporting every biosample a file's dataset covers, because ENCODE's
+  biosample filter matches the dataset rather than the file and so returns
+  pooled call sets for a single-cell-type query), `load_domains` reads one
+  accession's bedpe as `chrom`/`start`/`end`, `boundaries(flank)` gives the
+  domain edges widened and merged, and `same_domain` answers whether one
+  domain contains both ends of a pair — the covariate a paired-position
+  analysis has to condition on.
+
 * `biodb.coessentiality` — Wainberg et al. 2021 co-essential network:
   `download_matrices` (genes, GLS p, GLS sign; memory-mapped), `load_genes`,
   `coessential_pairs` (positive pairs at a Benjamini–Hochberg FDR computed over
