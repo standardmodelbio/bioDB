@@ -9,6 +9,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+* `biodb.encode_re2g` — ENCODE-rE2G CRISPRi enhancer–gene benchmark:
+  `download_crispri_benchmark` / `load_crispri_benchmark` (the published
+  `EPCrisprBenchmark_ensemble_data_GRCh38.tsv`, pinned to a repository
+  revision) and `crispri_pairs` (one labelled row per tested element–gene
+  pair, 0-based half-open GRCh38, with TSS distance).
 * `biodb.rfam` — Rfam release files (`download_models` / `download_seeds` /
   `download_clanin` at a pinned release), `press_models`, `scan_fasta`
   (Infernal `cmscan --cut_ga --rfam`), `load_hits` (0-based half-open hits

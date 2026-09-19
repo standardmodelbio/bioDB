@@ -45,6 +45,9 @@ the full All-of-Us pipeline.
   (`gene_sets` / `aggregate_gene_sets` / `to_gmt`) and embeddable panel
   text (`panel_text`) with a `support_count` importance prior. See
   [Querying genetic tests with GTR](gtr.md).
+- **`encode_re2g`** — ENCODE-rE2G CRISPRi enhancer–gene benchmark (Gschwind
+  et al. 2023): every tested element–gene pair with its effect size and
+  label, as a polars table ready for interval joins.
 - **`rfam`** — Rfam RNA families: models, seeds and clans from the EBI FTP,
   and Infernal-driven annotation of a FASTA with per-hit consensus structure.
 - **`string`** — STRING protein–protein interaction client. Bulk physical

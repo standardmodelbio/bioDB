@@ -27,6 +27,8 @@ Module map:
   (~3,600 phenotypes × ~414k WGS participants); public-API client for
   per-phenotype gene-burden tables (pLoF/missenseLC/synonymous) with
   concurrent bulk download + consolidated Parquet output.
+* :mod:`biodb.encode_re2g` -- ENCODE-rE2G CRISPRi enhancer-gene benchmark
+  (tested pairs with matched negatives) as a labelled pair table.
 * :mod:`biodb.rfam` -- Rfam RNA family models, seed alignments, and
   Infernal-based genome annotation with per-hit consensus structures.
 * :mod:`biodb.string` -- STRING database physical PPI edges with
@@ -43,6 +45,7 @@ similarity helpers, token counting, ``create_gene_association_matrix``,
 from biodb import (
     aou_allxall,
     clinvar,
+    encode_re2g,
     gprofiler,
     gtr,
     gwas_atlas,
@@ -164,6 +167,7 @@ __all__ = [
     "bed_to_sites",
     "clinvar",
     "cosine_similarity",
+    "encode_re2g",
     "count_tokens",
     "create_gene_association_matrix",
     "df_to_bed",
