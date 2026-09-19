@@ -13,14 +13,20 @@ API Reference
    ontology
    uniprot
    harmonizome
+   intervals
    clinvar
+   corum
+   encode_re2g
    gwas_atlas
+   rfam
    aou_allxall
    omicspred
    gprofiler
    gtr
    msigdb
    ensembl_compara
+   constraint_tracks
    mapping
+   traitgym
    transform
    utils
