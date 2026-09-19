@@ -9,6 +9,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+* `biodb.rfam` — Rfam release files (`download_models` / `download_seeds` /
+  `download_clanin` at a pinned release), `press_models`, `scan_fasta`
+  (Infernal `cmscan --cut_ga --rfam`), `load_hits` (0-based half-open hits
+  from `--fmt 2` tblout) and `hit_structures` (each hit's WUSS consensus
+  structure projected onto its own bases, local-end markers included), and
+  `seed_structure`.
 * `ols.find_terms` / `ols.find_term` — ranked term lookup wrapping the
   existing Solr-backed `search` with a deterministic exact-label /
   exact-synonym / prefix / regex re-ranker. Adds an explicit
