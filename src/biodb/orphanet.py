@@ -233,8 +233,11 @@ def prevalence_map(
 
     Selection per disorder: usable prevalence type of lowest :data:`_TYPE_RANK`,
     then ``Validated`` over ``Not yet validated``, then ``Worldwide`` geography
-    (when ``prefer_worldwide``). Ties broken by the rarer (smaller) ``K`` — the
-    conservative choice for a threshold model.
+    (when ``prefer_worldwide``). Several estimates can survive that ranking, and
+    their ``K`` is then the **median** of the tier rather than its smallest
+    member: taking the rarest of a set of conflicting bands would systematically
+    over-state rarity, and rarity is what the downstream liability threshold
+    ``T = Φ⁻¹(1 − K)`` is most sensitive to.
 
     Parameters
     ----------

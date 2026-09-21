@@ -24,6 +24,7 @@ API Reference
    gprofiler
    gtr
    msigdb
+   orphanet
    tads
    coessentiality
    ensembl_compara
