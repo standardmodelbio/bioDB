@@ -288,7 +288,12 @@ def test_uniprot_swissprot_fasta_url_resolves_offline() -> None:
     from biodb import uniprot
 
     url = f"{uniprot.UNIPROT_FTP_BASE_URL}/{uniprot.SWISSPROT_FASTA_FILENAME}"
-    response = requests.head(url, timeout=10, allow_redirects=True)
+    try:
+        response = requests.head(url, timeout=10, allow_redirects=True)
+    except requests.exceptions.RequestException as exc:
+        if is_upstream_outage(exc):
+            pytest.skip(f"UniProt upstream outage: {exc}")
+        raise
     assert response.status_code == 200, (
         f"UniProt Swiss-Prot FASTA URL {url} returned {response.status_code}"
     )
