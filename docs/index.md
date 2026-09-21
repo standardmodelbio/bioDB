@@ -45,6 +45,12 @@ the full All-of-Us pipeline.
   (`gene_sets` / `aggregate_gene_sets` / `to_gmt`) and embeddable panel
   text (`panel_text`) with a `support_count` importance prior. See
   [Querying genetic tests with GTR](gtr.md).
+- **`orphanet`** — rare-disease prevalence per ORPHAcode from Orphadata
+  `en_product9_prev` (`download_prevalence`, `parse_prevalence`,
+  `load_prevalence`, `prevalence_map`). Orphanet publishes a prevalence
+  *band*, not a number, so `PREVALENCE_CLASS_K` carries the band midpoints
+  and anything unmappable is left out rather than imputed. Feeds a
+  liability-threshold model for diseases with no GWAS.
 - **`tads`** — topologically associating domains from ENCODE Hi-C
   contact-domain calls (`list_domain_files`, `load_domains`, `boundaries`,
   `same_domain`). Two positions inside one TAD are in physical contact and

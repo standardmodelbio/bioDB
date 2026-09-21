@@ -9,6 +9,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+* `biodb.orphanet` — Orphanet rare-disease prevalence from Orphadata's
+  free `en_product9_prev` product (CC-BY-4.0). `download_prevalence` fetches
+  the XML with backoff on transient statuses, `parse_prevalence` streams it
+  with `iterparse` so the 16 MB document never materializes as a tree, and
+  `prevalence_map` reduces the long table to one per-individual `K` per
+  ORPHAcode. Orphanet reports prevalence as a *class band* rather than a
+  number, so `PREVALENCE_CLASS_K` maps each band to its midpoint and the
+  unmappable bands (`Unknown`, `Not yet documented`) are absent by design
+  rather than guessed at; `Cases/families` counts and `Annual incidence`
+  rates are excluded because neither is a per-individual prevalence.
+  Selection prefers a point prevalence, then `Validated`, then `Worldwide`,
+  and takes the *median* `K` of whatever survives that ranking rather than its
+  rarest member — the liability threshold `T = Φ⁻¹(1 − K)` this feeds is most
+  sensitive to rarity, so picking the rarest of a set of conflicting bands
+  would bias every downstream effect estimate upward.
+
 * `biodb.tads` — topologically associating domains from ENCODE Hi-C
   contact-domain calls on GRCh38. `list_domain_files` queries the portal
   (reporting every biosample a file's dataset covers, because ENCODE's
