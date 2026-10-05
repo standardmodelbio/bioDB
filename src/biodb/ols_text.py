@@ -11,6 +11,7 @@ import json
 import logging
 import time
 from concurrent.futures import ThreadPoolExecutor
+from datetime import datetime, timezone
 from pathlib import Path
 
 import pyarrow as pa
@@ -100,8 +101,25 @@ def download_text_cache(
     destination, page_cache = Path(destination), Path(page_cache)
     page_cache.mkdir(parents=True, exist_ok=True)
     url = f"{V2_API}/ontologies/{ontology}/classes"
+    metadata_url = f"{V2_API}/ontologies/{ontology}"
+    metadata_response = requests.get(metadata_url, timeout=timeout)
+    metadata_response.raise_for_status()
+    ontology_metadata = metadata_response.json()
+    source_metadata = {
+        key: ontology_metadata.get(key)
+        for key in [
+            "ontologyId",
+            "iri",
+            "title",
+            "loaded",
+            "sourceFileTimestamp",
+            "http://www.w3.org/2002/07/owl#versionIRI",
+            "numberOfClasses",
+        ]
+    }
+    started_at = datetime.now(timezone.utc).isoformat()
     settings_path = page_cache / "settings.json"
-    settings = {"ontology": ontology, "url": url, "size": size}
+    settings = {"ontology": ontology, "url": url, "size": size, "source_metadata": source_metadata}
     if settings_path.exists() and json.loads(settings_path.read_text()) != settings:
         raise ValueError("page cache settings differ from requested source")
     settings_path.write_text(json.dumps(settings))
@@ -180,10 +198,18 @@ def download_text_cache(
         raise ValueError("incomplete OLS download")
     if expected_ids is not None and seen != set(expected_ids):
         raise ValueError("OLS IDs differ from pinned snapshot; choose a new release explicitly")
+    final_response = requests.get(metadata_url, timeout=timeout)
+    final_response.raise_for_status()
+    final_metadata = final_response.json()
+    if any(final_metadata.get(key) != value for key, value in source_metadata.items()):
+        raise ValueError("OLS ontology metadata changed during download; discard mixed pages")
     temporary.replace(destination)
     provenance = {
         "api": "ols-v2",
         "url": url,
+        "source_metadata": source_metadata,
+        "download_started_at": started_at,
+        "download_completed_at": datetime.now(timezone.utc).isoformat(),
         "coverage": counts,
         "text_properties": {"synonyms": SYNONYM_PROPERTIES, "definitions": DEFINITION_PROPERTIES},
         "all_labels_preserved": True,
