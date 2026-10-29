@@ -37,14 +37,19 @@ classifiers = [
 dependencies = [
     "numpy>=1.24",
     "pandas>=2.0",
-    "polars>=0.20",
+    "polars>=1.31",
+    "pyarrow>=14.0",
     "requests>=2.28",
+    "filelock>=3.12",
     "httpx>=0.24",
     "tqdm>=4.65",
     "scipy>=1.10",
 ]
 
 [project.optional-dependencies]
+# Indexed GWAS Catalog region queries (whole-file streaming needs no extra).
+gwas = ["pysam>=0.22"]
+
 # Optional ontology + KG dependencies. gget pulls many heavy deps so it
 # is opt-in. networkx + obonet + pronto + pyobo are used by various
 # branches of ontology.py and opentargets.py but each is import-guarded.

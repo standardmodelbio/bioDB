@@ -139,3 +139,126 @@ def test_get_credible_set_live_schema():
     assert out.height > 0  # guard: an empty frame makes the .all() below vacuous
     assert {"variantId", "pip", "beta", "studyType"}.issubset(out.columns)
     assert (out["studyType"] == "gwas").all()
+
+
+def test_summary_matches_lead_id_preserves_raw_columns_and_frame_type():
+    raw = pl.DataFrame(
+        {
+            "variantId": ["lead", "absent", "conflict", "null", "empty"],
+            "zScore": [4.2] * 5,
+            "studyType": ["gwas"] * 5,
+            "locus": [
+                [
+                    {"variantId": "other", "posteriorProbability": 0.9},
+                    {"variantId": "lead", "posteriorProbability": 0.1},
+                ],
+                [{"variantId": "other", "posteriorProbability": 0.9}],
+                [
+                    {"variantId": "conflict", "posteriorProbability": 0.2},
+                    {"variantId": "conflict", "posteriorProbability": 0.3},
+                ],
+                [{"variantId": "null", "posteriorProbability": None}],
+                [],
+            ],
+        }
+    )
+    out = variants.summarize_credible_sets(raw)
+    assert out["pip"].to_list() == [0.1, None, None, None, None]
+    assert out["pipStatus"].to_list() == [
+        "matched",
+        "lead_not_found",
+        "conflicting_lead",
+        "missing_probability",
+        "missing_locus",
+    ]
+    assert out["credibleSetSize"].to_list() == [2, 1, 2, 1, 0]
+    assert out.select(raw.columns).equals(raw)
+    lazy = variants.summarize_credible_sets(raw.lazy())
+    assert isinstance(lazy, pl.LazyFrame)
+    assert lazy.collect().equals(out)
+
+
+def test_lead_reader_keeps_existing_study_type_and_scalar_zscore(tmp_path, monkeypatch):
+    path = tmp_path / "credible.parquet"
+    pl.DataFrame(
+        {
+            "variantId": ["lead"],
+            "studyId": ["s1"],
+            "studyType": ["gwas"],
+            "zScore": [6.2],
+            "locus": [
+                [
+                    {"variantId": "other", "posteriorProbability": 0.7},
+                    {"variantId": "lead", "posteriorProbability": 0.3},
+                ]
+            ],
+        }
+    ).write_parquet(path)
+    monkeypatch.setattr(variants, "ensure_cached_shards", lambda *a, **k: [path])
+    monkeypatch.setattr(
+        variants.studies, "get_study", lambda **kwargs: pytest.fail("unnecessary study join")
+    )
+    out = variants.get_credible_set(study_type="gwas")
+    assert out["pip"].to_list() == [0.3]
+    assert out["studyType"].to_list() == ["gwas"]
+    assert out["zScore"].to_list() == [6.2]
+
+
+def test_member_reader_uses_member_statistics_and_retains_flags(tmp_path, monkeypatch):
+    path = tmp_path / "credible.parquet"
+    pl.DataFrame(
+        {
+            "variantId": ["1_10_A_G", "empty"],
+            "studyId": ["s1", "s2"],
+            "beta": [9.0, 9.0],
+            "zScore": [99.0, 99.0],
+            "locus": [
+                [
+                    {
+                        "variantId": "1_10_A_G",
+                        "posteriorProbability": 0.8,
+                        "beta": 0.2,
+                        "standardError": 0.1,
+                        "is95CredibleSet": True,
+                        "is99CredibleSet": True,
+                    },
+                    {
+                        "variantId": "1_11_A_T",
+                        "posteriorProbability": 0.2,
+                        "beta": None,
+                        "standardError": None,
+                        "is95CredibleSet": False,
+                        "is99CredibleSet": True,
+                    },
+                ],
+                [],
+            ],
+        }
+    ).write_parquet(path)
+    monkeypatch.setattr(variants, "ensure_cached_shards", lambda *a, **k: [path])
+    out = variants.get_credible_set_members()
+    assert out["variantId"].to_list() == ["1_10_A_G", "1_11_A_T"]
+    assert out["pip"].to_list() == [0.8, 0.2]
+    assert out["beta"].to_list() == [0.2, None]
+    assert "zScore" not in out.columns  # lead zScore cannot become a member effect
+    assert out["leadZScore"].to_list() == [99.0, 99.0]
+    assert out["is95CredibleSet"].to_list() == [True, False]
+    assert out["is99CredibleSet"].to_list() == [True, True]
+    assert variants.get_credible_set_variants().equals(out)
+
+
+def test_raw_and_annotation_scans_project_without_collecting(tmp_path, monkeypatch):
+    path = tmp_path / "variant.parquet"
+    raw = pl.DataFrame(
+        {"variantId": ["1_1_A_G", "1_2_C_T"], "nested": [[{"score": 0.2}], [{"score": 0.7}]]}
+    )
+    raw.write_parquet(path)
+    monkeypatch.setattr(variants, "ensure_cached_shards", lambda *a, **k: [path])
+    assert variants.scan_credible_sets().collect().equals(raw)
+    lazy = variants.scan_variant_annotations(columns=["variantId"])
+    assert isinstance(lazy, pl.LazyFrame)
+    assert "PROJECT 1/2 COLUMNS" in lazy.explain()
+    assert lazy.filter(pl.col("variantId") == "1_2_C_T").collect()["variantId"].to_list() == [
+        "1_2_C_T"
+    ]
+    assert variants.get_variant_annotations().equals(raw)

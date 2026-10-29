@@ -18,6 +18,7 @@ import requests
 import responses
 
 from biodb import gwas_atlas
+from tests.conftest import skip_upstream_outages
 
 # ---------------------------------------------------------------------------
 # Test fixtures
@@ -310,12 +311,13 @@ def test_melt_magma_p_handles_unnamed_index() -> None:
 # tests prove the downloader actually works against the live server on
 # every CI run; they pay for it with a few seconds of network IO.
 #
-# Trade-off acknowledged: third-party downtime now fails our CI. That's
-# the right failure mode — if we can't download GWAS Atlas data, our
-# downloader is broken in production too, and we want to know.
+# Connection/gateway outages cannot validate the API and are reported as skips.
+# HTTP client/server errors and changed payloads still fail these checks.
 # ---------------------------------------------------------------------------
 
 
+@pytest.mark.network
+@skip_upstream_outages("GWAS Atlas")
 def test_session_csrf_handshake_against_live_server() -> None:
     """The live homepage still emits a usable ``_token`` + session cookies.
 
@@ -333,6 +335,8 @@ def test_session_csrf_handshake_against_live_server() -> None:
     assert "XSRF-TOKEN" in session.cookies
 
 
+@pytest.mark.network
+@skip_upstream_outages("GWAS Atlas")
 def test_download_readme_from_live_server(tmp_path) -> None:
     """End-to-end: fetch the tiny ``.readme`` via the CSRF-form POST.
 
@@ -349,6 +353,8 @@ def test_download_readme_from_live_server(tmp_path) -> None:
     )
 
 
+@pytest.mark.network
+@skip_upstream_outages("GWAS Atlas")
 def test_download_metadata_from_live_server_and_parse(tmp_path) -> None:
     """Full pipeline test: download the real per-study metadata TSV (a few MB
     gzipped) and verify it parses into a DataFrame with the schema bioDB
