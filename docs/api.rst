@@ -33,3 +33,15 @@ API Reference
    traitgym
    transform
    utils
+
+Raw acquisition
+---------------
+
+.. autosummary::
+   :toctree: _autosummary
+
+   biodb.gwas_catalog
+   biodb.europepmc
+   biodb.protein_structure
+   biodb.opentargets.literature
+   biodb.opentargets.constants
