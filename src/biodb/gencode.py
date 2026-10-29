@@ -276,3 +276,37 @@ __all__ = [
     "download_gencode_gtf",
     "fetch_mane_select",
 ]
+
+
+def get_genes(release: str, *, cache_dir: str | Path | None = None) -> pl.DataFrame:
+    """Read all GENCODE gene biotypes, with zero-based half-open coordinates.
+
+    Unlike :func:`fetch_mane_select`, this does not restrict transcripts or
+    protein-coding genes. Gene identifiers omit Ensembl version suffixes.
+    """
+    path = download_gencode_gtf(release, cache_dir=cache_dir)
+    rows = [
+        {
+            "gene_id": _strip_version(attrs["gene_id"]),
+            "gene_symbol": attrs.get("gene_name", ""),
+            "biotype": attrs.get("gene_type", attrs.get("gene_biotype", "")),
+            "chrom": chrom,
+            "start": start,
+            "end": end,
+            "strand": strand,
+        }
+        for chrom, feature, start, end, strand, attrs in _iter_gtf_rows(path)
+        if feature == "gene" and attrs.get("gene_id")
+    ]
+    return pl.DataFrame(
+        rows,
+        schema={
+            "gene_id": pl.String,
+            "gene_symbol": pl.String,
+            "biotype": pl.String,
+            "chrom": pl.String,
+            "start": pl.Int64,
+            "end": pl.Int64,
+            "strand": pl.String,
+        },
+    )
