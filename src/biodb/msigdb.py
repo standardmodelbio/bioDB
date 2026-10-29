@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import logging
 from pathlib import Path
+from urllib.parse import urlsplit
 
 import pandas as pd
 import requests
@@ -164,12 +165,18 @@ def query_gene_set(
     Raises
     ------
     KeyError
-        If MSigDB returns a payload without the requested set.
+        If MSigDB explicitly reports a missing set or returns a payload without it.
     requests.HTTPError
         On non-2xx response (typically 404 for unknown set names).
     """
     url = MSIGDB_GENESET_URL_TEMPLATE.format(organism=organism, set_name=set_name)
     response = requests.get(url, timeout=timeout)
+    # Unknown sets redirect to this dedicated page, currently with HTTP 400.
+    # Other client/server errors must retain their HTTP error semantics.
+    if urlsplit(
+        response.url
+    ).path == "/gsea/msigdb/no_such_gene_set.jsp" and response.status_code in (200, 400, 404):
+        raise KeyError(f"Set {set_name!r} not found in MSigDB.")
     response.raise_for_status()
     # MSigDB serves an HTML error page (with status 200) for unknown sets
     # — we have to sniff the response shape rather than trust the status.
