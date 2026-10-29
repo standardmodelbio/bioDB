@@ -1,0 +1,636 @@
+"""Build the ``biodb_cellxgene`` HuggingFace dataset from CZ CELLxGENE.
+
+Reproducible assembly of a cell-type knowledge dataset entirely from CZI's
+served CELLxGENE data (no local recomputation), built on :mod:`biodb.cellxgene`:
+
+1. **Markers** — computational (WMG Marker Score) + canonical (curated) marker
+   genes for every cell type × tissue, split **per species** (human, mouse).
+   Canonical markers are curated + cross-species, so they live in one shared
+   table. Source: CellGuide snapshot (:func:`biodb.cellxgene.get_all_cellguide_markers`).
+2. **Disease DEG** — disease-vs-normal differential-expression vectors for each
+   *(disease × tissue × cell type)*, per species. Source: CELLxGENE's served
+   Differential Expression API (:func:`biodb.cellxgene.disease_vs_normal`).
+
+Layout written by :func:`build_dataset` (species encoded in file/dir names, so
+no ``species`` column; no ``source``/``marker_type`` columns either)::
+
+    <out_dir>/
+      README.md                                    # dataset card (with configs)
+      markers/computational_homo_sapiens.parquet
+      markers/computational_mus_musculus.parquet
+      markers/canonical.parquet                    # cross-species (no species)
+      disease_deg/homo_sapiens/part_*.parquet      # optional; sharded per pair
+      disease_deg/mus_musculus/part_*.parquet
+
+:func:`push_to_hub` uploads the directory to the Hub (requires ``huggingface_hub``).
+
+Examples
+--------
+>>> from biodb import cellxgene_dataset as cxd
+>>> cxd.build_dataset("~/biodb_cellxgene", include_deg=False)          # doctest: +SKIP
+>>> cxd.push_to_hub("~/biodb_cellxgene",                               # doctest: +SKIP
+...                 "standardmodelbio/biodb_cellxgene", private=True)
+"""
+
+from __future__ import annotations
+
+import logging
+from pathlib import Path
+
+import pandas as pd
+
+from biodb import cellxgene
+from biodb.cellxgene import _flatten_terms, _post, _resolve_organism, _resolve_tissue
+
+logger = logging.getLogger(__name__)
+
+DATASET_ORGANISMS = ["Homo sapiens", "Mus musculus"]
+"""Species with CELLxGENE computational markers + disease DEG (WMG has no others)."""
+
+
+def _slug(text: str) -> str:
+    return text.strip().lower().replace(" ", "_")
+
+
+# ─── Markers (CellGuide: computational + canonical) ──────────────────────────
+
+
+def build_markers(
+    *,
+    cache_dir: str | Path | None = None,
+    force: bool = False,
+    progress: bool = True,
+) -> dict[str, pd.DataFrame]:
+    """Assemble the marker tables, split per species + a shared canonical table.
+
+    Returns
+    -------
+    dict[str, pandas.DataFrame]
+        Keys: each organism label (computational markers for that species) plus
+        ``"canonical"`` (curated, cross-species). Columns per
+        :data:`biodb.cellxgene.CELLGUIDE_COLUMNS`.
+    """
+    allm = cellxgene.get_all_cellguide_markers(
+        kind="both", cache_dir=cache_dir, force=force, progress=progress
+    )
+    comp = allm[allm["marker_type"] == "computational"]
+    canonical = allm[allm["marker_type"] == "canonical"].reset_index(drop=True)
+    out: dict[str, pd.DataFrame] = {"canonical": canonical}
+    for species in sorted(comp["species"].dropna().unique()):
+        out[species] = comp[comp["species"] == species].reset_index(drop=True)
+    return out
+
+
+# ─── Disease DEG (served Differential Expression) ────────────────────────────
+
+
+def _cell_types_under_disease(tissue_id: str, disease_id: str, organism_id: str) -> dict[str, str]:
+    """CL-id → label map for cell types present in a (tissue, disease)."""
+    payload = {
+        "filter": {
+            "organism_ontology_term_id": organism_id,
+            "tissue_ontology_term_ids": [tissue_id],
+            "disease_ontology_term_ids": [disease_id],
+        }
+    }
+    dims = _post("filters", payload)["filter_dims"]
+    return _flatten_terms(dims["cell_type_terms"])
+
+
+def _iter_disease_deg(
+    organism: str,
+    *,
+    tissues: list[str] | None = None,
+    max_workers: int = 8,
+    cache_dir: str | Path | None = None,
+    force: bool = False,
+    progress: bool = True,
+):
+    """Yield one DEG DataFrame per (tissue × disease) pair — memory-safe.
+
+    Computes + caches each pair's genome-wide DE to its own parquet (resumable),
+    yielding one pair at a time so the full (multi-GB) corpus is never held in
+    memory at once. Backfills ``disease_ontology_id`` / ``tissue_ontology_id``
+    into parquets cached before those columns existed.
+    """
+    from concurrent.futures import ThreadPoolExecutor
+
+    from tqdm import tqdm
+
+    organism_id, _ = _resolve_organism(organism)
+    root = Path(cache_dir).expanduser() if cache_dir else cellxgene.CACHE_DIR / "disease_deg"
+    root.mkdir(parents=True, exist_ok=True)
+
+    tissue_list = tissues if tissues is not None else cellxgene.list_tissues(organism=organism)
+    pairs: list[tuple[str, str, str]] = []
+    for tissue in tissue_list:
+        for _, row in cellxgene.list_diseases(tissue, organism=organism).iterrows():
+            pairs.append((tissue, row["disease_ontology_term_id"], row["disease"]))
+
+    iterator = tqdm(pairs, desc=f"deg:{organism}") if progress else pairs
+    for tissue, disease_id, disease_label in iterator:
+        cache_path = root / f"{organism_id}__{_slug(tissue)}__{disease_id}.parquet".replace(
+            ":", "-"
+        )
+        tissue_id, _ = _resolve_tissue(tissue, organism_id)
+        if cache_path.exists() and not force:
+            cached = pd.read_parquet(cache_path)
+            # Backfill ontology-id columns for parquets cached before they existed.
+            if not cached.empty and "tissue_ontology_id" not in cached.columns:
+                cached.insert(2, "tissue_ontology_id", tissue_id)
+            if not cached.empty and "disease_ontology_id" not in cached.columns:
+                pos = cached.columns.get_loc("disease") + 1 if "disease" in cached.columns else 6
+                cached.insert(pos, "disease_ontology_id", disease_id)
+            yield cached
+            continue
+        cell_types = _cell_types_under_disease(tissue_id, disease_id, organism_id)
+
+        def _fetch(cl_id: str, *, _t=tissue, _d=disease_label) -> pd.DataFrame | None:
+            try:
+                return cellxgene.disease_vs_normal(cl_id, tissue=_t, disease=_d, organism=organism)
+            except Exception as exc:  # noqa: BLE001 - skip pairs the DE API can't compute
+                logger.warning("DEG skip %s / %s / %s: %s", _t, _d, cl_id, exc)
+                return None
+
+        with ThreadPoolExecutor(max_workers=max_workers) as pool:
+            got = [df for df in pool.map(_fetch, cell_types) if df is not None and not df.empty]
+        pair_df = (
+            pd.concat(got, ignore_index=True) if got else pd.DataFrame(columns=cellxgene.DE_COLUMNS)
+        )
+        pair_df.to_parquet(cache_path, index=False)
+        yield pair_df
+
+
+def build_disease_deg(organism: str, **kwargs) -> pd.DataFrame:
+    """Concatenate all (tissue × disease) DEG for an organism into one frame.
+
+    Thin wrapper over :func:`_iter_disease_deg`. **Memory-heavy** for the full
+    genome-wide corpus (many GB); the dataset builder writes sharded parquet via
+    the iterator instead. Prefer :func:`_iter_disease_deg` for large runs.
+    """
+    frames = [df for df in _iter_disease_deg(organism, **kwargs) if not df.empty]
+    return (
+        pd.concat(frames, ignore_index=True)
+        if frames
+        else pd.DataFrame(columns=cellxgene.DE_COLUMNS)
+    )
+
+
+def _mondo_graph():
+    """Load the MONDO ontology graph (child→parent edges) via obonet."""
+    import obonet
+
+    return obonet.read_obo("http://purl.obolibrary.org/obo/mondo/mondo-base.obo")
+
+
+ROLLUP_COLUMNS = [*cellxgene.DE_COLUMNS[:-2], "n_diseases", "rank"]
+"""DEG-rollup schema: :data:`biodb.cellxgene.DE_COLUMNS` (minus ``rank``/``source``)
+plus ``n_diseases`` (how many member diseases were aggregated) + ``rank``."""
+
+
+def _iter_disease_deg_rollup(
+    organism: str,
+    *,
+    tissues: list[str] | None = None,
+    min_pool: int = 2,
+    agg: str = "median",
+    cache_dir: str | Path | None = None,
+    force: bool = False,
+    progress: bool = True,
+):
+    """Yield **MONDO disease-category** DEG frames by aggregating the leaf DEG.
+
+    A roll-up is a *local aggregation of already-computed vectors*, not new
+    computation: for every MONDO node that pools ``>= min_pool`` of a tissue's
+    diseases, it reads those diseases' cached leaf DE (:func:`_iter_disease_deg`
+    output) and aggregates each *(cell type × gene)* across the member diseases
+    (``agg`` = ``"median"`` or ``"mean"`` of ``effect_size`` / ``log_fold_change``
+    / ``adjusted_p_value``), adding ``n_diseases``. Fast (seconds), reproducible,
+    resumable. For a rigorous *single pooled* contrast on demand, use
+    :func:`biodb.cellxgene.disease_vs_normal` with ``include_descendants=True``.
+    """
+    import networkx as nx
+    from tqdm import tqdm
+
+    organism_id, organism_label = _resolve_organism(organism)
+    leaf_root = Path(cache_dir).expanduser() if cache_dir else cellxgene.CACHE_DIR / "disease_deg"
+    root = Path(cache_dir).expanduser() if cache_dir else cellxgene.CACHE_DIR / "disease_deg_rollup"
+    root.mkdir(parents=True, exist_ok=True)
+    graph = _mondo_graph()
+    isa = graph.edge_subgraph([(u, v, k) for u, v, k in graph.edges(keys=True) if k == "is_a"])
+
+    key = ["cell_ontology_id", "cell_type_name", "gene_symbol", "gene_id"]
+    tissue_list = tissues if tissues is not None else cellxgene.list_tissues(organism=organism)
+    for tissue in tissue_list:
+        present = {
+            row["disease_ontology_term_id"]: row["disease"]
+            for _, row in cellxgene.list_diseases(tissue, organism=organism).iterrows()
+        }
+        node_pool: dict[str, set[str]] = {}
+        for d in present:
+            if d not in isa:
+                continue
+            for node in {d, *nx.descendants(isa, d)}:
+                if str(node).startswith("MONDO:"):
+                    node_pool.setdefault(node, set()).add(d)
+        nodes = {n: p for n, p in node_pool.items() if len(p) >= min_pool}
+        if not nodes:
+            continue
+        tissue_id, tissue_label = _resolve_tissue(tissue, organism_id)
+
+        # load this tissue's member leaf-DE parquets once (only diseases used by
+        # some rollup node), keyed by disease id
+        cols = [
+            "cell_ontology_id",
+            "cell_type_name",
+            "gene_symbol",
+            "gene_id",
+            "effect_size",
+            "log_fold_change",
+            "adjusted_p_value",
+        ]
+        leaf: dict[str, pd.DataFrame] = {}
+        for d in {d for p in nodes.values() for d in p}:
+            lp = leaf_root / f"{organism_id}__{_slug(tissue)}__{d}.parquet".replace(":", "-")
+            if lp.exists():
+                df = pd.read_parquet(lp, columns=cols)  # only what we aggregate
+                if not df.empty:
+                    df["disease_ontology_id"] = d  # stamp (older caches lack it)
+                    leaf[d] = df
+
+        iterator = (
+            tqdm(nodes.items(), desc=f"rollup:{organism}:{tissue_label}", leave=False)
+            if progress
+            else nodes.items()
+        )
+        for node, pooled in iterator:
+            cache_path = root / f"{organism_id}__{_slug(tissue)}__{node}.parquet".replace(":", "-")
+            if cache_path.exists() and not force:
+                yield pd.read_parquet(cache_path)
+                continue
+            members = [leaf[d] for d in pooled if d in leaf and not leaf[d].empty]
+            if not members:
+                continue
+            combined = pd.concat(members, ignore_index=True)
+            grouped = (
+                combined.groupby(key, dropna=False)
+                .agg(
+                    effect_size=("effect_size", agg),
+                    log_fold_change=("log_fold_change", agg),
+                    adjusted_p_value=("adjusted_p_value", agg),
+                    n_diseases=("disease_ontology_id", "nunique"),
+                )
+                .reset_index()
+            )
+            grouped["species"] = organism_label
+            grouped["tissue"] = tissue_label
+            grouped["tissue_ontology_id"] = tissue_id
+            grouped["disease"] = graph.nodes.get(node, {}).get("name", node)
+            grouped["disease_ontology_id"] = node
+            grouped["rank"] = (
+                grouped.groupby("cell_ontology_id", dropna=False)["effect_size"]
+                .rank(method="dense", ascending=False)
+                .astype("Int64")
+            )
+            out = grouped.reindex(columns=ROLLUP_COLUMNS)
+            out.to_parquet(cache_path, index=False)
+            yield out
+
+
+# ─── Dataset assembly + push ─────────────────────────────────────────────────
+
+
+def build_dataset(
+    out_dir: str | Path,
+    *,
+    organisms: list[str] | None = None,
+    include_deg: bool = False,
+    include_deg_rollup: bool = False,
+    cache_dir: str | Path | None = None,
+    force: bool = False,
+) -> Path:
+    """Write the ``biodb_cellxgene`` dataset (parquet files + card) to ``out_dir``.
+
+    Parameters
+    ----------
+    out_dir
+        Destination directory (created if missing).
+    organisms
+        Species to include (default :data:`DATASET_ORGANISMS`).
+    include_deg
+        Also build + write the leaf disease-DEG tables (the long step).
+    include_deg_rollup
+        Also build + write the MONDO **disease-category** DEG (descendant
+        diseases pooled vs normal) under ``disease_deg_rollup/<species>/``.
+    cache_dir, force
+        Forwarded to the builders.
+
+    Returns
+    -------
+    pathlib.Path
+        ``out_dir``.
+    """
+    organisms = organisms or DATASET_ORGANISMS
+    out = Path(out_dir).expanduser()
+    (out / "markers").mkdir(parents=True, exist_ok=True)
+
+    # ``species`` (encoded in the file name), ``source`` (always "cellxgene"), and
+    # ``marker_type`` (implied by the file) are dropped — see the dataset card.
+    drop = ["species", "source", "marker_type"]
+
+    # A *gene vector* is one ranked gene list = a distinct grouping key. For
+    # markers that key is (tissue, cell type); each DEG shard is a single
+    # (tissue x disease) pair, so its vector count is its distinct cell types.
+    def _marker_vectors(df: pd.DataFrame) -> int:
+        cols = [c for c in ("tissue", "cell_ontology_id") if c in df.columns]
+        return int(df[cols].drop_duplicates().shape[0]) if cols else 0
+
+    markers = build_markers(cache_dir=cache_dir, force=force)
+    canonical = markers["canonical"].dropna(axis=1, how="all").drop(columns=drop, errors="ignore")
+    canonical.to_parquet(out / "markers" / "canonical.parquet", index=False)
+    written = {"canonical": len(canonical)}
+    vectors = {"canonical": _marker_vectors(canonical)}
+    for species in organisms:
+        if species in markers:
+            # per-species file (species inferred from the name); also drop the
+            # all-null `publication` column (a canonical-only field).
+            comp = markers[species].drop(columns=drop, errors="ignore").dropna(axis=1, how="all")
+            comp.to_parquet(
+                out / "markers" / f"computational_{_slug(species)}.parquet", index=False
+            )
+            written[species] = len(comp)
+            vectors[species] = _marker_vectors(comp)
+
+    deg_written: dict[str, int] = {}
+    deg_vectors: dict[str, int] = {}
+    if include_deg:
+        for species in organisms:
+            sp_dir = out / "disease_deg" / _slug(species)
+            sp_dir.mkdir(parents=True, exist_ok=True)
+            n_shards = n_rows = n_vec = 0
+            for shard in _iter_disease_deg(species, cache_dir=cache_dir, force=force):
+                if shard.empty:
+                    continue
+                shard = shard.reindex(columns=cellxgene.DE_COLUMNS).drop(
+                    columns=drop, errors="ignore"
+                )
+                shard.to_parquet(sp_dir / f"part_{n_shards:04d}.parquet", index=False)
+                n_shards += 1
+                n_rows += len(shard)
+                n_vec += int(shard["cell_ontology_id"].nunique())
+            deg_written[species] = n_rows
+            deg_vectors[species] = n_vec
+
+    rollup_written: dict[str, int] = {}
+    rollup_vectors: dict[str, int] = {}
+    if include_deg_rollup:
+        for species in organisms:
+            sp_dir = out / "disease_deg_rollup" / _slug(species)
+            sp_dir.mkdir(parents=True, exist_ok=True)
+            n_shards = n_rows = n_vec = 0
+            for shard in _iter_disease_deg_rollup(species, cache_dir=cache_dir, force=force):
+                if shard.empty:
+                    continue
+                shard = shard.drop(columns=["species", "source"], errors="ignore")
+                shard.to_parquet(sp_dir / f"part_{n_shards:04d}.parquet", index=False)
+                n_shards += 1
+                n_rows += len(shard)
+                n_vec += int(shard["cell_ontology_id"].nunique())
+            rollup_written[species] = n_rows
+            rollup_vectors[species] = n_vec
+
+    (out / "README.md").write_text(
+        _dataset_card(
+            organisms,
+            written,
+            deg_written,
+            rollup_written,
+            include_deg,
+            vectors,
+            deg_vectors,
+            rollup_vectors,
+        ),
+        encoding="utf-8",
+    )
+    logger.info("Built biodb_cellxgene dataset at %s (%s)", out, written)
+    return out
+
+
+def push_to_hub(
+    local_dir: str | Path,
+    repo_id: str,
+    *,
+    private: bool = True,
+    token: str | None = None,
+) -> str:
+    """Upload a built dataset directory to the HuggingFace Hub.
+
+    Requires ``huggingface_hub`` and a valid token (cached login or ``token``).
+
+    Parameters
+    ----------
+    local_dir
+        Directory produced by :func:`build_dataset`.
+    repo_id
+        e.g. ``"standardmodelbio/biodb_cellxgene"``.
+    private
+        Create/keep the dataset repo private.
+    token
+        HF token; falls back to the cached login.
+
+    Returns
+    -------
+    str
+        The dataset repo URL.
+    """
+    from huggingface_hub import HfApi
+
+    api = HfApi(token=token)
+    api.create_repo(repo_id, repo_type="dataset", private=private, exist_ok=True)
+    api.upload_folder(
+        folder_path=str(Path(local_dir).expanduser()), repo_id=repo_id, repo_type="dataset"
+    )
+    return f"https://huggingface.co/datasets/{repo_id}"
+
+
+def _dataset_card(
+    organisms: list[str],
+    markers_written: dict[str, int],
+    deg_written: dict[str, int],
+    rollup_written: dict[str, int],
+    include_deg: bool,
+    markers_vectors: dict[str, int] | None = None,
+    deg_vectors: dict[str, int] | None = None,
+    rollup_vectors: dict[str, int] | None = None,
+) -> str:
+    """Render the dataset-card README (YAML front matter + docs)."""
+    markers_vectors = markers_vectors or {}
+    deg_vectors = deg_vectors or {}
+    rollup_vectors = rollup_vectors or {}
+    configs = [
+        "  - config_name: canonical_markers\n    data_files: markers/canonical.parquet",
+    ]
+    for species in organisms:
+        if species in markers_written:
+            configs.append(
+                f"  - config_name: computational_markers_{_slug(species)}\n"
+                f"    data_files: markers/computational_{_slug(species)}.parquet"
+            )
+    for species in organisms:
+        if species in deg_written:
+            configs.append(
+                f"  - config_name: disease_deg_{_slug(species)}\n"
+                f"    data_files: disease_deg/{_slug(species)}/*.parquet"
+            )
+    for species in organisms:
+        if species in rollup_written:
+            configs.append(
+                f"  - config_name: disease_deg_rollup_{_slug(species)}\n"
+                f"    data_files: disease_deg_rollup/{_slug(species)}/*.parquet"
+            )
+    counts = "\n".join(
+        f"- **{k}**: {v:,} rows"
+        for k, v in {
+            **markers_written,
+            **{f"DEG {k}": v for k, v in deg_written.items()},
+            **{f"DEG-rollup {k}": v for k, v in rollup_written.items()},
+        }.items()
+    )
+
+    # Gene-vector counts: one ranked gene list per distinct grouping key.
+    marker_v = sum(markers_vectors.values())
+    leaf_v = sum(deg_vectors.values())
+    rollup_v = sum(rollup_vectors.values())
+    rows = [
+        ("**Marker genes**", "", f"**{marker_v:,}**"),
+        (
+            "&nbsp;&nbsp;↳ computational (per species)",
+            "tissue × cell type",
+            f"{sum(v for k, v in markers_vectors.items() if k != 'canonical'):,}",
+        ),
+        (
+            "&nbsp;&nbsp;↳ canonical",
+            "tissue × cell type",
+            f"{markers_vectors.get('canonical', 0):,}",
+        ),
+    ]
+    if deg_vectors:
+        rows.append(("**Disease DEG (leaf)**", "tissue × disease × cell type", f"**{leaf_v:,}**"))
+    if rollup_vectors:
+        rows.append(
+            (
+                "**Disease-category DEG (rollup)**",
+                "tissue × MONDO-category × cell type",
+                f"**{rollup_v:,}**",
+            )
+        )
+    rows.append(("**Total**", "", f"**{marker_v + leaf_v + rollup_v:,}**"))
+    vector_table = "\n".join(f"| {name} | {grp} | {n} |" for name, grp, n in rows)
+    return f"""---
+license: cc-by-4.0
+language:
+  - en
+tags:
+  - biology
+  - single-cell
+  - cell-ontology
+  - marker-genes
+  - differential-expression
+  - cellxgene
+pretty_name: bioDB CELLxGENE cell-type markers & disease DEG
+configs:
+{chr(10).join(configs)}
+---
+
+# biodb_cellxgene
+
+Cell-type knowledge from [CZ CELLxGENE Discover](https://cellxgene.cziscience.com/),
+assembled by [`bioDB`](https://github.com/bschilder/bioDB) entirely from CZI's
+**served** data (no recomputation), keyed to the **Cell Ontology (CL)** and UBERON.
+
+> **Species is encoded in the file/directory name, not a column.** Every file is
+> single-species (e.g. `computational_homo_sapiens.parquet`,
+> `disease_deg/mus_musculus/`), so a `species` column would be constant and is
+> omitted. Likewise there is no `source` column (all rows are CELLxGENE) or
+> `marker_type` column (implied by the file: computational vs canonical).
+
+## Contents
+
+### Marker genes (`markers/`)
+Per-**species** computational markers + a shared **canonical** table, from the
+CellGuide snapshot.
+
+- `computational_<species>.parquet` — CZI's **Marker Score** (effect size) per
+  gene × cell type × tissue, with `specificity`, `mean_expression`,
+  `pct_expressing`, `rank`, `tissue`/`tissue_ontology_id`, `cell_type_name`/
+  `cell_ontology_id`, `gene_symbol`/`gene_id`. One file per species (human, mouse).
+- `canonical.parquet` — curated reference marker genes (HuBMAP ASCT+B + literature),
+  organized **by tissue, not organism** (cross-species; CZI attaches no organism):
+  `cell_ontology_id`, `cell_type_name`, `tissue`, `tissue_ontology_id`,
+  `gene_symbol`, `publication`.
+
+### Disease DEG (`disease_deg/<species>/`){"" if include_deg else " — *not yet built (follow-up run)*"}
+Disease-vs-normal differential expression per *(disease × tissue × cell type)*,
+from CELLxGENE's Differential Expression API. **Sharded** as one parquet per
+(tissue × disease) pair under a per-species directory. Columns: `tissue`/
+`tissue_ontology_id`, `cell_type_name`/`cell_ontology_id`, `disease`/
+`disease_ontology_id`, `gene_symbol`/`gene_id`, `effect_size`, `log_fold_change`,
+`adjusted_p_value`, `rank` (positive effect = up in disease). Genome-wide (all
+tested genes per contrast).
+
+### Disease-category DEG (`disease_deg_rollup/<species>/`)
+Diseases **rolled up the MONDO ontology**: for each MONDO node that pools ≥2 of a
+tissue's diseases, the member diseases' leaf DE vectors are **aggregated locally**
+(median `effect_size` / `log_fold_change` / `adjusted_p_value` per gene × cell
+type) into a *category* signature — a fast meta-summary of vectors already in
+`disease_deg/`, not a re-run. `disease`/`disease_ontology_id` name the MONDO
+category; `n_diseases` = how many member diseases were aggregated. For a
+statistically rigorous *single pooled* contrast on a specific query, use
+`biodb.cellxgene.disease_vs_normal(..., include_descendants=True)` (re-queries the
+DE API with the descendant diseases as one case group).
+
+## Gene-vector counts
+
+A **gene vector** is one ranked/scored gene list keyed to a distinct grouping.
+Counts are per-provenance (leaf and rollup are counted separately; the rollup is
+a derived meta-summary of the leaf DEG, not new measurements).
+
+| Component | Grouping key | Vectors |
+|---|---|--:|
+{vector_table}
+
+## Row counts
+
+{counts}
+
+## Species coverage
+
+CZ CELLxGENE's **served** marker/DEG products (WMG Marker Score, CellGuide, the
+Differential Expression API) cover **human and mouse only** — this dataset
+includes exactly those. The underlying Census (release `2025-11-08`) also
+contains three primates — *Macaca mulatta*, *Callithrix jacchus*, *Pan
+troglodytes* — but they have **no served Marker Score and no disease DEG**, and
+only 1–2 tissues each, so they are intentionally **not** included here (adding
+them would require locally computed, lower-coverage markers of a different
+provenance). Cross-species curated markers for a longer tail of organisms are
+available separately via `biodb.celltaxonomy`.
+
+## Provenance & license
+
+All data derives from CZ CELLxGENE Discover (CellGuide + WMG + DE APIs) under
+**CC-BY 4.0**. Built with `biodb.cellxgene_dataset`; reproduce with:
+
+```python
+from biodb import cellxgene_dataset as cxd
+cxd.build_dataset("biodb_cellxgene", include_deg=True)
+```
+"""
+
+
+__all__ = [
+    "DATASET_ORGANISMS",
+    "build_markers",
+    "build_disease_deg",
+    "build_dataset",
+    "push_to_hub",
+]

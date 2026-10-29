@@ -22,7 +22,7 @@ def is_upstream_outage(exc: BaseException) -> bool:
 
     Returns True only for genuine availability failures:
 
-    * a connection error or read/connect timeout (the server never answered), or
+    * a connection error, read/connect timeout, or interrupted HTTP body, or
     * an HTTP ``502`` / ``503`` / ``504`` (gateway / service-unavailable).
 
     Returns False for everything else — ``4xx`` (our request is wrong / a
@@ -32,7 +32,14 @@ def is_upstream_outage(exc: BaseException) -> bool:
     to guard live-API integration tests so a third party's downtime doesn't gate
     CI, without masking real regressions.
     """
-    if isinstance(exc, (requests.exceptions.ConnectionError, requests.exceptions.Timeout)):
+    if isinstance(
+        exc,
+        (
+            requests.exceptions.ConnectionError,
+            requests.exceptions.Timeout,
+            requests.exceptions.ChunkedEncodingError,
+        ),
+    ):
         return True
     if isinstance(exc, requests.exceptions.HTTPError):
         response = getattr(exc, "response", None)

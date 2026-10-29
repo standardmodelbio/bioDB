@@ -60,6 +60,14 @@ Module map:
   ``load_physical_links``, ``physical_ppi_edges``). The physical
   sub-network is direct binding evidence only — closer to "PPI"
   than the full functional-coupling network in ``protein.links``.
+* :mod:`biodb.celltaxonomy` / :mod:`biodb.cellmarker` /
+  :mod:`biodb.cellxgene` -- cell-type marker genes ranked per Cell
+  Ontology (CL) term. Cell Taxonomy + CellMarker are curated bulk
+  flat files with native CL ids (``get_markers`` / ``query_markers`` /
+  ``to_gmt``); CELLxGENE fetches CZI's precomputed Marker Score via the
+  WMG REST API (``query_markers`` / ``get_tissue_markers``). All three emit
+  the shared *(species, tissue, cell type, CL id, gene, score, rank)*
+  schema from :mod:`biodb._celltype`.
 
 Genomic-interval helpers (BED I/O, overlap joins, nearest) live in
 :mod:`biodb.intervals`. Shared utilities live in :mod:`biodb.utils` (random seeding,
@@ -69,6 +77,10 @@ similarity helpers, token counting, ``create_gene_association_matrix``,
 
 from biodb import (
     aou_allxall,
+    cellmarker,
+    celltaxonomy,
+    cellxgene,
+    cellxgene_dataset,
     clinvar,
     coessentiality,
     constraint_tracks,
@@ -82,8 +94,10 @@ from biodb import (
     gwas_atlas,
     gwas_catalog,
     harmonizome,
+    hf_datasets,
     intervals,
     mapping,
+    markers,
     monarch,
     msigdb,
     ols,
@@ -105,9 +119,39 @@ from biodb import (
     uniprot,
     utils,
 )
+from biodb.cellmarker import (
+    get_markers as cellmarker_get_markers,
+)
+from biodb.cellmarker import (
+    query_markers as cellmarker_query_markers,
+)
 
 # A small slice of high-frequency public symbols is re-exported at the
 # top level for convenience. The full APIs live on the submodules.
+from biodb.celltaxonomy import (
+    get_markers as celltaxonomy_get_markers,
+)
+from biodb.celltaxonomy import (
+    query_markers as celltaxonomy_query_markers,
+)
+from biodb.cellxgene import (
+    cellguide_markers as cellxgene_cellguide_markers,
+)
+from biodb.cellxgene import (
+    disease_vs_normal as cellxgene_disease_vs_normal,
+)
+from biodb.cellxgene import (
+    get_all_markers as cellxgene_get_all_markers,
+)
+from biodb.cellxgene import (
+    get_tissue_markers as cellxgene_get_tissue_markers,
+)
+from biodb.cellxgene import (
+    query_markers as cellxgene_query_markers,
+)
+from biodb.cellxgene_dataset import (
+    build_dataset as cellxgene_build_dataset,
+)
 from biodb.clinvar import (
     bed_to_sites,
     df_to_bed,
@@ -148,6 +192,7 @@ from biodb.harmonizome import (
     list_datasets as harmonizome_list_datasets,
 )
 from biodb.mapping import map_gene_ids
+from biodb.markers import load_markers
 from biodb.monarch import (
     get_gene_associations as monarch_get_gene_associations,
 )
@@ -202,6 +247,20 @@ __all__ = [
     "RANDOM_SEED",
     "aou_allxall",
     "bed_to_sites",
+    "celltaxonomy",
+    "celltaxonomy_get_markers",
+    "celltaxonomy_query_markers",
+    "cellmarker",
+    "cellmarker_get_markers",
+    "cellmarker_query_markers",
+    "cellxgene",
+    "cellxgene_build_dataset",
+    "cellxgene_cellguide_markers",
+    "cellxgene_dataset",
+    "cellxgene_disease_vs_normal",
+    "cellxgene_get_all_markers",
+    "cellxgene_get_tissue_markers",
+    "cellxgene_query_markers",
     "clinvar",
     "corum",
     "cosine_similarity",
@@ -245,12 +304,15 @@ __all__ = [
     "harmonizome_download_datasets",
     "harmonizome_get_dataset_metadata",
     "harmonizome_list_datasets",
+    "hf_datasets",
     "l2_normalize",
     "list_available_versions",
     "list_datasets",
     "load_gene_attribute_matrix",
+    "load_markers",
     "map_gene_ids",
     "mapping",
+    "markers",
     "monarch",
     "monarch_get_gene_associations",
     "msigdb",

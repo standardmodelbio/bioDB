@@ -70,6 +70,17 @@ clinvar = [
 omicspred = [
     "openpyxl>=3.1",
 ]
+# Cell-type marker sources. celltaxonomy.py is plain TSV, cellxgene.py is a
+# plain requests REST client (WMG API), and CL resolution goes through the
+# requests-based OLS client — all core deps. The only extra dep is the Excel
+# reader cellmarker.py needs for its .xlsx bulk files.
+celltype = [
+    "openpyxl>=3.1",
+]
+# Publishing built datasets to the HuggingFace Hub (biodb.cellxgene_dataset.push_to_hub).
+hf = [
+    "huggingface_hub>=0.24",
+]
 viz = [
     "matplotlib>=3.7",
     "datashader>=0.16",
@@ -129,6 +140,9 @@ test = [
     # ``DataFrame.to_parquet`` and crash on a fresh install without one
     # of these engines.
     "pyarrow>=14.0",
+    # cellmarker.py reads .xlsx bulk files; its offline tests build + read a
+    # tiny .xlsx fixture, so the Excel engine must be present in CI.
+    "openpyxl>=3.1",
     # CI runs live integration tests against every source; the protein
     # tests (uniprot) need biopython, the mapping tests need gprofiler,
     # and the ontology tests need owlready2 + networkx. Without these
@@ -138,7 +152,7 @@ test = [
     "owlready2>=0.45",
     "networkx>=3.0",
 ]
-dev = ["biodb[ontology,viz,tokens,gget,protein,clinvar,mapping,bigwig,docs,test]"]
+dev = ["biodb[ontology,viz,tokens,gget,protein,clinvar,mapping,celltype,bigwig,docs,test]"]
 
 [project.urls]
 Homepage = "https://github.com/bschilder/bioDB"
