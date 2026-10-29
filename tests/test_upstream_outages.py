@@ -14,7 +14,12 @@ def http_error(status):
 
 @pytest.mark.parametrize(
     "error",
-    [requests.ConnectionError(), requests.Timeout(), *[http_error(s) for s in (502, 503, 504)]],
+    [
+        requests.ConnectionError(),
+        requests.Timeout(),
+        requests.exceptions.ChunkedEncodingError("connection closed before Content-Length"),
+        *[http_error(s) for s in (502, 503, 504)],
+    ],
 )
 def test_unavailable_upstream_is_reported_as_skip(error):
     with (
