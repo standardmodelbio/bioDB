@@ -28,6 +28,22 @@ for _name in dir(_bulk):
 del _g, _name
 
 from biodb.opentargets import studies, variants  # noqa: E402,F401
+from biodb.opentargets.readers import (  # noqa: E402,F401
+    get_diseases,
+    get_drugs,
+    get_traits,
+    scan_dataset,
+)
+from biodb.opentargets.variants import (  # noqa: E402,F401
+    get_credible_set,
+    get_credible_set_members,
+    get_credible_set_variants,
+    get_credible_sets,
+    get_variant_annotations,
+    scan_credible_sets,
+    scan_variant_annotations,
+    summarize_credible_sets,
+)
 
 __all__ = [  # noqa: F822 - names injected from _bulk above are intentional
     name for name in dir() if not name.startswith("_")
