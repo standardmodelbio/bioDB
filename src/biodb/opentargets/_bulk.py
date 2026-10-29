@@ -286,18 +286,28 @@ def list_datasets(base_url: str | None = None) -> dict[str, str]:
     return {name: f"{base_url}/{name}" for name in sorted(seen)}
 
 
-def _list_parquet_files(dataset_url: str) -> list[str]:
+def _list_parquet_files(
+    dataset_url: str, *, session: requests.Session | None = None, timeout: int = 30,
+) -> list[str]:
     """List parquet file URLs under a dataset directory."""
     from urllib.parse import unquote
 
     dataset_url = dataset_url.rstrip("/")
-    html = _http_get(dataset_url + "/")
+    if session is None:
+        html = _http_get(dataset_url + "/", timeout=timeout)
+    else:
+        with session.get(dataset_url + "/", timeout=timeout) as response:
+            response.raise_for_status()
+            html = response.text
     link_pattern = r'<a[^>]+href=["\']([^"\']+\.parquet)["\'][^>]*>'
     files = sorted({unquote(m) for m in re.findall(link_pattern, html, re.IGNORECASE)})
     return [f"{dataset_url}/{f}" for f in files]
 
 
-def _download_to_cache(url: str, cache_dir: Path, force: bool = False) -> Path:
+def _download_to_cache(
+    url: str, cache_dir: Path, force: bool = False,
+    *, session: requests.Session | None = None, timeout: int = 60,
+) -> Path:
     """Download ``url`` into ``cache_dir`` if not already cached."""
     from urllib.parse import urlparse
 
@@ -306,19 +316,31 @@ def _download_to_cache(url: str, cache_dir: Path, force: bool = False) -> Path:
     cache_dir.mkdir(parents=True, exist_ok=True)
     fname = Path(urlparse(url).path).name
     out = cache_dir / fname
+    from biodb.opentargets._cache import validate_parquet
+
     if out.exists() and not force:
-        return out
+        try:
+            validate_parquet(out)
+            return out
+        except (OSError, ValueError):
+            pass
     logger.info("Downloading %s -> %s", url, out)
-    return stream_to_file(url, out, timeout=60, chunk_size=1 << 20)
+    return stream_to_file(
+        url, out, timeout=timeout, session=session, chunk_size=1 << 20,
+        resume=True, validate=validate_parquet,
+    )
 
 
 def ensure_cached_shards(
     dataset: str,
     *,
+    remote_url: str | None = None,
     version: str = DEFAULT_VERSION,
     cache_dir: str | Path | None = None,
     limit_files: int | None = None,
     force: bool = False,
+    session: requests.Session | None = None,
+    timeout: int = 60,
 ) -> list[Path]:
     """Ensure every Parquet shard for ``dataset`` is on disk; return their paths.
 
@@ -358,30 +380,26 @@ def ensure_cached_shards(
     >>> len(shards) > 0  # doctest: +SKIP
     True
     """
-    base_url = DOWNLOADS_BASE_URL_TEMPLATE.format(version=version)
-    dataset_url = f"{base_url}/{dataset}"
-    cache_root = (
-        (Path(cache_dir).expanduser() if cache_dir else DEFAULT_CACHE_DIR) / version / dataset
+    from biodb.opentargets._cache import ensure_shards
+
+    official_url = f"{DOWNLOADS_BASE_URL_TEMPLATE.format(version=version)}/{dataset}"
+    download = _download_to_cache
+    list_files = _list_parquet_files
+    if session is not None or timeout != 60:
+        from functools import partial
+        download = partial(download, session=session, timeout=timeout)
+        list_files = partial(list_files, session=session, timeout=timeout)
+    return ensure_shards(
+        dataset=dataset,
+        version=version,
+        source_url=remote_url or official_url,
+        official_url=official_url,
+        cache_dir=Path(cache_dir).expanduser() if cache_dir else DEFAULT_CACHE_DIR,
+        limit_files=limit_files,
+        force=force,
+        list_files=list_files,
+        download=download,
     )
-    cache_root.mkdir(parents=True, exist_ok=True)
-
-    cached = sorted(cache_root.glob("*.parquet"))
-    if cached and not force:
-        return cached if limit_files is None else cached[:limit_files]
-    parquet_urls = _list_parquet_files(dataset_url)
-    if limit_files is not None:
-        parquet_urls = parquet_urls[:limit_files]
-    if not parquet_urls:
-        raise FileNotFoundError(f"No parquet files found under {dataset_url}")
-    from tqdm.auto import tqdm
-
-    # Per-file ``_downloads.stream_to_file`` already shows a byte-level
-    # bar; add an outer bar over shards so multi-shard datasets like
-    # ``variant`` (25 shards in OT 25.12) report meaningful progress.
-    return [
-        _download_to_cache(url, cache_root, force=force)
-        for url in tqdm(parquet_urls, desc=f"{dataset} shards", unit="shard", leave=False)
-    ]
 
 
 def get_dataset(
@@ -443,34 +461,20 @@ def get_dataset(
     >>> from biodb.opentargets import get_dataset
     >>> targets = get_dataset("target", limit_files=1)  # doctest: +SKIP
     """
-    # remote_url overrides resolved URL
+    from urllib.parse import urlparse
+
     if remote_url:
-        # Derive dataset name from URL tail for cache layout
-        dataset_name = remote_url.rstrip("/").rsplit("/", 1)[-1]
-        cache_root = (
-            (Path(cache_dir).expanduser() if cache_dir else DEFAULT_CACHE_DIR)
-            / version
-            / dataset_name
-        )
-        cache_root.mkdir(parents=True, exist_ok=True)
-        cached = sorted(cache_root.glob("*.parquet"))
-        if cached and not force:
-            local_files = cached if limit_files is None else cached[:limit_files]
-        else:
-            parquet_urls = _list_parquet_files(remote_url)
-            if limit_files is not None:
-                parquet_urls = parquet_urls[:limit_files]
-            local_files = [_download_to_cache(u, cache_root, force=force) for u in parquet_urls]
+        dataset_name = Path(urlparse(remote_url.rstrip("/")).path).name
     else:
-        if dataset is None:
-            dataset = "association_overall_direct"
-        local_files = ensure_cached_shards(
-            dataset,
-            version=version,
-            cache_dir=cache_dir,
-            limit_files=limit_files,
-            force=force,
-        )
+        dataset_name = dataset or "association_overall_direct"
+    local_files = ensure_cached_shards(
+        dataset_name,
+        remote_url=remote_url,
+        version=version,
+        cache_dir=cache_dir,
+        limit_files=limit_files,
+        force=force,
+    )
 
     if not local_files:
         raise FileNotFoundError(f"No parquet files cached for {dataset or remote_url}")

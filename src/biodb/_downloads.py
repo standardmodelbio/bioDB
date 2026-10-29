@@ -1,36 +1,38 @@
-"""Shared bulk-download helper — chunked stream + tqdm progress bar.
+"""Atomic downloads with durable, identity-checked HTTP byte resumption.
 
-Internal module (underscore-prefixed). Every first-party bulk-download
-function in :mod:`biodb` should funnel through :func:`stream_to_file`
-so users get consistent progress feedback regardless of which source
-they're pulling.
-
-Why this exists
----------------
-Each source module originally had its own near-identical "GET stream
-+ iter_content + write to disk" loop. None of them showed progress, so
-a 90 MB Swiss-Prot pull or a 311 MB Monarch KG bundle looked like a
-hung script. Pulling them through one helper means:
-
-* Users always see a tqdm bar (or a clean fallback when the server
-  omits ``Content-Length``).
-* The chunk size, retry/timeout posture, and parent-directory creation
-  are written down in exactly one place.
-* New source modules pick up the same behaviour by default.
-
-Callers can opt out with ``progress=False`` — useful in test
-environments or when a higher layer is already managing progress.
+Only validated files are published at the destination. Interrupted GETs retain
+private ``.part`` bytes and a credential-free receipt; callers own retry policy.
 """
 
 from __future__ import annotations
 
+import hashlib
+import json
+import os
+import re
+import tempfile
+from collections.abc import Callable
+from contextlib import suppress
 from pathlib import Path
 
 import requests
+from filelock import FileLock
 from tqdm import tqdm
 
-_DEFAULT_CHUNK_SIZE = 1 << 16  # 64 KiB — same as the prior in-module loops
+_DEFAULT_CHUNK_SIZE = 1 << 16
 _DEFAULT_TIMEOUT = 300
+
+
+def _atomic_json(path: Path, value: dict) -> None:
+    fd, name = tempfile.mkstemp(prefix=path.name + ".", dir=path.parent)
+    try:
+        with os.fdopen(fd, "w") as handle:
+            json.dump(value, handle, sort_keys=True)
+            handle.flush()
+            os.fsync(handle.fileno())
+        os.replace(name, path)
+    finally:
+        Path(name).unlink(missing_ok=True)
 
 
 def stream_to_file(
@@ -45,78 +47,203 @@ def stream_to_file(
     session: requests.Session | None = None,
     post_data: dict | None = None,
     allow_redirects: bool = True,
+    resume: bool = True,
+    validate: Callable[[Path], None] | None = None,
+    on_identity: Callable[[dict], None] | None = None,
 ) -> Path:
-    """Stream ``url`` to ``dst`` in chunks, with a tqdm progress bar.
+    """Download, validate, then atomically replace ``dst``.
 
-    Parameters
-    ----------
-    url, dst
-        Source URL and destination file path. The parent directory of
-        ``dst`` is created if missing.
-    headers
-        Optional HTTP headers (e.g. ``{"User-Agent": "..."}``).
-    timeout
-        Per-request timeout in seconds. Defaults to 300 — large enough
-        for a 100-MB-class artifact on a normal connection.
-    progress
-        If True (default), show a tqdm bar in bytes. If the server
-        omits ``Content-Length``, the bar runs in indeterminate-total
-        mode (still reports MB transferred).
-    desc
-        Optional tqdm bar description; defaults to the destination
-        filename.
-    chunk_size
-        Bytes per read+write cycle. 64 KiB is the project default.
-    session
-        Optional ``requests.Session`` — pass one in if you've already
-        configured retries / cookies / a CSRF flow (e.g. GWAS Atlas).
-    post_data
-        If given, sends a POST with this form body instead of a GET.
-        Lets the same helper power Laravel-form CSRF-protected
-        downloads.
-    allow_redirects
-        Forwarded to ``requests``. Default True.
-
-    Returns
-    -------
-    pathlib.Path
-        The destination path (cast to ``Path``).
+    Existing final files survive failed refreshes. GET prefixes resume only
+    with a strong ETag and a matching, identity-encoded Content-Range. Servers
+    ignoring ranges restart the single file. POST requests always restart.
+    ``resume=False`` discards a previous prefix. No retry loop is implicit.
+    The optional validator runs locally before publication; ValueError denotes
+    invalid bytes, while other validator failures retain bytes for revalidation.
+    Authentication and request values are hashed, never written to receipts.
     """
     dst = Path(dst)
     dst.parent.mkdir(parents=True, exist_ok=True)
+    part = Path(str(dst) + ".part")
+    receipt = Path(str(dst) + ".part.json")
     http = session or requests
-    method_kwargs: dict = {
-        "stream": True,
-        "timeout": timeout,
-        "headers": headers,
-        "allow_redirects": allow_redirects,
+    request_headers = dict(headers or {})
+    # Include session representation/auth context in the digest, without saving
+    # cookies or credentials themselves. No secret-bearing request is logged.
+    context = {
+        "method": "POST" if post_data is not None else "GET",
+        "url": url,
+        "body": post_data,
+        "headers": request_headers,
+        "session_headers": dict(getattr(session, "headers", {}) or {}),
+        "cookies": getattr(getattr(session, "cookies", None), "get_dict", lambda: {})(),
+        "auth": repr(getattr(session, "auth", None)),
     }
-    if post_data is not None:
-        response = http.post(url, data=post_data, **method_kwargs)
-    else:
-        response = http.get(url, **method_kwargs)
-    with response:
-        response.raise_for_status()
-        total = int(response.headers.get("content-length") or 0) or None
-        bar_desc = desc or dst.name
-        with (
-            open(dst, "wb") as f,
-            tqdm(
-                total=total,
-                unit="B",
-                unit_scale=True,
-                unit_divisor=1024,
-                desc=bar_desc,
-                disable=not progress,
-                leave=False,
-            ) as bar,
+    fingerprint = hashlib.sha256(
+        json.dumps(context, sort_keys=True, default=str).encode()
+    ).hexdigest()
+    with FileLock(str(dst) + ".lock"):
+
+        def discard() -> None:
+            receipt.unlink(missing_ok=True)
+            part.unlink(missing_ok=True)
+
+        saved = {}
+        if resume and post_data is None and part.exists():
+            with suppress(OSError, ValueError):
+                saved = json.loads(receipt.read_text())
+        if not isinstance(saved, dict):
+            saved = {}
+        saved_total = saved.get("total")
+        saved_etag = saved.get("etag")
+        if (
+            (saved_total is not None and (type(saved_total) is not int or saved_total < 0))
+            or (saved_etag is not None and not isinstance(saved_etag, str))
+            or ("finished" in saved and type(saved["finished"]) is not bool)
         ):
-            for chunk in response.iter_content(chunk_size=chunk_size):
-                if not chunk:
+            saved = {}
+        if saved.get("fingerprint") != fingerprint:
+            discard()
+            saved = {}
+        offset = part.stat().st_size if part.exists() else 0
+        total = saved.get("total")
+        if offset and total is not None and offset > total:
+            discard()
+            saved, offset = {}, 0
+
+        def publish() -> Path:
+            if on_identity is not None:
+                on_identity({"etag": saved.get("etag"), "total": saved.get("total")})
+            if validate is not None:
+                try:
+                    validate(part)
+                except ValueError:
+                    discard()
+                    raise
+            os.replace(part, dst)
+            receipt.unlink(missing_ok=True)
+            return dst
+
+        # A process may have died after its final write but before rename.
+        if saved.get("finished") and part.exists():
+            if total is None or offset == total:
+                return publish()
+            # The completed receipt survived but local bytes were truncated.
+            # Resume the verified prefix (or restart below), never publish it.
+            saved["finished"] = False
+        if offset and total == offset and saved.get("etag"):
+            return publish()
+        etag = saved.get("etag")
+        resumable = bool(offset and etag and not etag.startswith("W/") and post_data is None)
+        if offset and not resumable:
+            discard()
+            offset, saved = 0, {}
+        # At most one protocol-recovery restart; transport retries belong to caller.
+        for _protocol_attempt in range(2):
+            outgoing = dict(request_headers)
+            if post_data is None:
+                outgoing.setdefault("Accept-Encoding", "identity")
+            if offset:
+                outgoing.update({"Range": f"bytes={offset}-", "If-Range": saved["etag"]})
+            kwargs = dict(
+                stream=True, timeout=timeout, headers=outgoing, allow_redirects=allow_redirects
+            )
+            response = (
+                http.post(url, data=post_data, **kwargs)
+                if post_data is not None
+                else http.get(url, **kwargs)
+            )
+            with response:
+                encoded = response.headers.get(
+                    "Content-Encoding", response.headers.get("content-encoding", "identity")
+                ) not in ("identity", "")
+                current_etag = response.headers.get("ETag", response.headers.get("etag"))
+                length = response.headers.get(
+                    "Content-Length", response.headers.get("content-length")
+                )
+                expected_response = int(length) if length is not None and not encoded else None
+                if offset and response.status_code == 206:
+                    match = re.fullmatch(
+                        r"bytes (\d+)-(\d+)/(\d+)", response.headers.get("Content-Range", "")
+                    )
+                    valid = bool(match and not encoded and current_etag == saved["etag"])
+                    if valid:
+                        start, end, full = map(int, match.groups())
+                        valid = (
+                            start == offset
+                            and end >= start
+                            and end < full
+                            and full == saved.get("total")
+                        )
+                        if valid:
+                            expected_response = end - start + 1
+                            total = full
+                    if not valid:
+                        discard()
+                        offset, saved = 0, {}
+                        continue
+                elif offset and response.status_code == 416:
+                    discard()
+                    offset, saved = 0, {}
                     continue
-                f.write(chunk)
-                bar.update(len(chunk))
-    return dst
+                else:
+                    response.raise_for_status()
+                    if response.status_code == 206:
+                        raise requests.HTTPError(
+                            "Unsolicited partial response cannot establish a complete file"
+                        )
+                    # A 200 response to Range is a complete replacement, never appended.
+                    receipt.unlink(missing_ok=True)
+                    offset = 0
+                    total = expected_response
+                response.raise_for_status()
+                state = {
+                    "fingerprint": fingerprint,
+                    "etag": current_etag if not encoded else None,
+                    "total": total,
+                    "finished": False,
+                }
+                if state["etag"] and state["etag"].startswith("W/"):
+                    state["etag"] = None
+                if on_identity is not None:
+                    on_identity({"etag": state["etag"], "total": state["total"]})
+                saved = state
+                if not offset:
+                    # Invalidate old receipt before truncating; next receipt is durable
+                    # before any new bytes are accepted as a resumable prefix.
+                    receipt.unlink(missing_ok=True)
+                    part.write_bytes(b"")
+                _atomic_json(receipt, state)
+                received = 0
+                with (
+                    part.open("ab") as handle,
+                    tqdm(
+                        total=total,
+                        initial=offset,
+                        unit="B",
+                        unit_scale=True,
+                        unit_divisor=1024,
+                        desc=desc or dst.name,
+                        disable=not progress,
+                        leave=False,
+                    ) as bar,
+                ):
+                    for chunk in response.iter_content(chunk_size=chunk_size):
+                        if chunk:
+                            handle.write(chunk)
+                            received += len(chunk)
+                            bar.update(len(chunk))
+                    handle.flush()
+                    os.fsync(handle.fileno())
+                if expected_response is not None and received != expected_response:
+                    raise requests.ConnectionError(
+                        f"Incomplete response: received {received} of {expected_response} bytes"
+                    )
+                if total is not None and part.stat().st_size != total:
+                    raise requests.ConnectionError("Incomplete downloaded representation")
+                state["finished"] = True
+                _atomic_json(receipt, state)
+                return publish()
+        raise requests.HTTPError("Server returned inconsistent byte ranges twice")
 
 
 __all__ = ["stream_to_file"]

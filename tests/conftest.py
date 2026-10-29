@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+from collections.abc import Iterator
+from contextlib import contextmanager
+
 import numpy as np
 import pandas as pd
 import pytest
@@ -35,6 +38,17 @@ def is_upstream_outage(exc: BaseException) -> bool:
         response = getattr(exc, "response", None)
         return response is not None and response.status_code in _UPSTREAM_OUTAGE_STATUS
     return False
+
+
+@contextmanager
+def skip_upstream_outages(service: str) -> Iterator[None]:
+    """Guard live checks against transport outages; API/parse/assert errors still fail."""
+    try:
+        yield
+    except requests.exceptions.RequestException as exc:
+        if is_upstream_outage(exc):
+            pytest.skip(f"{service} upstream outage: {exc}")
+        raise
 
 
 @pytest.fixture

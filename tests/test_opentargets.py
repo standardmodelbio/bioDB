@@ -86,6 +86,8 @@ def test_get_dataset_signature() -> None:
 # ---------------------------------------------------------------------------
 
 
+@pytest.mark.network
+@pytest.mark.slow
 def test_list_datasets_against_live_server() -> None:
     """The Open Targets FTP root really exposes the documented datasets
     (``target``, ``association_overall_direct``, ``drug``, …).
@@ -105,6 +107,8 @@ def test_list_datasets_against_live_server() -> None:
         assert "ebi.ac.uk" in url
 
 
+@pytest.mark.network
+@pytest.mark.slow
 def test_get_dataset_target_downloads_one_real_parquet_shard(tmp_path) -> None:
     """Download ONE real Parquet shard from the ``target`` dataset and
     verify it parses with the documented schema.
@@ -141,6 +145,8 @@ def test_get_dataset_target_downloads_one_real_parquet_shard(tmp_path) -> None:
     )
 
 
+@pytest.mark.network
+@pytest.mark.slow
 def test_get_dataset_caches_locally(tmp_path) -> None:
     """Second call with the same ``cache_dir`` reuses the local file
     instead of redownloading."""
@@ -176,7 +182,7 @@ def test_get_dataset_caches_locally(tmp_path) -> None:
     )
 
 
-def _write_synthetic_variant_shards(cache_root, version="TESTVER"):
+def _write_synthetic_variant_shards(cache_root, monkeypatch, version="TESTVER"):
     """Build a 2-shard variant parquet at the layout ``ensure_cached_shards``
     expects. Each row is a real OT-25.12-shaped variant record with a
     nested ``transcriptConsequences`` list-of-struct so the helper has
@@ -212,16 +218,24 @@ def _write_synthetic_variant_shards(cache_root, version="TESTVER"):
     )
     shard0.write_parquet(dataset_dir / "part-00000.parquet")
     shard1.write_parquet(dataset_dir / "part-00001.parquet")
+    # Legacy fixture directories need an authoritative listing before adoption.
+    from biodb.opentargets import _bulk
+
+    monkeypatch.setattr(
+        _bulk,
+        "_list_parquet_files",
+        lambda url: [url + "/part-00000.parquet", url + "/part-00001.parquet"],
+    )
     return dataset_dir
 
 
-def test_variants_for_target_filters_nested_targetid(tmp_path) -> None:
+def test_variants_for_target_filters_nested_targetid(tmp_path, monkeypatch) -> None:
     """The helper's load-bearing guarantee: filter on
     ``transcriptConsequences[*].targetId`` even though that's nested
     inside a list-of-struct that pyarrow's pushdown can't reach."""
     import polars as pl
 
-    _write_synthetic_variant_shards(tmp_path)
+    _write_synthetic_variant_shards(tmp_path, monkeypatch)
     df = opentargets.variants_for_target(
         "ENSG_A",
         version="TESTVER",
@@ -232,12 +246,12 @@ def test_variants_for_target_filters_nested_targetid(tmp_path) -> None:
     assert sorted(df["variantId"].to_list()) == sorted(["1_100_A_T", "1_300_G_A", "2_100_T_C"])
 
 
-def test_variants_for_target_unknown_gene_returns_empty(tmp_path) -> None:
+def test_variants_for_target_unknown_gene_returns_empty(tmp_path, monkeypatch) -> None:
     """Gene with no matching ``targetId`` in any transcript consequence
     returns an empty DataFrame rather than raising."""
     import polars as pl
 
-    _write_synthetic_variant_shards(tmp_path)
+    _write_synthetic_variant_shards(tmp_path, monkeypatch)
     df = opentargets.variants_for_target(
         "ENSG_DOES_NOT_EXIST",
         version="TESTVER",
@@ -247,10 +261,10 @@ def test_variants_for_target_unknown_gene_returns_empty(tmp_path) -> None:
     assert len(df) == 0
 
 
-def test_variants_for_target_column_projection(tmp_path) -> None:
+def test_variants_for_target_column_projection(tmp_path, monkeypatch) -> None:
     """``columns=`` restricts the returned schema -- useful for big
     parquet shards where you only need variantId + position."""
-    _write_synthetic_variant_shards(tmp_path)
+    _write_synthetic_variant_shards(tmp_path, monkeypatch)
     df = opentargets.variants_for_target(
         "ENSG_A",
         version="TESTVER",
@@ -545,7 +559,9 @@ def test_prepare_evidence_intogen_associations(monkeypatch) -> None:
     assert list(out["label"]) == ["disease one", "disease two"]
 
 
-def test_get_gene_associations_evidence_eva_one_real_shard(tmp_path) -> None:
+@pytest.mark.network
+@pytest.mark.slow
+def test_get_gene_associations_evidence_eva_one_real_shard(tmp_path, monkeypatch) -> None:
     """End-to-end against a real OT ``evidence_eva`` shard: download one
     parquet shard, run the preprocessor through ``get_gene_associations``,
     confirm rows actually come back with the documented column shape.
@@ -557,18 +573,17 @@ def test_get_gene_associations_evidence_eva_one_real_shard(tmp_path) -> None:
     proves the download path itself; this test proves the
     preprocessor → ``get_gene_associations`` composition end-to-end.
     """
-    # Pre-warm the cache with a SINGLE shard so ``ensure_cached_shards``
-    # short-circuits inside ``get_gene_associations`` and we don't pull
-    # the whole multi-GB ``evidence_eva`` table. ``ensure_cached_shards``
-    # returns whatever's already on disk if anything is, so the
-    # subsequent get_gene_associations call uses just this one shard.
-    opentargets.get_dataset(
-        "evidence_eva",
-        version=opentargets.DEFAULT_VERSION,
-        cache_dir=tmp_path,
-        limit_files=1,
-        verbose=0,
-    )
+    # Explicitly cap acquisition for this smoke test rather than relying on a
+    # partial cache to masquerade as a complete dataset.
+    from biodb.opentargets import _bulk
+
+    resolver = _bulk.ensure_cached_shards
+
+    def preview_shards(dataset, **kwargs):
+        kwargs["limit_files"] = 1
+        return resolver(dataset, **kwargs)
+
+    monkeypatch.setattr(_bulk, "ensure_cached_shards", preview_shards)
 
     df = opentargets.get_gene_associations(
         datasets=["evidence_eva"],
