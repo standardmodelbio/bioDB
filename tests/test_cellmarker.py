@@ -5,6 +5,7 @@ from __future__ import annotations
 from pathlib import Path
 
 import pytest
+import requests
 
 import biodb
 from biodb import _celltype, cellmarker
@@ -35,6 +36,40 @@ def test_constants_present() -> None:
 def test_download_bad_which() -> None:
     with pytest.raises(ValueError, match="which must be"):
         cellmarker.download("bogus")
+
+
+def test_download_uses_current_official_file_root(tmp_path, monkeypatch):
+    def transfer(url, dst, **kwargs):
+        assert url == (
+            "https://bio-bigdata.hrbmu.edu.cn/CellMarker2.0/"
+            "CellMarker_download_files/file/Cell_marker_Human.xlsx"
+        )
+        assert kwargs["headers"] == {
+            "User-Agent": "bioDB CellMarker client",
+            "Referer": "https://bio-bigdata.hrbmu.edu.cn/CellMarker2.0/CellMarker_download.html",
+        }
+        dst.write_bytes(b"fixture")
+        return dst
+
+    monkeypatch.setattr(cellmarker, "stream_to_file", transfer)
+    result = cellmarker.download("human", cache_dir=tmp_path)
+    assert result.read_bytes() == b"fixture"
+
+
+def test_download_does_not_fall_back_to_an_unversioned_source(tmp_path, monkeypatch):
+    calls = []
+
+    def transfer(url, dst, **kwargs):
+        calls.append(url)
+        response = requests.Response()
+        response.status_code = 403
+        raise requests.HTTPError(response=response)
+
+    monkeypatch.setattr(cellmarker, "stream_to_file", transfer)
+    with pytest.raises(requests.HTTPError):
+        cellmarker.download("human", cache_dir=tmp_path)
+    assert len(calls) == 1
+    assert "/CellMarker2.0/" in calls[0]
 
 
 # ── normalized loading (offline, from .xlsx fixture) ──────────────────────────
@@ -102,7 +137,7 @@ def test_reexports() -> None:
 @pytest.mark.slow
 def test_download_live(tmp_path: Path) -> None:
     try:
-        path = cellmarker.download("human", cache_dir=tmp_path)
+        path = cellmarker.download("human", cache_dir=tmp_path, timeout=30, progress=False)
     except Exception as exc:  # noqa: BLE001
         if is_upstream_outage(exc):
             pytest.skip(f"CellMarker upstream outage: {exc}")

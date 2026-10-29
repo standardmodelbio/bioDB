@@ -1,6 +1,6 @@
 """CellMarker 2.0 client — bulk XLSX + in-memory query.
 
-`CellMarker 2.0 <http://bio-bigdata.hrbmu.edu.cn/CellMarker/>`_ (Harbin Medical
+`CellMarker 2.0 <https://bio-bigdata.hrbmu.edu.cn/CellMarker2.0/>`_ (Harbin Medical
 University) is a manually curated database of cell-type marker genes for human
 and mouse (~83k tissue–cell-type–marker entries), each row carrying a native
 `Cell Ontology <https://obofoundry.org/ontology/cl.html>`_ id
@@ -21,9 +21,8 @@ count) and ``rank`` is the dense within-cell-type rank of that count.
 
 .. note::
    Reading the XLSX requires the ``openpyxl`` package (the ``[celltype]``
-   extra). The canonical host (``bio-bigdata.hrbmu.edu.cn``) is intermittently
-   unreachable; :func:`download` falls back to the published mirror
-   automatically.
+   extra). The version-specific URL retains the 2.0 source; the unversioned
+   ``/CellMarker`` site now serves CellMarker 3.0.
 
 Cached files live at ``~/.cache/biodb/cellmarker/``.
 
@@ -37,7 +36,7 @@ Examples
 
 References
 ----------
-* Home: http://bio-bigdata.hrbmu.edu.cn/CellMarker/
+* Home: https://bio-bigdata.hrbmu.edu.cn/CellMarker2.0/
 * Paper: Hu et al., *Nucleic Acids Research* 2023 (D870–D876).
 """
 
@@ -47,18 +46,22 @@ import logging
 from pathlib import Path
 
 import pandas as pd
-import requests
 
 from biodb import _celltype
 from biodb._downloads import stream_to_file
 
 logger = logging.getLogger(__name__)
 
-DOWNLOAD_BASE_URL = "http://bio-bigdata.hrbmu.edu.cn/CellMarker/CellMarker_download_files/file"
+DOWNLOAD_BASE_URL = "https://bio-bigdata.hrbmu.edu.cn/CellMarker2.0/CellMarker_download_files/file"
 """Canonical CellMarker 2.0 bulk-file root."""
 
 MIRROR_BASE_URL = "http://117.50.127.228/CellMarker/CellMarker_download_files/file"
-"""Published mirror, used when the canonical host is unreachable."""
+"""Legacy mirror location, retained for compatibility; its current version is unverified."""
+
+_DOWNLOAD_HEADERS = {
+    "User-Agent": "bioDB CellMarker client",
+    "Referer": "https://bio-bigdata.hrbmu.edu.cn/CellMarker2.0/CellMarker_download.html",
+}
 
 FILES: dict[str, str] = {
     "all": "Cell_marker_All.xlsx",
@@ -101,7 +104,8 @@ def download(
 ) -> Path:
     """Download a CellMarker 2.0 XLSX to the cache.
 
-    Tries the canonical host first, then the mirror.
+    Uses the version-specific 2.0 endpoint. The unversioned legacy mirror
+    is not an automatic fallback because it may serve a different release.
 
     Parameters
     ----------
@@ -135,18 +139,13 @@ def download(
     if dst.exists() and not force:
         return dst
 
-    last_error: Exception | None = None
-    for base in (DOWNLOAD_BASE_URL, MIRROR_BASE_URL):
-        url = f"{base}/{filename}"
-        try:
-            logger.info("Downloading CellMarker %s from %s", which, url)
-            return stream_to_file(url, dst, progress=progress, desc=filename, timeout=timeout)
-        except requests.exceptions.RequestException as exc:  # noqa: PERF203
-            logger.warning("CellMarker download from %s failed: %s", url, exc)
-            last_error = exc
-    raise RuntimeError(
-        f"Could not download CellMarker {which!r} from canonical host or mirror"
-    ) from last_error
+    url = f"{DOWNLOAD_BASE_URL}/{filename}"
+    logger.info("Downloading CellMarker %s from %s", which, url)
+    # The server rejects python-requests' default user agent. Identify our
+    # client and the official public download page rather than disguising it.
+    return stream_to_file(
+        url, dst, headers=_DOWNLOAD_HEADERS, progress=progress, desc=filename, timeout=timeout
+    )
 
 
 def load(
