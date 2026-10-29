@@ -1,0 +1,6 @@
+#idx target name          accession query name           accession clan name mdl mdl from   mdl to seq from   seq to strand trunc pass   gc  bias  score   E-value inc olp anyidx afrct1 afrct2 winidx wfrct1 wfrct2 mdl len seq len description of target
+#--- -------------------- --------- -------------------- --------- --------- --- -------- -------- -------- -------- ------ ----- ---- ---- ----- ------ --------- --- --- ------ ------ ------ ------ ------ ------ ------- ------- ---------------------
+#
+1    U6                   RF00026   slice                -         CL00009    cm        1      105    53685    53791      +    no    1 0.43   0.0  107.6   9.9e-28  !   *       -      -      -      -      -      -     105  300000 U6 spliceosomal RNA
+2    mir-1323             RF03401   slice                -         -          cm        1       73    71968    72040      +    no    1 0.47   0.0  105.7   8.1e-25  !   *       -      -      -      -      -      -      73  300000 mir-1323 microRNA precursor family
+3    mir-512              RF04268   slice                -         -          cm        1       84    66679    66762      +    no    1 0.52   0.0  107.1   6.7e-24  !   *       -      -      -      -      -      -      84  300000 mir-512 microRNA precursor family

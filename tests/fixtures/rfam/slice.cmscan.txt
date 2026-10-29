@@ -1,0 +1,125 @@
+# cmscan :: search sequence(s) against a CM database
+# INFERNAL 1.1.5 (Sep 2023)
+# Copyright (C) 2023 Howard Hughes Medical Institute.
+# Freely distributed under the BSD open source license.
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# query sequence file:                   slice.fa
+# target CM database:                    Rfam.cm
+# database size is set to:               117.2 Mb
+# output directed to file:               slice.cmscan.txt
+# tabular output of hits:                slice.tblout
+# tabular output format:                 2
+# model-specific thresholding:           GA cutoffs
+# Rfam pipeline mode:                    on [strict filtering]
+# clan information read from file:       Rfam.clanin
+# HMM-only mode for 0 basepair models:   no
+# number of worker threads:              6 [--cpu]
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+
+Query:       slice  [L=300000]
+Hit scores:
+ rank     E-value  score  bias  modelname    start    end   mdl trunc   gc  description
+ ----   --------- ------ -----  ----------- ------ ------   --- ----- ----  -----------
+  (1) !   9.9e-28  107.6   0.0  U6           53685  53791 +  cm    no 0.43  U6 spliceosomal RNA
+  (2) !   8.1e-25  105.7   0.0  mir-1323     71968  72040 +  cm    no 0.47  mir-1323 microRNA precursor family
+  (3) !   6.7e-24  107.1   0.0  mir-512      66679  66762 +  cm    no 0.52  mir-512 microRNA precursor family
+  (4) !   6.7e-24  107.1   0.0  mir-512      69163  69246 +  cm    no 0.52  mir-512 microRNA precursor family
+  (5) !   8.7e-23  107.2   0.0  mir-498      74217  74301 +  cm    no 0.48  mir-498 microRNA precursor family
+  (6) !   6.2e-22  100.7   0.0  mir-515     107453 107539 +  cm    no 0.45  mir-515 microRNA precursor family
+  (7) !   9.1e-22  100.1   0.0  mir-515     108744 108830 +  cm    no 0.44  mir-515 microRNA precursor family
+  (8) !   1.7e-21   99.0   0.0  mir-515      98385  98471 +  cm    no 0.48  mir-515 microRNA precursor family
+  (9) !   5.1e-21   97.3   0.0  mir-515     152396 152482 +  cm    no 0.45  mir-515 microRNA precursor family
+ (10) !   5.2e-21   97.3   0.0  mir-515     112268 112354 +  cm    no 0.43  mir-515 microRNA precursor family
+ (11) !   9.2e-21   96.4   0.0  mir-515     148636 148722 +  cm    no 0.45  mir-515 microRNA precursor family
+ (12) !   1.5e-20  100.6   0.0  mir-373     188705 188773 +  cm    no 0.51  mir-373 microRNA precursor family
+ (13) !   2.1e-20   95.1   0.0  mir-515     162344 162430 +  cm    no 0.45  mir-515 microRNA precursor family
+ (14) !   2.3e-20   94.9   0.0  mir-515      86469  86555 +  cm    no 0.43  mir-515 microRNA precursor family
+ (15) !     3e-20   94.5   0.0  mir-515     100015 100101 +  cm    no 0.41  mir-515 microRNA precursor family
+ (16) !   3.3e-20   94.4   0.0  mir-515     111002 111088 +  cm    no 0.47  mir-515 microRNA precursor family
+ (17) !   3.5e-20   94.3   0.0  mir-515      95210  95296 +  cm    no 0.45  mir-515 microRNA precursor family
+ (18) !     4e-20   94.1   0.0  mir-515     134877 134963 +  cm    no 0.49  mir-515 microRNA precursor family
+ (19) !   4.3e-20   93.9   0.0  mir-515     129838 129925 +  cm    no 0.48  mir-515 microRNA precursor family
+ (20) !   9.5e-20   92.7   0.0  mir-515      82159  82245 +  cm    no 0.48  mir-515 microRNA precursor family
+ (21) !   1.3e-19   92.2   0.0  mir-515     156741 156830 +  cm    no 0.44  mir-515 microRNA precursor family
+ (22) !   1.8e-19   91.6   0.0  mir-515     141318 141402 +  cm    no 0.44  mir-515 microRNA precursor family
+ (23) !   4.6e-19   90.2   0.0  mir-515      75711  75797 +  cm    no 0.44  mir-515 microRNA precursor family
+ (24) !   5.2e-19   90.0   0.0  mir-515     151211 151297 +  cm    no 0.45  mir-515 microRNA precursor family
+ (25) !   5.6e-19   89.9   0.0  mir-515     158231 158317 +  cm    no 0.43  mir-515 microRNA precursor family
+ (26) !   6.4e-19   79.3   0.0  Metazoa_SRP  29713  30042 +  cm    no 0.53  Metazoan signal recognition particle RNA
+ (27) !   9.4e-19   89.1   0.0  mir-515      94391  94477 +  cm    no 0.46  mir-515 microRNA precursor family
+ (28) !   9.8e-19   89.0   0.0  mir-515      90880  90966 +  cm    no 0.47  mir-515 microRNA precursor family
+ (29) !     1e-18   88.9   0.0  mir-515     161133 161222 +  cm    no 0.43  mir-515 microRNA precursor family
+ (30) !   1.4e-18   78.2   0.0  Metazoa_SRP 289116 288969 -  cm    no 0.55  Metazoan signal recognition particle RNA
+ (31) !   1.6e-18   88.2   0.0  mir-515      97532  97618 +  cm    no 0.46  mir-515 microRNA precursor family
+ (32) !   1.8e-18   88.0   0.0  mir-515     120096 120182 +  cm    no 0.43  mir-515 microRNA precursor family
+ (33) !   1.9e-18   88.0   0.0  mir-515     139333 139419 +  cm    no 0.47  mir-515 microRNA precursor family
+ (34) !     3e-18   87.2   0.0  mir-515     101214 101300 +  cm    no 0.45  mir-515 microRNA precursor family
+ (35) !   3.3e-18   87.1   0.0  mir-515     106251 106337 +  cm    no 0.46  mir-515 microRNA precursor family
+ (36) !   6.1e-18   86.1   0.0  mir-515     116594 116680 +  cm    no 0.44  mir-515 microRNA precursor family
+ (37) !   7.1e-18   85.9   0.0  mir-515      79940  80023 +  cm    no 0.39  mir-515 microRNA precursor family
+ (38) !   9.1e-18   85.4   0.0  mir-515     131006 131090 +  cm    no 0.47  mir-515 microRNA precursor family
+ (39) !     1e-17   85.3   0.0  mir-515     136845 136934 +  cm    no 0.42  mir-515 microRNA precursor family
+ (40) !     1e-17   85.3   0.0  mir-515     121067 121151 +  cm    no 0.45  mir-515 microRNA precursor family
+ (41) !   1.4e-17   84.8   0.0  mir-515     154018 154102 +  cm    no 0.42  mir-515 microRNA precursor family
+ (42) !   1.5e-17   84.7   0.0  mir-515      88480  88566 +  cm    no 0.44  mir-515 microRNA precursor family
+ (43) !   1.8e-17   84.4   0.0  mir-515     102735 102821 +  cm    no 0.49  mir-515 microRNA precursor family
+ (44) !     4e-17   83.1   0.0  mir-515     122166 122255 +  cm    no 0.44  mir-515 microRNA precursor family
+ (45) !   5.9e-17   82.5   0.0  mir-515     113347 113434 +  cm    no 0.47  mir-515 microRNA precursor family
+ (46) !   1.4e-16   71.2   0.0  Metazoa_SRP 237874 238021 +  cm    no 0.59  Metazoan signal recognition particle RNA
+ (47) !   8.1e-16   78.3   0.0  mir-515      79003  79085 +  cm    no 0.42  mir-515 microRNA precursor family
+ (48) !   8.1e-16   78.3   0.0  mir-515      85009  85091 +  cm    no 0.42  mir-515 microRNA precursor family
+ (49) !   1.3e-14   73.9   0.0  mir-515     126913 126995 +  cm    no 0.45  mir-515 microRNA precursor family
+ (50) !   3.5e-14   74.4   0.0  mir-290     187675 187741 +  cm    no 0.52  mir-290 microRNA precursor family
+ (51) !   5.9e-14   71.5   0.0  mir-515     142512 142599 +  cm    no 0.43  mir-515 microRNA precursor family
+ (52) !   6.4e-13   58.8   0.0  U6          119165 119064 -  cm    no 0.42  U6 spliceosomal RNA
+ (53) !   2.5e-11   53.6   0.0  U6          149951 149851 -  cm    no 0.35  U6 spliceosomal RNA
+ (54) !   2.6e-10   59.7   0.0  mir-290     187741 187675 -  cm    no 0.52  mir-290 microRNA precursor family
+ (55) !   1.4e-09   56.8   0.0  mir-290     187890 187956 +  cm    no 0.51  mir-290 microRNA precursor family
+ (56) !   4.4e-09   46.2   0.0  U6          145105 145004 -  cm    no 0.40  U6 spliceosomal RNA
+ (57) !   9.9e-09   45.0   0.0  U6          160188 160087 -  cm    no 0.40  U6 spliceosomal RNA
+
+
+Hit alignments:
+>> U6  U6 spliceosomal RNA
+ rank     E-value  score  bias mdl mdl from   mdl to       seq from      seq to       acc trunc   gc
+ ----   --------- ------ ----- --- -------- --------    ----------- -----------      ---- ----- ----
+  (1) !   9.9e-28  107.6   0.0  cm        1      105 []       53685       53791 + .. 0.98    no 0.43
+
+                                                                                                                   NC
+              <<<<<__.____._>>>>>::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::: CS
+     U6     1 guccccg.UUCG.ggggacAUauaaUaAAaUUGgAACgAUACAGAGAAGAUUAGCAUGGCCCCUGCGCAAGGAUGACACgcaaaaucgaGAaauguucca 98   
+              GU:C:CG UUC  +:G:ACAUAUA+UAAAAUUGGAA G UACAGAGAAGAUUAGCAUGGCCCCUGC+CAAGGAUGACA+GCAAA+UC++GAA++GUUCCA
+  slice 53685 GUGCUCGcUUCAgCAGCACAUAUACUAAAAUUGGAAUGCUACAGAGAAGAUUAGCAUGGCCCCUGCACAAGGAUGACAUGCAAAUUCAUGAAGCGUUCCA 53784
+              ********55555*************************************************************************************** PP
+
+                      NC
+              ::::::: CS
+     U6    99 uaUUUUU 105  
+              UAUUUU 
+  slice 53785 UAUUUUG 53791
+              ******* PP
+
+>> mir-1323  mir-1323 microRNA precursor family
+ rank     E-value  score  bias mdl mdl from   mdl to       seq from      seq to       acc trunc   gc
+ ----   --------- ------ ----- --- -------- --------    ----------- -----------      ---- ----- ----
+  (2) !   8.1e-25  105.7   0.0  cm        1       73 []       71968       72040 + .. 1.00    no 0.47
+
+                                                                                           NC
+                 ::<<<-<<<<<<<<<<<<<-<<-<<<<<<<<<___________>>>>>>>>>->>>>>>>>>>>>>>>->>>: CS
+  mir-1323     1 ACuGagguCCuCaaaaCuGAGGGGCauuuuCuGUGgUUUGAAAgGaaaguGCACCCaGuuuuGgGGauGuCaA 73   
+                 ACUGAGGUCCUCAAAACUGAGGGGCAUUUUCUGUGGUUUGAAAGGAAAGUGCACCCAGUUUUGGGGAUGUCAA
+     slice 71968 ACUGAGGUCCUCAAAACUGAGGGGCAUUUUCUGUGGUUUGAAAGGAAAGUGCACCCAGUUUUGGGGAUGUCAA 72040
+                 ************************************************************************* PP
+
+>> mir-512  mir-512 microRNA precursor family
+ rank     E-value  score  bias mdl mdl from   mdl to       seq from      seq to       acc trunc   gc
+ ----   --------- ------ ----- --- -------- --------    ----------- -----------      ---- ----- ----
+  (3) !   6.7e-24  107.1   0.0  cm        1       84 []       66679       66762 + .. 1.00    no 0.52
+
+                                                                                                     NC
+                :<<<<-<<--<<<--<<<<<<--<<<-<<<<<<<<<____________>>>>>>>>>->>>-->>>>>>-->>>-->>->>>>: CS
+  mir-512     1 uCuCgauCuGcGGcaCuCaGCCUuGgGgGCaCuucCUGgUGuCAGaaUGgaaGuGCcGuCauaGCuGaGaUCCgaUGaCcGaGG 84   
+                UCUC:+UCUG:GGCACUCAGCCUUG:G:GCACUU:CUGGUG CAGAAUG:AAGUGC:G:CAUAGCUGAG+UCC:AUGAC:GAGG
+    slice 66679 UCUCAGUCUGUGGCACUCAGCCUUGAGGGCACUUUCUGGUGCCAGAAUGAAAGUGCUGUCAUAGCUGAGGUCCAAUGACUGAGG 66762
+                ************************************************************************************ PP
+

@@ -213,7 +213,7 @@ def _iter_disease_deg_rollup(
     from tqdm import tqdm
 
     organism_id, organism_label = _resolve_organism(organism)
-    leaf_root = cellxgene.CACHE_DIR / "disease_deg"
+    leaf_root = Path(cache_dir).expanduser() if cache_dir else cellxgene.CACHE_DIR / "disease_deg"
     root = Path(cache_dir).expanduser() if cache_dir else cellxgene.CACHE_DIR / "disease_deg_rollup"
     root.mkdir(parents=True, exist_ok=True)
     graph = _mondo_graph()

@@ -320,12 +320,12 @@ def bulk_concepts(
     What you *do* get vs OMOP CONCEPT.csv:
 
     * Same labels + codes for downstream lookups.
-    * **Richer** descriptions / definitions (OLS preserves OWL
-      axioms + textual definitions that OMOP often drops).
-    * **Richer** synonyms (with type qualifiers: FSN vs preferred
-      vs acceptable).
-    * No SNOMED CT licensing dance on the user side -- OLS handles
-      that with the IHTSDO upstream.
+    * Textual annotations exposed by the legacy OLS terms API.
+      Some releases expose SKOS labels only in OLS v2, so empty
+      synonyms here do not imply that the source lacks synonyms.
+      Use :func:`bulk_text_concepts` to preserve v2 annotations.
+    * OLS-hosted access; consumers still need an appropriate SNOMED
+      license for use and onward distribution.
 
     Parameters
     ----------
@@ -359,11 +359,31 @@ def bulk_concepts(
     )
 
 
+def bulk_text_concepts(destination, *, page_cache, workers=4, expected_ids=None):
+    """Fetch all OLS v2 labels, SKOS synonyms, and available textual definitions.
+
+    Unlike :func:`bulk_concepts`, this explicitly uses the v2 classes endpoint.
+    Page checkpoints make large downloads resumable. ``expected_ids`` pins a
+    release's concept universe; no graph axioms become prose definitions.
+    """
+    from biodb.ols_text import download_text_cache
+
+    download_text_cache(
+        OLS_ONTOLOGY_SLUG,
+        destination,
+        page_cache=page_cache,
+        workers=workers,
+        expected_ids=expected_ids,
+    )
+    return pd.read_parquet(destination)
+
+
 __all__ = [
     "ATHENA_DOWNLOAD_PAGE",
     "CACHE_DIR",
     "OLS_ONTOLOGY_SLUG",
     "bulk_concepts",
+    "bulk_text_concepts",
     "get_ancestors",
     "get_children",
     "get_descendants",

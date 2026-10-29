@@ -362,7 +362,7 @@ def test_resolve_gene_association_datasets_module_override(monkeypatch) -> None:
     level for a session-wide change -- the resolver picks it up because
     it reads the attribute live, not at function-definition time."""
     monkeypatch.delenv("BIODB_OT_GENE_ASSOC_DATASETS", raising=False)
-    monkeypatch.setattr(opentargets, "DEFAULT_GENE_ASSOCIATION_DATASETS", ["known_drug"])
+    monkeypatch.setattr(opentargets._bulk, "DEFAULT_GENE_ASSOCIATION_DATASETS", ["known_drug"])
     assert opentargets._resolve_gene_association_datasets(None) == ["known_drug"]
 
 
@@ -412,7 +412,7 @@ def _install_fake_get_dataset(monkeypatch, evidence_name: str, evidence_df: pd.D
             f"test only mocks {evidence_name!r} + 'disease'"
         )
 
-    monkeypatch.setattr(opentargets, "get_dataset", fake_get_dataset)
+    monkeypatch.setattr(opentargets._bulk, "get_dataset", fake_get_dataset)
 
 
 def _assert_standard_output_columns(df: pd.DataFrame, expected_dataset: str) -> None:

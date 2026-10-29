@@ -27,6 +27,34 @@ Module map:
   (~3,600 phenotypes × ~414k WGS participants); public-API client for
   per-phenotype gene-burden tables (pLoF/missenseLC/synonymous) with
   concurrent bulk download + consolidated Parquet output.
+* :mod:`biodb.tads` -- topologically associating domains from ENCODE Hi-C
+  contact-domain calls (``list_domain_files``, ``load_domains``,
+  ``boundaries``, ``same_domain``). Two positions in one TAD are in contact
+  and co-regulated, so domain co-membership is the control any paired-position
+  analysis owes its reader.
+* :mod:`biodb.coessentiality` -- the Wainberg et al. 2021 co-essential
+  network from DepMap CRISPR screens (GLS p-value matrices, memory-mapped):
+  ``coessential_pairs`` at a BH FDR, ``pair_p_values`` for explicit pairs.
+* :mod:`biodb.ensembl_compara` -- Ensembl Compara homology dumps: the
+  human paralogue catalogue as deduplicated gene pairs and as connected
+  families (``paralog_pairs``, ``paralog_families``), plus the raw table.
+* :mod:`biodb.constraint_tracks` -- per-base constraint: UCSC phyloP /
+  phastCons bigWigs (241-, 100-, 447-, 470-way) read in place over HTTPS,
+  and GPN-Star calibrated entropy / LLR Parquet shards at a pinned Hub
+  revision (``open_track``, ``score_intervals``, ``score_positions``,
+  ``load_gpn_star``).
+* :mod:`biodb.traitgym` -- TraitGym causal-variant benchmarks (Mendelian and
+  complex-trait positives with matched negatives) and their precomputed
+  feature tables, at a pinned Hub revision.
+* :mod:`biodb.corum` -- CORUM curated protein complexes as co-complex
+  gene pairs, current or by archived release.
+* :mod:`biodb.encode_re2g` -- ENCODE-rE2G CRISPRi enhancer-gene benchmark
+  (tested pairs with matched negatives) as a labelled pair table.
+* :mod:`biodb.rfam` -- Rfam RNA family models, seed alignments, and
+  Infernal-based genome annotation with per-hit consensus structures.
+* :mod:`biodb.orphanet` -- Orphanet rare-disease epidemiology
+  (Orphadata ``en_product9_prev``, CC-BY-4.0): per-ORPHAcode prevalence
+  band → per-individual K for liability-threshold effect modeling.
 * :mod:`biodb.string` -- STRING database physical PPI edges with
   continuous combined-score weights (``download_physical_links``,
   ``load_physical_links``, ``physical_ppi_edges``). The physical
@@ -41,7 +69,8 @@ Module map:
   the shared *(species, tissue, cell type, CL id, gene, score, rank)*
   schema from :mod:`biodb._celltype`.
 
-Shared utilities live in :mod:`biodb.utils` (random seeding,
+Genomic-interval helpers (BED I/O, overlap joins, nearest) live in
+:mod:`biodb.intervals`. Shared utilities live in :mod:`biodb.utils` (random seeding,
 similarity helpers, token counting, ``create_gene_association_matrix``,
 ``filter_adaptive``).
 """
@@ -53,11 +82,17 @@ from biodb import (
     cellxgene,
     cellxgene_dataset,
     clinvar,
+    coessentiality,
+    constraint_tracks,
+    corum,
+    encode_re2g,
+    ensembl_compara,
     gprofiler,
     gtr,
     gwas_atlas,
     harmonizome,
     hf_datasets,
+    intervals,
     mapping,
     markers,
     monarch,
@@ -68,9 +103,14 @@ from biodb import (
     ontology_owl,
     opentargets,
     opentargets_graphql,
+    orphanet,
+    panukbb,
     pubmed,
+    rfam,
     snomed,
     string,
+    tads,
+    traitgym,
     transform,
     uniprot,
     utils,
@@ -218,7 +258,9 @@ __all__ = [
     "cellxgene_get_tissue_markers",
     "cellxgene_query_markers",
     "clinvar",
+    "corum",
     "cosine_similarity",
+    "encode_re2g",
     "count_tokens",
     "create_gene_association_matrix",
     "df_to_bed",
@@ -250,6 +292,7 @@ __all__ = [
     "gtr_to_gmt",
     "gwas_atlas",
     "harmonizome",
+    "intervals",
     "harmonizome_download_datasets",
     "harmonizome_get_dataset_metadata",
     "harmonizome_list_datasets",
@@ -271,7 +314,10 @@ __all__ = [
     "ontology_owl",
     "opentargets",
     "opentargets_graphql",
+    "orphanet",
+    "panukbb",
     "pubmed",
+    "rfam",
     "query_disease",
     "query_drug",
     "query_protein",
@@ -281,8 +327,13 @@ __all__ = [
     "set_random_seed",
     "simplify_annotations",
     "snomed",
+    "coessentiality",
+    "ensembl_compara",
+    "constraint_tracks",
     "string",
+    "tads",
     "string_physical_ppi_edges",
+    "traitgym",
     "transform",
     "uniprot",
     "utils",

@@ -907,32 +907,75 @@ def get_all_cellguide_markers(
     pandas.DataFrame
         Columns per :data:`CELLGUIDE_COLUMNS`.
     """
+    import hashlib
+    import json
+    import os
+    import tempfile
+
     snapshot = _cellguide_snapshot()
     root = Path(cache_dir).expanduser() if cache_dir else CACHE_DIR / "cellguide"
     root.mkdir(parents=True, exist_ok=True)
     cache_path = root / f"cellguide_markers__{snapshot}__{kind}.parquet"
-    if cache_path.exists() and not force:
-        return pd.read_parquet(cache_path)
-
-    cl_ids = list_cellguide_cell_types()["cell_ontology_id"].tolist()
+    jobs = root / f"cellguide_jobs__{snapshot}__{kind}"
+    jobs.mkdir(exist_ok=True)
+    cl_ids = sorted(set(list_cellguide_cell_types()["cell_ontology_id"].tolist()))
 
     def _fetch(cl_id: str) -> pd.DataFrame:
+        key = hashlib.sha256(cl_id.encode()).hexdigest()
+        path, receipt = jobs / (key + ".parquet"), jobs / (key + ".json")
+        if not force and path.exists() and receipt.exists():
+            try:
+                meta = json.loads(receipt.read_text())
+                if meta["sha256"] == hashlib.sha256(path.read_bytes()).hexdigest():
+                    return pd.read_parquet(path)
+            except (OSError, ValueError, KeyError):
+                pass
+        frame = cellguide_markers(cl_id, kind=kind)
+        fd, temp = tempfile.mkstemp(dir=jobs, suffix=".tmp")
+        os.close(fd)
         try:
-            return cellguide_markers(cl_id, kind=kind)
-        except Exception as exc:  # noqa: BLE001 - one bad cell type shouldn't abort the dump
-            logger.warning("CellGuide markers skip %s: %s", cl_id, exc)
-            return pd.DataFrame(columns=CELLGUIDE_COLUMNS)
+            frame.to_parquet(temp, index=False)
+            digest = hashlib.sha256(Path(temp).read_bytes()).hexdigest()
+            receipt.unlink(missing_ok=True)
+            os.replace(temp, path)
+            meta_path = Path(str(temp) + ".json")
+            meta_path.write_text(
+                json.dumps(
+                    {"cell_type": cl_id, "snapshot": snapshot, "kind": kind, "sha256": digest}
+                )
+            )
+            os.replace(meta_path, receipt)
+        finally:
+            Path(temp).unlink(missing_ok=True)
+        return frame
 
+    frames, failures = [], []
     with ThreadPoolExecutor(max_workers=max_workers) as pool:
-        results = pool.map(_fetch, cl_ids)
-        if progress:
-            results = tqdm(results, total=len(cl_ids), desc=f"cellguide:{kind}")
-        frames = [df for df in results if not df.empty]
-
+        futures = [(cl_id, pool.submit(_fetch, cl_id)) for cl_id in cl_ids]
+        iterator = (
+            tqdm(futures, total=len(futures), desc=f"cellguide:{kind}") if progress else futures
+        )
+        for cl_id, future in iterator:
+            try:
+                frame = future.result()
+                if not frame.empty:
+                    frames.append(frame)
+            except Exception as exc:
+                failures.append((cl_id, str(exc)))
+    if failures:
+        raise RuntimeError(
+            f"CellGuide acquisition incomplete: {len(failures)} failed cell types; rerun to resume: {failures[:3]}"
+        )
     table = (
         pd.concat(frames, ignore_index=True) if frames else pd.DataFrame(columns=CELLGUIDE_COLUMNS)
     )
-    table.to_parquet(cache_path, index=False)
+    fd, temp = tempfile.mkstemp(dir=root, suffix=".tmp")
+    os.close(fd)
+    try:
+        table.to_parquet(temp, index=False)
+        os.replace(temp, cache_path)
+    finally:
+        Path(temp).unlink(missing_ok=True)
     return table
 
 

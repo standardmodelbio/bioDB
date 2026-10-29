@@ -399,3 +399,10 @@ def test_disease_vs_normal_live() -> None:
     assert not de.empty
     assert de["gene_symbol"].notna().all()
     assert de.iloc[0]["rank"] == 1
+
+
+@pytest.fixture(autouse=True)
+def isolated_cellxgene_cache(tmp_path, monkeypatch):
+    from biodb import cellxgene
+
+    monkeypatch.setattr(cellxgene, "CACHE_DIR", tmp_path)
