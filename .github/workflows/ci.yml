@@ -15,7 +15,6 @@ on:
     paths-ignore:
       - 'docs/_static/coverage.svg'
   pull_request:
-    branches: [main]
 
 concurrency:
   group: ci-${{ github.ref }}

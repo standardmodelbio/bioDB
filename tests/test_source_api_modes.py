@@ -13,7 +13,7 @@ import pandas as pd
 import pytest
 import requests
 
-from tests.conftest import is_upstream_outage
+from tests.conftest import is_upstream_outage, skip_upstream_outages
 
 # ─── biodb.opentargets_graphql.query_drug — schema-drift canary ─────────────
 # The other OT query helpers (query_target, query_disease) are exercised in
@@ -217,8 +217,7 @@ def test_msigdb_query_genes_returns_just_symbols() -> None:
 
 
 def test_msigdb_query_gene_set_raises_on_unknown() -> None:
-    """Unknown set → ``KeyError`` (MSigDB serves an HTML 200 for unknowns,
-    not a 404 — we sniff the response shape rather than the status code)."""
+    """Unknown sets produce KeyError across MSigDB's known missing-set responses."""
     from biodb import msigdb
 
     with pytest.raises(KeyError, match="not found"):
@@ -228,6 +227,8 @@ def test_msigdb_query_gene_set_raises_on_unknown() -> None:
 # ─── biodb.gwas_atlas.query_trait / list_traits ─────────────────────────────
 
 
+@pytest.mark.network
+@skip_upstream_outages("GWAS Atlas")
 def test_gwas_atlas_query_trait_by_substring(tmp_path) -> None:
     """``query_trait("Alzheimer")`` returns multiple AD-related studies."""
     from biodb import gwas_atlas
@@ -241,6 +242,8 @@ def test_gwas_atlas_query_trait_by_substring(tmp_path) -> None:
     assert rows["Trait"].astype(str).str.contains("Alzheimer", case=False).all()
 
 
+@pytest.mark.network
+@skip_upstream_outages("GWAS Atlas")
 def test_gwas_atlas_query_trait_by_numeric_id(tmp_path) -> None:
     """A numeric lookup hits ``id`` first; the smallest study (id=1) exists."""
     from biodb import gwas_atlas
@@ -251,6 +254,8 @@ def test_gwas_atlas_query_trait_by_numeric_id(tmp_path) -> None:
     assert len(rows) >= 1
 
 
+@pytest.mark.network
+@skip_upstream_outages("GWAS Atlas")
 def test_gwas_atlas_query_trait_explicit_column(tmp_path) -> None:
     """``column="PMID"`` forces the lookup column. (Note: PMID is stored as
     a string in the metadata TSV, so the comparison stays str-shaped.)"""
@@ -266,6 +271,8 @@ def test_gwas_atlas_query_trait_explicit_column(tmp_path) -> None:
     assert (rows["PMID"].astype(str) == sample_pmid).all()
 
 
+@pytest.mark.network
+@skip_upstream_outages("GWAS Atlas")
 def test_gwas_atlas_query_trait_rejects_unknown_column(tmp_path) -> None:
     """A bad ``column=`` argument fails fast with a useful error."""
     from biodb import gwas_atlas
