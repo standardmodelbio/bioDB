@@ -24,7 +24,8 @@ count) and ``rank`` is the dense within-cell-type rank of that count.
    extra). The version-specific URL retains the 2.0 source; the unversioned
    ``/CellMarker`` site now serves CellMarker 3.0.
 
-Cached files live at ``~/.cache/biodb/cellmarker/``.
+Cached files live at ``~/.cache/biodb/cellmarker/2.0/`` by default. Explicit
+``cache_dir`` overrides are caller-owned directories and are used as provided.
 
 Examples
 --------
@@ -74,8 +75,7 @@ FILES: dict[str, str] = {
 SOURCE_NAME = "cellmarker"
 """Value written into the normalized ``source`` column."""
 
-CACHE_DIR = Path("~/.cache/biodb/cellmarker").expanduser()
-CACHE_DIR.mkdir(parents=True, exist_ok=True)
+CACHE_DIR = Path("~/.cache/biodb/cellmarker/2.0").expanduser()
 
 # Raw XLSX column names → normalized-schema fields.
 _SPECIES_COL = "species"

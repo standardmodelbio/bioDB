@@ -30,7 +30,28 @@ def test_constants_present() -> None:
     assert cellmarker.DOWNLOAD_BASE_URL.endswith("/file")
     assert cellmarker.FILES["all"] == "Cell_marker_All.xlsx"
     assert cellmarker.SOURCE_NAME == "cellmarker"
-    assert cellmarker.CACHE_DIR.exists()
+    assert cellmarker.CACHE_DIR.is_absolute()
+
+
+def test_default_cache_is_versioned():
+    assert cellmarker.CACHE_DIR.parts[-2:] == ("cellmarker", "2.0")
+
+
+def test_default_cache_does_not_adopt_unversioned_bytes(tmp_path, monkeypatch):
+    legacy = tmp_path / "Cell_marker_Human.xlsx"
+    legacy.write_bytes(b"unverified legacy release")
+    monkeypatch.setattr(cellmarker, "CACHE_DIR", tmp_path / "2.0")
+
+    def transfer(url, dst, **kwargs):
+        assert "/CellMarker2.0/" in url
+        dst.write_bytes(b"verified 2.0 transfer")
+        return dst
+
+    monkeypatch.setattr(cellmarker, "stream_to_file", transfer)
+    result = cellmarker.download("human")
+    assert result == tmp_path / "2.0" / "Cell_marker_Human.xlsx"
+    assert result.read_bytes() == b"verified 2.0 transfer"
+    assert legacy.read_bytes() == b"unverified legacy release"
 
 
 def test_download_bad_which() -> None:
