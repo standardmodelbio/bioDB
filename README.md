@@ -34,6 +34,9 @@ Each source module aims to provide **both** modes, so you can prototype against 
 | **[Harmonizome](https://maayanlab.cloud/Harmonizome/)** — ~114 curated gene-attribute datasets (CCLE, GTEx, ENCODE, HPA, KEGG, Reactome, …) | [`biodb.harmonizome`](src/biodb/harmonizome.py) | ✅ REST | ✅ Bulk TSV/GMT |
 | **[ClinVar](https://www.ncbi.nlm.nih.gov/clinvar/)** — clinical significance + review status for human variants | [`biodb.clinvar`](src/biodb/clinvar.py) | ✅ NCBI E-utilities | ✅ VCF download |
 | **[GTR (Genetic Testing Registry)](https://www.ncbi.nlm.nih.gov/gtr/)** — NCBI catalog of ~64k genetic tests: per-test gene panels (Entrez IDs), conditions (MedGen CUIs), methodology, clinical validity/utility | [`biodb.gtr`](src/biodb/gtr.py) | ✅ NCBI E-utilities | ✅ FTP TSV + full XML, plus gene-set views and embeddable panel text |
+| **[GWAS Catalog](https://www.ebi.ac.uk/gwas/)** — exact harmonised source files, all files per study, raw statistics and provenance | [`biodb.gwas_catalog`](src/biodb/gwas_catalog.py) | Per-file streaming and explicit region queries | Complete manifest acquisition, resumable per-file ingestion; genome-wide/unfiltered by default |
+| **[Europe PMC](https://europepmc.org/)** — original MED bibliographic records | [`biodb.europepmc`](src/biodb/europepmc.py) | PMID batches with completion receipts | Resumable acquisition of a caller-supplied PMID list |
+| **[AlphaFold](https://alphafold.ebi.ac.uk/) / [RCSB](https://www.rcsb.org/)** — original protein structure metadata | [`biodb.protein_structure`](src/biodb/protein_structure.py) | Per-accession, per-provider responses | Resumable accession-list acquisition |
 | **[GWAS Atlas](https://atlas.ctglab.nl/)** — Watanabe et al. per-study gene-level MAGMA p-values across ~4k GWAS summary stats | [`biodb.gwas_atlas`](src/biodb/gwas_atlas.py) | ✅ Per-trait lookup via cached metadata | ✅ Bulk download |
 | **[All of Us *All-by-All*](https://allbyall.researchallofus.org/)** — PheWAS atlas across ~3,600 phenotypes × ~414k WGS participants (lab / phecode / phecodeX / PFHH / drug / physical) with single-variant + gene-burden tests (pLoF / missenseLC / synonymous), by ancestry + meta | [`biodb.aou_allxall`](src/biodb/aou_allxall.py) | ✅ Public REST | ✅ Per-phenotype gene-burden tables + concurrent bulk pull |
 | **[OmicsPred](https://www.omicspred.org/)** — Xu et al. *Nature 2023*; Bayesian-Ridge PRS atlas for ~17k+ molecular traits (Olink + SomaScan proteins, Metabolon + Nightingale metabolites, Illumina RNA-seq) trained on the INTERVAL cohort. Each score is already mapped to its cis Ensembl gene / UniProt protein. | [`biodb.omicspred`](src/biodb/omicspred.py) | ✅ Public REST | ✅ Box.com archives — PGS Catalog scoring-file format |
@@ -86,7 +89,7 @@ pip install -e ".[dev]"
 ### Targeted API queries
 
 ```python
-from biodb.opentargets import query_target, query_disease
+from biodb.opentargets_graphql import query_target, query_disease
 
 # One-gene-at-a-time GraphQL lookup — fast, fresh, no FTP needed.
 brca1 = query_target("ENSG00000012048")
@@ -151,6 +154,51 @@ expanded = expand_keyword_sets_from_ontology(
 )
 ```
 
+## Complete and resumable raw acquisition
+
+OpenTargets fine-mapped credible sets come from `biodb.opentargets`; original
+GWAS summary statistics come from `biodb.gwas_catalog`. The latter does not
+restrict acquisition to OpenTargets loci. Genome-wide/unfiltered is the default;
+request `p_max=5e-8` for a significant subset, or explicit regional scope.
+
+```python
+from biodb import gwas_catalog
+files = gwas_catalog.list_datasets(manifest="harmonised_list.txt")
+# Rerun this call with the same output directory to resume validated progress.
+result = gwas_catalog.ingest_sumstats(files, out_dir="gwas-run", p_max=5e-8)
+```
+
+Runs persist a frozen input/configuration manifest and validated per-file output
+receipts, including successful zero-match files. Failed jobs never count as empty
+successes. A failed strict run raises `IngestError` while retaining successful
+work; `allow_partial=True` is required to return incomplete results. Consolidation
+uses receipts rather than arbitrary Parquet files. Changed input identity, scope,
+filters or parser schema requires a new run directory. Worker count may change.
+
+HTTP downloads retain private `.part` files and resume with strong ETag/byte-range
+validation where supported. Otherwise only the interrupted file restarts. Final
+files are replaced atomically after validation. `force` bypasses finalized-cache
+reuse while `resume` independently governs in-progress bytes.
+
+OpenTargets caches now require authoritative shard manifests. A one-shard preview
+cannot satisfy a later full request. Complete manifested caches work offline;
+legacy cache directories need one remote listing before adoption. Missing/corrupt
+shards are repaired; stale extra files are ignored. Default scans validate local
+shards; `remote=True` explicitly projects remote Parquet columns without claiming
+a complete raw local cache.
+
+`get_credible_set` retains one lead row per credible set and matches its PIP by
+variant ID. Missing/conflicting matches return null with `pipStatus`; list order
+is never used as identity. `get_credible_set_members` exposes each member's own
+statistics and 95/99-percent flags. Raw nested data remain available through
+`scan_credible_sets`. `get_traits()`/`get_diseases()` and `get_drugs()` load the
+complete disease and drug_molecule tables respectively.
+
+Raw bibliography, OpenTargets literature and structure metadata are available
+from `biodb.europepmc`, `biodb.opentargets.literature`, and
+`biodb.protein_structure`. Corpus rendering, ranking, exports and worker deployment
+remain in the consuming package. No bulk collection is launched by import.
+
 ## Tutorials
 
 Rendered Jupyter notebooks live under [`tutorials/`](tutorials/) — each
@@ -160,7 +208,7 @@ See [`tutorials/README.md`](tutorials/README.md) for the index.
 
 ## Used by
 
-- [`GeneDocs`](https://github.com/bschilder/GeneDocs) — biomedical gene knowledge base; uses `biodb.opentargets.get_dataset` to pull the OT release into a precomputed, queryable artifact + uses `biodb.opentargets.query_target` for live per-gene lookups.
+- [`GeneDocs`](https://github.com/bschilder/GeneDocs) — biomedical gene knowledge base; uses `biodb.opentargets.get_dataset` to pull the OT release into a precomputed, queryable artifact + uses `biodb.opentargets_graphql.query_target` for live per-gene lookups.
 - [`seqlab`](https://github.com/standardmodelbio/seqlab) — variant analysis pipeline; uses `biodb.opentargets` for gene/variant queries and `biodb.clinvar` for clinical significance annotation.
 
 ## License

@@ -1,0 +1,389 @@
+OpenTargets data and bioDB integration forensic audit
+29 October 2026
+
+The collected GWAS data survives locally and on Hugging Face. The main gaps are
+integration and completeness: all-significant ingestion lives in hg-horizon,
+BioDocs traits were merged into a feature branch, several bioDB modules remain
+unmerged, and bioDB can silently accept an incomplete cache. No evidence was
+found of a wholesale loss of the OpenTargets raw-fetch API.
+
+This audit records the state found; it does not repair library code, merge
+branches, refresh dependency locks, rerun bulk ingestion, or publish changes.
+Recovery snapshots and reproducible checks are saved locally. Existing tracked
+source and dirty work were preserved.
+
+1. Where the data is
+
+OpenTargets release 25.12 cache root:
+  /Users/bschilder/.cache/biodb/opentargets/25.12/
+
+Dataset                  Local/upstream shards   Rows in valid local footers
+credible_set             200/200                 3,484,825 credible sets
+study                      1/1                   2,001,227 studies, all types
+variant                   25/25                  7,136,436 annotated variants
+disease                    1/1                      46,960 diseases/phenotypes
+drug_molecule              1/1                      18,475 drugs/compounds
+target                    10/10                     78,725 targets
+l2g_prediction           200/200                  2,854,486 predictions
+known_drug                 2/2                     252,108 associations
+
+Shard filenames were compared with live EBI HTTPS directory listings; all
+local Parquet footers were inspected. This establishes filename coverage and
+readable metadata, not full byte-for-byte verification of every remote shard.
+
+Joining credible_set with study yields 1,440,589 GWAS credible-set rows containing
+38,547,844 nested locus-member associations. These are different units; the
+nested count is neither unique variants nor a count restricted to the 95%
+membership flag. Other credible-set rows are molQTLs. Official 25.12 GWAS
+credible-set totals agree:
+  https://community.opentargets.org/t/25-12-release-now-live/1951
+Official description of credible sets and member-level annotations:
+  https://platform-docs.opentargets.org/credible-set
+
+The hg-horizon browser exports are derived, smaller tables:
+
+Fine-mapped browser export:
+  /Users/bschilder/code/hg-horizon-web/data-full/associations.parquet
+  1,293,167 associations, 48,341 represented studies; one lead row per retained
+  credible set, not every member of each set. There is an enriched companion:
+  /Users/bschilder/code/hg-horizon-web/data-full/associations_enriched.parquet
+  This enriched output survives locally; it is absent from the audited live HF
+  tree. Its implementation reached hg-horizon main in PR #32. All rows have z;
+  929 lack neff/beta_std. Code publication and data publication differ here.
+
+Published all-significant browser export:
+  /Users/bschilder/code/hg-horizon-web/hf-full/full/associations_allsig.parquet
+  /Users/bschilder/code/hg-horizon-web/data-full/hf-full/full/associations_allsig.parquet
+  104,278,671 rows, 31,333 represented studies, 23 chromosomes; 790,902,124 bytes.
+
+Remote dataset:
+  https://huggingface.co/datasets/standardmodelbio/hg-horizon
+  revision aec4302271f8235ce55152ec2022b4ad1d0c52ab
+  full/associations.parquet
+  full/associations_allsig.parquet
+
+The all-significant local file SHA256 equals the remote LFS object identifier:
+  a5dd3db274c1a634d734786dfb5fbd9e0d876af13e56dcef2b496645eb78e5ee
+This is a positive identity check, not an inference from matching filenames.
+The web default pin 21a475793354a2d9811f40a946f3c7eef434c63e was independently
+checked through the HF API: it has the same file size and LFS hash. The UI pin
+therefore references the 104M file, not the old 7.69M local copy.
+
+Misleading older local copy:
+  /Users/bschilder/code/hg-horizon-web/data-full/associations_allsig.parquet
+  Only 7,689,046 rows and 67,547,397 bytes. Do not mistake this for the published
+  104-million-row export.
+
+2. What all significant actually covers
+
+The all-significant table was assembled from GWAS Catalog harmonized summary
+statistics, with OpenTargets study/locus metadata defining the worklist. It is
+not an OpenTargets output dataset called allsig. The source and fine-mapping
+products should retain distinct provenance.
+
+The published pipeline selects +/-1 Mb windows around OpenTargets lead loci.
+build_allsig_worklist.py creates those windows; reconcile_allsig.py continues to
+apply the region filter even when downloading a whole summary-statistics file.
+Therefore the published table cannot establish genome-wide significant-variant
+coverage outside the selected windows. An indexed query returning no significant
+rows in those windows is not proof that the study has no hits anywhere.
+
+The final published missing-study report contains 679 entries:
+  372 no_genomewide_sig
+  249 no_sig_in_region
+   44 download_failed
+   14 unparseable_header
+These are pipeline labels; in particular, the regional labels do not establish
+globally empty studies.
+
+A separate genome-wide fetch_allsig_genomewide.py is committed in hg-horizon,
+including history a479fa2/2f660e3 and current codex/dna-landscape-export. No
+published output lineage was found for that alternative. Its URL assumptions,
+fixed-column parsing, positive-SE/nonzero-p filters and failure-to-empty behavior
+need review before using it to claim complete coverage.
+
+The 104M export has pip entirely null and does not retain p-values/z-scores as
+columns. Published rounded statistics include 3,766 zero SE values and 2,999 zero
+beta values. Reconstructing exact z-scores or p-values from that export is not
+equivalent to recovering the original summary statistics. Preserve raw columns
+and log-p values in any replacement ingestion.
+The deployed HF ingest/fetch_allsig_sumstats.py blob a4d2e21475189b251fd04311f6b12af780d72361
+is not found among local Git/ref/reflog paths; its exact historical source was
+copied into the evidence directory. It rounds beta/SE/z to four decimals during
+ingestion, so even retained ingestion shards may already have lost precision.
+The archived HF Harvest fetch source also differs from the newer untracked local
+source. Those remote snapshots preserve another part of the implementation history.
+
+3. What bioDB currently provides
+
+These functions are present locally AND on live GitHub main:
+  biodb.opentargets.list_datasets
+  biodb.opentargets.get_dataset
+  biodb.opentargets.ensure_cached_shards
+  biodb.opentargets.get_targets
+  biodb.opentargets.read_for_target
+  biodb.opentargets.variants_for_target
+  biodb.opentargets.get_gene_associations
+  biodb.opentargets.variants.get_credible_set
+  biodb.opentargets.variants.get_variant_effects
+  biodb.opentargets.studies.get_study
+  biodb.opentargets.studies.attach_study_type
+
+Existing generic calls for all trait and drug records:
+  from biodb import opentargets as ot
+  traits = ot.get_dataset("disease", version="25.12")
+  drugs = ot.get_dataset("drug_molecule", version="25.12")
+
+The dataset is drug_molecule, not drug. There are no get_traits/get_diseases/
+get_drugs convenience functions. History and BioDocs callsites did not identify
+such functions as removed dependencies; BioDocs delegates to get_dataset.
+
+For nested fine-mapping input, get_dataset("credible_set") retains raw locus
+members. ensure_cached_shards("credible_set") supplies paths for a lazy/streamed
+projection. The convenience get_credible_set() drops the locus column and emits
+one row per credible set; it is not an all-member variant reader. Its force-free
+signature also means cache repair must currently be performed separately.
+
+There is no bioDB wrapper for hg-horizon's published allsig artifact, nor a
+reusable bioDB GWAS Catalog all-significant acquisition pipeline. This code was
+never integrated into bioDB; it is recoverable in hg-horizon scripts. A generic
+OpenTargets dataset downloader alone does not fulfill that requirement.
+
+OpenTargets variants/studies were merged in bioDB PR #35:
+  https://github.com/standardmodelbio/bioDB/pull/35
+  664138552df917db110b3351f6898785d51ed25f
+The former opentargets.py moved verbatim to opentargets/_bulk.py and its names are
+re-exported from the package. This was a file move, not disappearance of the
+bulk implementation.
+
+4. Confirmed current OpenTargets defects
+
+A. Partial caches silently look complete
+  src/biodb/opentargets/_bulk.py:368-370 returns any cached *.parquet files before
+  consulting the remote shard list. limit_files=1 followed by an unlimited call
+  therefore keeps returning one shard. A synthetic real-Parquet probe reproduced
+  this with returned_files=1 and manifest_calls=0. The remote_url path in
+  get_dataset has the same behavior.
+
+  Actual incomplete caches verified against live EBI listings:
+  Release/dataset                       Local/upstream   Missing
+  25.12 evidence_gwas_credible_sets         1/33             32
+  25.12 evidence_europepmc                  1/200           199
+  25.12 evidence_uniprot_variants           1/8               7
+  25.12 literature                         1/334           333
+  25.12 enhancer_to_gene                   1/83             82
+  26.03 association_overall_indirect        1/143           142
+
+  evidence_gwas_credible_sets is gene-disease evidence, distinct from the
+  complete 200-shard credible_set collection above.
+
+B. A truncated file is treated as cached data
+  25.12/enhancer_to_gene/035a1aa5-7ee1-4891-a078-12ee29406b1f.parquet
+  is exactly 15,728,640 bytes and fails Parquet footer validation.
+  _download_to_cache accepts existing files by existence; _downloads.stream_to_file
+  writes directly to the final filename. Interrupted transfers can leave files
+  in this state. That is a code-supported failure mechanism, not proof of the
+  historical cause of this particular truncated file. No cache files were
+  removed or repaired during the audit.
+
+C. Lead variant and returned PIP can identify different variants
+  src/biodb/opentargets/variants.py:68 takes locus[0].posteriorProbability but
+  retains top-level variantId. A real first-shard example:
+    studyId        GCST90662908
+    row variantId  1_3410468_C_T
+    PIP variantId  1_3411057_CAT_C
+    returned PIP   0.10255448794673071
+    locus members  28
+  This caveat is documented, but callers can still pair a lead beta/coordinate
+  with another member's PIP. hg_horizon/sources.py:94-135 uses beta*PIP for event
+  weights. A correct lead reader must match by variantId; an all-member reader
+  must explode locus and retain each member's own statistics and membership flags.
+  The full-cache scan found this mismatch in 677 raw GWAS rows and 574 retained
+  browser-export rows. The smaller browser table is explained by significance
+  filtering (1,354,216 rows/51,694 studies), then positive |beta|*first-PIP
+  (1,293,167/48,341). No canonical-chromosome rows are removed at that point.
+  Correct member-level transforms already exist outside bioDB:
+    hg_horizon/functional.py:135 explode_credible_sets
+    hg_horizon/locus_grid.py:132 explode_locus_with_effect
+  The latter retains each member's own beta/SE. Reuse these data-shaping lessons
+  instead of applying one lead effect to every exploded member.
+
+D. Package default reassignment stopped propagating after the package move
+  The documented ot.DEFAULT_GENE_ASSOCIATION_DATASETS=['known_drug'] assignment
+  does not affect _bulk's function globals. The probe resolved the original six
+  datasets. Explicit datasets= and the environment override remain available.
+  Existing tests patch _bulk directly and miss the documented public assignment.
+
+E. README targeted-query imports are incorrect
+  README.md:89 imports query_target/query_disease from biodb.opentargets, which
+  does not export them. Actual implementation is biodb.opentargets_graphql.
+  All four existing live GraphQL query tests passed with network access.
+  This is a documentation/API discoverability problem, not absent query code.
+
+5. BioDocs findings
+
+All traits: implementation stranded on a feature branch
+  https://github.com/standardmodelbio/BioDocs/pull/104
+  merged=true, base=codex/residualized-artifacts
+  merge commit 73480ae503bf53e513723bfd799a14f87c188f87, 18 June 2026.
+  OpenTargetsTraitSource.fetch iterates the disease IDs and uses bioDB get_dataset.
+  Live main still has the 73-line TraitRecord/TraitSource scaffold.
+  Recover the known source, renderer/build changes and tests from that commit;
+  the full 23-file patch is saved with provenance and checksum.
+
+All drugs: implementation is on main; one checkout predates it
+  https://github.com/standardmodelbio/BioDocs/pull/110
+  merge commit cb718c9e86b87752b794e741f940fb4a67d91cdf, 20 June 2026, base=main.
+  biodocs-work/src/biodocs/entities/drug/source.py:291 defines OpenTargetsDrugSource;
+  :739 fetch iterates all drug_molecule IDs. Its eight bulk inputs include
+  target, mechanisms, indications, warnings, adverse reactions, PGx and literature.
+  The older ~/code/BioDocs checkout is on 17a6321 from 12 June and has the scaffold.
+
+Bulk variants: already implemented
+  biodocs-work/src/biodocs/entities/var/source.py:245 OpenTargetsVariantSource;
+  :335 fetch obtains variant shards with ensure_cached_shards and iterates
+  PyArrow batches. Both inspected checkouts contain it. The newer specialized
+  bioDB variants/studies convenience readers are not consumed there.
+
+Drug bibliography can be silently incomplete
+  drug/source.py:420 accepts the partial literature cache. Only present rows
+  become candidate PMIDs/pairs (:440-452); EuropePMC and excerpt enrichment cannot
+  reconstruct omitted associations. Helpers often swallow request/parse failures
+  and return partial/empty output. Excerpts are cached before status/Parquet
+  validation. A full 18,475-drug count does not validate bibliography coverage.
+
+Both BioDocs locks pin bioDB 7be1498bf47e732248d0ecf58f560e44d43b0671 despite
+pyproject specifying @main. The old flat OpenTargets module at that pin is
+byte-identical to today's _bulk.py. No raw API loss was found at this boundary.
+Neither inspected BioDocs clone has a .venv; bioDB's .venv is a current editable
+installation, while hg-horizon's installed bioDB pins 6641385. These are distinct
+environments and should not be confused with the lock declaration.
+
+The existing dirty ~/code/BioDocs/uv.lock was preserved exactly, SHA256:
+  6c2814cae70d6a12f51438460d2c75c93b7c85f4862cce44e36aec3743dbd95a
+
+6. Additional work absent from GitHub or main
+
+bioDB cell-type work
+  feat/celltype-marker-sources and local feat/genome-signal-density hold seven
+  source modules absent main: _celltype, cellmarker, celltaxonomy, cellxgene,
+  cellxgene_dataset, hf_datasets, markers; plus five test files and fixtures.
+  Live GitHub branch is 19 commits ahead of its merge base; local branch has 20.
+  The additional local ce296a1aa87457f08f8454ffe8b2f90125cb8a91 is NOT available
+  on GitHub: live commit lookup returned 422 No commit found. Despite a docs
+  title, it adds gene-vector counting/card rendering code (74 additions, 3 deletions).
+  Source/tests remain recoverable. Dataset builders/count rendering/publishing
+  need additional validation; Sphinx integration is missing.
+
+hg-horizon Harvest work
+  Seven relevant untracked source/docs/test files exist locally, including
+  fetch_harvest_sumstats.py, consolidate_harvest.py, launchers, scaling probe,
+  tests/test_fetch_harvest.py and docs/harvest_dataset_card.md. They were archived
+  with per-file SHA256; no environment files or bulk data were included.
+  https://huggingface.co/datasets/standardmodelbio/hg-horizon-gwas-harvest
+  contains only .gitattributes and ingest/ scaffolding at the audited revision,
+  with no harvest_shards/ or full/associations_harvest.parquet results.
+  The published ingest manifest lists exactly 100,000 URLs/studies, despite a
+  larger 143,382-source claim. Eight logs show early initialization/progress,
+  insufficient evidence of a completed run. Do not treat the drafted card as
+  proof of collected data.
+  The pushed codex/dna-landscape-export branch 788c348 also holds unmerged
+  canonicalization/export improvements: variant_normalization.py, source IDs,
+  effect/non-effect alleles, original beta/SE/z, QC and DNA-ready flags, and
+  streaming partitioned exports. These are on GitHub but outside main/bioDB.
+  The web Harvest selector was merged in PR #112 even though the expected HF
+  result files do not exist. A selector's presence does not establish data readiness.
+
+Other Git history
+  bioDB's all branch tips, reflogs and 49 unreachable commits were inspected.
+  Sixteen feature-branch/squash pairs were verified by exact source/test blob
+  identity. Dangling OT preprocessors, OLS and Orphanet stashes match main;
+  early celltype stashes match the retained branch. No additional unique
+  stash-only implementation was identified.
+  Removal of Markdown rendering was explicit in bioDB PR #1; PR #26 removed
+  commented-out dead code. gene_weighting moved to timeline_dataset; SNOMED's
+  bulk downloader was intentionally retired; ontology_owl remains a re-export
+  shim. These are not unexplained losses of retrieval code.
+
+The hg audit covers two underlying repositories across five worktrees, with
+35 unique hg-horizon branch tips and 98 web tips inventoried, plus stashes,
+reflogs, untracked files and unreachable-commit inventories. Detailed branch
+classifications, source paths and live artifact evidence are in hg-findings.txt.
+Cached remote refs were not mistaken for live GitHub state:
+  bioDB local/cached main 1dbb53e; live main 0420f1a (one OLS-only commit newer)
+  hg-horizon cached main 9ae830f; live main b535072
+  hg-horizon-web live main 2a29305
+Some web branches contain additional UI/LD/tile work absent cached remote refs;
+the detailed inventory distinguishes these from the OpenTargets integration.
+Thirty-three filtered local-only source patches/helper files (804,583 bytes)
+were preserved with a SHA256 manifest. The unpushed hg sampler commit ade4fc0
+is patch-equivalent to pushed/merged d54318c, so it is not unique missing code.
+
+7. Recovery and implementation order
+
+1. Preserve current evidence before branch cleanup. Verified complete-history
+   bundles for bioDB's celltype branch and hg-horizon's current refs are saved.
+   BioDocs trait patch and untracked Harvest archive are saved with checksums.
+2. Fix bulk cache semantics first: pinned-release manifests, missing-shard repair,
+   explicit partial/full state, atomic temporary downloads and Parquet validation.
+   Cover preview-then-full, interrupted transfer and resume with regression tests.
+3. Add an all-member credible-set reader with correct variant-specific PIPs,
+   beta/SE/p-values and 95/99 flags. Correct lead lookup without silently changing
+   the historical reader's row unit. Provide lazy/batched processing for large data.
+4. Add discoverable all-traits/all-drugs wrappers or entity readers over disease
+   and drug_molecule; document raw retrieval separately from BioDocs corpus building.
+   Repair README imports and package-level configuration semantics.
+5. Integrate a GWAS Catalog summary-statistics module into bioDB, reusing the
+   validated hg parser/reconciliation pieces. Keep region-scoped and genome-wide
+   modes explicit; report per-study coverage/failures and preserve original/log-p
+   statistics. A pinned hg artifact reader can expose existing data separately.
+6. Integrate BioDocs #104 onto current main and use a current checkout for drugs.
+   Rebuild affected bibliography/joins only after complete inputs are verified.
+   Refresh bioDB pins deliberately and validate adapters against the chosen SHA.
+7. Rebase/integrate celltype work and its local-only count change with tests/docs.
+   Review Harvest independently; its unfinished run should not supply a completeness
+   claim or be relaunched implicitly as part of this investigation.
+
+8. Verification and evidence locations
+
+67 selected existing offline OpenTargets tests passed. Four existing live
+GraphQL tests (target/disease/drug/variant) passed. An initial marker-filtered
+run attempted four unmarked live tests and failed under sandbox DNS; the later
+network-enabled live run passed. The offline run then explicitly excluded those
+live tests. This exposes a test-marking gap, not an upstream API regression.
+
+Reproducible audit checks read 33 cached release/dataset directories, validate
+footers and exercise partial-cache/configuration failures using temporary data:
+  .scratch/forensics-2026-10-29/audit_opentargets.py
+  .scratch/forensics-2026-10-29/opentargets-checks.json
+  .scratch/forensics-2026-10-29/cache-inventory.json
+  .scratch/forensics-2026-10-29/cache-manifests.json
+
+Detailed forensic evidence and recovery snapshots:
+  .scratch/forensics-2026-10-29/hg-findings.txt
+  .scratch/forensics-2026-10-29/biodocs-findings.txt
+  .scratch/forensics-2026-10-29/biodocs-preservation-and-bibliography.txt
+  .scratch/forensics-2026-10-29/biodb-history-findings.txt
+  .scratch/forensics-2026-10-29/biodb-github-verification.json
+  .scratch/forensics-2026-10-29/biodb-celltype-github-verification.json
+  .scratch/forensics-2026-10-29/biodb-celltype-recovery.bundle
+  .scratch/forensics-2026-10-29/biodb-celltype-ce296a1.patch
+  .scratch/forensics-2026-10-29/hg-horizon-all-refs.bundle
+  .scratch/forensics-2026-10-29/BioDocs-traits-73480ae.patch
+  .scratch/forensics-2026-10-29/hg-horizon-untracked-source-2026-10-29.tar.gz
+
+Offline synthetic-Parquet probes also passed BioDocs's current drug/variant
+fetch and fetch_one contracts against current bioDB. Those modules were loaded
+directly because a full BioDocs runtime is not installed. This is not a complete
+BioDocs build or production-artifact validation.
+
+The investigation did not inspect historical/deleted remote pod disks, every
+Hugging Face historical revision, or run a new genome-wide ingestion. Absence
+of Harvest outputs refers to the audited live dataset tree. No full production
+corpus rebuild, dependency upgrade, deployment or source-code fix was performed.
+Seven unindexed temporary web Git pack files were left untouched. Six contain
+one blob object declaring 790,902,124 uncompressed bytes (the allsig file size)
+with a decompressed PAR1 prefix; the seventh is header-only. They are Parquet
+data remnants, not source commit trees. Their complete contents were not
+recovered or hashed; total on-disk size is 1,004,666,964 bytes. Prefix evidence
+is in web-temp-pack-prefix-classification.json. No Git cleanup was run.

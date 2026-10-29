@@ -155,3 +155,28 @@ def test_fetch_mane_select_raises_when_no_mane_transcripts(tmp_path: Path, monke
     monkeypatch.setattr(gencode, "download_gencode_gtf", lambda release, cache_dir=None: gtf)
     with pytest.raises(RuntimeError, match="no MANE Select transcripts"):
         gencode.fetch_mane_select(release="testver")
+
+
+def test_get_genes_preserves_all_biotypes_and_zero_based_coordinates(tmp_path, monkeypatch):
+    import gzip
+
+    from biodb import gencode
+
+    path = tmp_path / "tiny.gtf.gz"
+    with gzip.open(path, "wt") as handle:
+        handle.write(
+            'chr1\tx\tgene\t11\t20\t.\t+\t.\tgene_id "ENSG1.2"; gene_name "A"; gene_type "lncRNA";\n'
+        )
+    monkeypatch.setattr(gencode, "download_gencode_gtf", lambda *a, **k: path)
+    result = gencode.get_genes("47")
+    assert result.to_dicts() == [
+        {
+            "gene_id": "ENSG1",
+            "gene_symbol": "A",
+            "biotype": "lncRNA",
+            "chrom": "chr1",
+            "start": 10,
+            "end": 20,
+            "strand": "+",
+        }
+    ]
