@@ -1,6 +1,6 @@
 # Searching ontologies with OLS
 
-The [`biodb.ols`](api.rst) module is a REST client for [EMBL-EBI's OLS4](https://www.ebi.ac.uk/ols4/) (Ontology Lookup Service), the public index of ~280 biomedical ontologies — Mondo, EFO, HPO, GO, SO, ChEBI, SNOMED CT, and many more. Unlike [`biodb.ontology`](api.rst), which requires a local OWL file walked via `owlready2`, `biodb.ols` hits the OLS REST API and lets you look up terms, traverse hierarchies, and full-text-search **without** downloading multi-hundred-MB OWL files. The natural fit when you only need a handful of terms, or in environments where you can't or don't want to materialise the whole ontology locally.
+The [`biodb.ols`](api.rst) module is a REST client for [EMBL-EBI's OLS4](https://www.ebi.ac.uk/ols4/) (Ontology Lookup Service), covering Mondo, EFO, HPO, GO, SO, ChEBI, SNOMED CT, and other indexed ontologies. It supports term lookup, hierarchy traversal, and lexical search using core dependencies. Use `biodb.ontology` with `[ontology]` for local OBO/OWL workflows, or `biodb.ols_text` for resumable acquisition of OLS v2 textual annotations.
 
 ```{contents}
 :local:
@@ -16,11 +16,16 @@ The [`biodb.ols`](api.rst) module is a REST client for [EMBL-EBI's OLS4](https:/
 | A reproducible offline pipeline pinned to one ontology version | `biodb.ols.list_terms` (caches to parquet, version-aware) |
 | Cross-ontology lookup ("which ontology owns this term?") | `biodb.ols.search` / `find_terms` (scope-less mode) |
 
-OLS is the right starting point for almost everything ID-resolution-related. Drop to local OWL only when you've measured that REST round-trips dominate your workload (rare — even a 5,000-term walk completes in under a minute).
+Targeted OLS calls avoid downloading a local ontology. A local snapshot is
+useful when a workflow needs repeatable offline traversal or many related
+lookups.
 
 ## Finding a term by name
 
 The bread-and-butter use case: you know the disease / phenotype / anatomical part by name, and you need its canonical ID.
+
+Response labels, rankings, and hierarchy counts below are illustrative and
+can change with the ontology snapshot served by OLS.
 
 ```python
 from biodb.ols import find_terms, find_term
@@ -33,9 +38,10 @@ find_terms("breast carcinoma", ontology="efo", top_k=5)
 # 2  EFO:0009547   breast carcinoma in situ         2   (prefix match)
 # 3  ...
 
-# One-shot best ID
-find_term("breast carcinoma", ontology="efo")["obo_id"]
-# 'EFO:0000305'
+# One-shot best ID; no match returns None.
+term = find_term("breast carcinoma", ontology="efo")
+if term is not None:
+    print(term["obo_id"])
 
 # Cross-ontology — handy when you don't know which vocabulary owns the concept
 find_terms("Alzheimer disease")  # no ontology= scope
@@ -60,9 +66,13 @@ df = find_terms("hypertension", ontology="mondo", top_k=20)
 df[df["match_quality"] >= 3]  # exact label or exact synonym only
 ```
 
-### Solr, not RAG
+### Lexical matching
 
-OLS4 does **not** currently expose a vector / RAG / embedding-based search endpoint — every hit goes through Solr's lexical (TF-IDF + field-boost) ranker. For paraphrase-aware lookup ("uncontrolled high blood pressure" → "hypertensive disorder") you would need to pair OLS output with an external embedding index — e.g. embed `list_terms(ontology)` once with a sentence-transformer and query by cosine similarity. EBI's experimental [Talk-to-EBI](https://www.ebi.ac.uk/about/news/updates-from-data-resources/talk-to-ebi-prototype) and Monarch's [OntoGPT](https://github.com/monarch-initiative/ontogpt) prove the pattern works, but neither is a stable API. For the >90% case where you know the canonical name and just need the ID, the Solr + exact-match re-ranker in `find_terms` is the pragmatic answer.
+This client uses the OLS Solr search endpoint and a surface-text re-ranker;
+it does not perform embedding or semantic retrieval. A high `match_quality`
+means a label/synonym match under these rules, not a validated clinical or
+biological equivalence. A downstream embedding index can use acquired term
+text when paraphrase matching is required.
 
 ## Walking a known term
 
@@ -91,24 +101,67 @@ get_children("mondo", "MONDO:0004975")
 get_parents("mondo", "MONDO:0004975")
 ```
 
-All five helpers handle OLS's HAL-style pagination internally and return a DataFrame with the canonical columns `obo_id`, `label`, `iri`, `description`, `synonyms`, `is_obsolete`.
+`get_term` returns one raw record as a dictionary. The four hierarchy helpers
+handle HAL-style pagination and return a DataFrame with `obo_id`, `label`,
+`iri`, `description`, `synonyms`, and `is_obsolete`.
 
 ## Dumping a whole ontology
 
-For workflows that need every term in memory — building a local Solr-free index, computing all-pairs similarity, training a sentence-transformer — use `list_terms`. It paginates `/ontologies/{slug}/terms` and caches the result to `~/.cache/biodb/ols/{slug}/{version}.parquet`, so subsequent calls in the same or another Python session re-read from disk without hitting OLS:
+For workflows that need every term in memory, use `list_terms`. It paginates
+`/ontologies/{slug}/terms` and caches the result to
+`~/.cache/biodb/ols/{slug}/{version_token}.parquet`. Later calls check OLS
+metadata for the current version, then reuse that version's table:
 
 ```python
 from biodb.ols import list_terms
 
-mondo = list_terms("mondo")        # first call: walks OLS (~1 min)
-mondo_again = list_terms("mondo")  # second call: ~ms from parquet
+mondo = list_terms("mondo")        # first call: walks OLS
+mondo_again = list_terms("mondo")  # current-version cache reused
 
 # Versioned cache — a new OLS release writes alongside the old one,
-# so you can rebuild from any historical version for reproducibility.
-list_terms("snomed")               # ~5–10 min first run for 376k terms
+# preserving snapshots already acquired by this cache.
+list_terms("snomed")               # large paginated acquisition
 ```
 
 Pass `include_obsolete=True` to keep deprecated terms; pass `refresh=True` to force a fresh walk past the cache. See the [API reference](api.rst) for the full kwarg list.
+
+An existing cached version can be read directly with `pandas.read_parquet`.
+The client does not expose arbitrary historical OLS releases for download.
+
+## Preserve complete v2 textual annotations
+
+Some ontology releases expose SKOS synonyms or other literal annotations in
+OLS v2 that are absent from the legacy terms endpoint. For text corpora, use
+`biodb.ols_text.download_text_cache`:
+
+```python
+from biodb.ols_text import download_text_cache
+
+download_text_cache(
+    "mondo",
+    "mondo-text.parquet",
+    page_cache="./mondo-text-pages",
+    workers=4,
+)
+```
+
+This is a full ontology acquisition. Compact per-page JSON checkpoints make
+interruption resumable; final count/ID audits must pass before replacing the
+destination. Keep `page_cache` specific to one ontology snapshot and page
+size. `expected_ids` can pin the expected concept universe to a known
+snapshot; a mismatch fails and leaves the previous destination intact.
+
+Only source literal labels, synonyms, and available definitions become text.
+Graph relationships and logical axioms are not converted into invented prose.
+Missing descriptions can therefore remain missing. Record source/version
+provenance alongside an exported corpus.
+
+For SNOMED, `biodb.snomed.bulk_text_concepts` is the corresponding v2 wrapper.
+`bulk_concepts` instead uses the legacy OLS table. Targeted SNOMED wrappers
+include `query_concept`, `search_concepts`, and hierarchy helpers. The local
+`load_concept_csv` / `load_concept_csv_from_zip` parsers accept a caller-obtained
+Athena bundle when OMOP-specific columns/mappings are needed; OLS output does
+not supply those fields or grant a vocabulary license.
 
 ## CURIE / IRI conversion
 

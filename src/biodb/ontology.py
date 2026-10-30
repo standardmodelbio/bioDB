@@ -797,7 +797,10 @@ def generate_keyword_sets_from_ontology(
     Returns
     -------
     Tuple[Dict[str, List[str]], List[str], List[str], Dict[str, List[str]]] or Tuple[Dict[str, List[str]], np.ndarray, List[str], List[str], Dict[str, List[str]]]
+        Return values depend on ``flatten_indices``:
+
         - If flatten_indices=False: (keyword_sets, all_keywords, used_keywords, relationship_docs) where:
+
           - keyword_sets: Expanded keyword sets dictionary
           - all_keywords: List of ALL keywords in the entire ontology (including synonyms if include_synonyms=True)
           - used_keywords: List of keywords actually used in the returned keyword sets
@@ -805,7 +808,9 @@ def generate_keyword_sets_from_ontology(
             Each string describes a relationship between keywords in that set, e.g.,
             "pheno 2 is a subtype of pheno 1" or "pheno 2 causes disease A".
             Empty list if no relationships found or include_relationships=False.
+
         - If flatten_indices=True: (keyword_sets, set_indices, all_keywords, used_keywords, relationship_docs) where:
+
           - keyword_sets: Expanded keyword sets dictionary
           - set_indices: numpy array of shape (n_keywords,) with set indices for each keyword
           - all_keywords: List of ALL keywords in the entire ontology (including synonyms if include_synonyms=True)
@@ -3733,6 +3738,7 @@ def analyze_attention_weights(
     -------
     pd.DataFrame
         DataFrame with columns:
+
         - concept_index: Index of the concept
         - concept_name: Name of the concept (if concept_names provided)
         - count: Number of events that have this concept in their top-k

@@ -2094,8 +2094,11 @@ def get_gene_associations(
         Keyword arguments to pass to filter_adaptive for each dataset.
         If a single dict, applies the same arguments to all datasets.
         If a dict of dicts, keys are dataset names and values are kwargs for each dataset.
-        E.g., {"target_essentiality": {"min_genes": 3, "percentile": 0.99},
-               "expression": {"min_genes": 3, "percentile": 0.99}}
+        For example::
+
+            {"target_essentiality": {"min_genes": 3, "percentile": 0.99},
+             "expression": {"min_genes": 3, "percentile": 0.99}}
+
         Common kwargs: percentile, min_genes, max_genes, sort_by, etc.
         If None, no filtering is applied.
 
@@ -2103,6 +2106,7 @@ def get_gene_associations(
     -------
     pd.DataFrame
         Combined DataFrame with standardized columns:
+
         - database: "OpenTargets" for all rows
         - dataset: Name of the source dataset
         - sourceId: Unique identifier for each association source
@@ -2426,12 +2430,16 @@ def parse_gene_essentiality(df):
     Each row will represent one screen (cell line) with all parent information.
 
     Structure:
+
     - geneEssentiality: list of dicts
+
       - isEssential: bool
       - depMapEssentiality: list of dicts (tissues)
+
         - tissueId: str
         - tissueName: str
         - screens: list of dicts (cell lines)
+
           - depmapId, cellLineName, diseaseFromSource, etc.
     """
     rows = []
@@ -2523,8 +2531,10 @@ def parse_expression(df):
     Each row will represent one gene-tissue combination.
 
     Structure:
+
     - id: gene ID
     - tissues: list of dicts
+
       - efo_code: tissue identifier
       - label: tissue name
       - organs: array of organ names
@@ -2533,6 +2543,7 @@ def parse_expression(df):
       - protein: dict with reliability, level, cell_type
 
     Returns DataFrame with columns:
+
     - geneId (renamed to id): gene identifier
     - efo_code: tissue identifier
     - tissueLabel: tissue name

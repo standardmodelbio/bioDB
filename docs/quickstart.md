@@ -2,109 +2,134 @@
 
 ## Install
 
-```bash
-pip install git+https://github.com/bschilder/bioDB
-```
-
-For the optional extras (ontology readers, plotting, tiktoken,
-gget-based Open Targets queries):
+Install from the repository:
 
 ```bash
-pip install "biodb[ontology,viz,tokens,gget]"
+pip install "biodb @ git+https://github.com/standardmodelbio/bioDB.git"
 ```
 
-## Open Targets
+Choose extras for the paths you use. Extras in this table are declared in
+`pyproject.toml`; the core package includes pandas, Polars, PyArrow, requests,
+and httpx.
 
-```python
-from biodb.opentargets import list_datasets, get_dataset, df_to_markdown
+| Path | Extra / additional dependency |
+|---|---|
+| OBO/OWL readers and graph expansion | `[ontology]` |
+| UniProt XML parsing | `[protein]` |
+| ClinVar VCF ingestion | `[clinvar]` |
+| CellMarker XLSX and OmicsPred Excel | `[celltype]`, `[omicspred]` respectively |
+| Indexed GWAS Catalog regions | `[gwas]` (`pysam`) |
+| Pan-UKBB regions | `[panukbb]` (`pysam`) or the `tabix` executable |
+| BigWig interval scores | `[bigwig]` |
+| Gene ID conversion using g:Profiler's Python client | `[mapping]` |
+| Hugging Face publication | `[hf]` |
+| GENCODE GTF download | `pooch` (currently supplied by `[clinvar]`, or install directly) |
+| Optional gget-backed helpers | `[gget]` |
+| Plotting / token counting / docs build | `[viz]`, `[tokens]`, `[docs]` |
 
-# What parquet dumps are available?
-print(list_datasets())
+For example:
 
-# Render a single target row as markdown (works with dict / Series rows).
-row = {
-    "approvedSymbol": "BRCA1",
-    "approvedName": "BRCA1 DNA repair associated",
-    "id": "ENSG00000012048",
-    "biotype": "protein_coding",
-}
-print(df_to_markdown(row))
+```bash
+pip install "biodb[ontology,protein,celltype,gwas] @ git+https://github.com/standardmodelbio/bioDB.git"
 ```
 
-## Monarch Initiative
-
-```python
-from biodb.monarch import read_causal_gene_to_disease_association
-
-df = read_causal_gene_to_disease_association()
-print(df.head())
-```
-
-## Ontology expansion
-
-```python
-from biodb.ontology import expand_keyword_sets_from_ontology
-
-ontology = {
-    "dementia": ["alzheimer's disease", "vascular dementia"],
-    "alzheimer's disease": ["early onset alzheimer's"],
-}
-expanded = expand_keyword_sets_from_ontology(
-    seed_keywords={"dementia": ["dementia"]},
-    ontology_dict=ontology,
-    n_hops=2,
-)
-print(expanded["dementia"])
-# ['dementia', "alzheimer's disease", 'vascular dementia',
-#  "early onset alzheimer's"]
-```
-
-## Building a gene-association matrix
+## Run an offline transform
 
 ```python
 import pandas as pd
-from biodb.utils import create_gene_association_matrix
+from biodb.transform import create_gene_association_matrix
 
-assoc = pd.DataFrame({
+associations = pd.DataFrame({
     "sourceId": ["DIS:1", "DIS:1", "DIS:2"],
-    "HGNC":     ["BRCA1", "TP53",  "EGFR"],
-    "score":    [0.9, 0.8, 0.7],
+    "HGNC": ["BRCA1", "TP53", "EGFR"],
+    "score": [0.9, 0.8, 0.7],
 })
-X, meta = create_gene_association_matrix(assoc, verbose=False)
-print(X.shape, meta["metadata"]["sparsity"])
+matrix, metadata = create_gene_association_matrix(associations, verbose=False)
+print(matrix.shape)  # (2, 3)
 ```
 
-## Searching ontologies (OLS)
+## Query one Open Targets record
+
+The GraphQL client needs only core dependencies:
 
 ```python
-from biodb.ols import find_term, find_terms, get_descendants, ontology_id_from_curie
+from biodb.opentargets_graphql import query_target
 
-# Resolve a disease name to its EFO ID
-find_term("breast carcinoma", ontology="efo")["obo_id"]
-# 'EFO:0000305'
-
-# Get every transitive descendant of "neoplasm" (the cancer umbrella)
-root = "EFO_0000311"
-ont = ontology_id_from_curie(root)                # "efo"
-descendants = get_descendants(ont, root)
-print(f"{len(descendants)} cancer-related EFO terms")
+target = query_target("ENSG00000012048")
+print(target)
 ```
 
-See [Searching ontologies with OLS](ols.md) for the full surface — ranked
-matching, whole-ontology dumps, CURIE conversion, and a note on why OLS
-is lexical (Solr) rather than semantic / RAG.
-
-## Genetic tests + panels (GTR)
+For a bulk preview, explicitly limit the file count:
 
 ```python
-from biodb import gtr
+from biodb.opentargets import DEFAULT_VERSION, scan_dataset
 
-# Tests targeting a gene, and a panel's embeddable description.
-tests = gtr.query_gene("BRCA1", retmax=10)
-text = gtr.panel_text(tests[0])
-
-# Curated gene sets -> GMT for GenForge.
-gtr.to_gmt("gtr_panels.gmt", by="condition")
+preview = scan_dataset(
+    "target",
+    version=DEFAULT_VERSION,
+    limit_files=1,
+    columns=["id", "approvedSymbol"],
+).head(5).collect()
+print(preview)
 ```
 
-See [Querying genetic tests with GTR](gtr.md) for the full surface.
+This acquires one whole Parquet shard locally. It is a preview of the source;
+`.head(5)` limits rows after acquisition. Omit `limit_files` to acquire the
+entire manifest membership. See [Open Targets](opentargets.md) for lazy remote
+reads, raw nested fields, and lead/member credible-set semantics.
+
+## Parse raw GWAS statistics locally
+
+This example creates a tiny input and runs without network access:
+
+```python
+from pathlib import Path
+from tempfile import TemporaryDirectory
+import polars as pl
+from biodb import gwas_catalog
+
+with TemporaryDirectory() as directory:
+    path = Path(directory) / "example.tsv"
+    path.write_text(
+        "chromosome\tbase_pair_location\teffect_allele\tother_allele\tbeta\tp_value\n"
+        "1\t100\tA\tG\t0.2\t0\n"
+        "1\t200\tT\tC\tNA\t0.8\n"
+    )
+    batches = list(gwas_catalog.iter_sumstats(path))  # exhaust to validate EOF
+    raw = pl.concat(batches)
+    assert raw.height == 2
+    assert raw["p"][0] == 0.0
+```
+
+The default is genomewide with no significance filter. Missing effects and
+exact source tokens survive. [GWAS acquisition](gwas.md) covers real manifests,
+region queries, provenance, durable receipts, and strict failure handling.
+
+## Query one cell type
+
+```python
+from biodb import cellxgene
+
+markers = cellxgene.query_markers("CL:0000236", tissue="spleen", n_top=10)
+print(markers[["gene_symbol", "score", "rank"]])
+```
+
+This uses the served WMG API with core dependencies. The
+[cell-type guide](cell-types.md) explains tissue-specific scores, CellGuide,
+curated sources, and dataset builders.
+
+## Resolve ontology terms
+
+```python
+from biodb.ols import find_term, get_descendants
+
+term = find_term("breast carcinoma", ontology="efo")
+if term is not None:
+    print(term["obo_id"])
+    descendants = get_descendants("efo", term["obo_id"])
+```
+
+See [OLS](ols.md) for ranked matching and bulk textual annotations, or
+[GTR](gtr.md) for genetic test panels. The [source catalog](sources.md) maps
+the remaining sources to their entry points and the
+[tutorial index](_generated/tutorials/index.md) links runnable notebooks.

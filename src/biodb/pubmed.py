@@ -542,6 +542,7 @@ __all__ = [
     "list_update_files",
     "parse_pubmed_xml",
     "query_abstract",
+    "query_abstracts",
     "query_pmid",
     "query_summaries",
     "search",
