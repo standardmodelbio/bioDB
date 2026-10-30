@@ -172,7 +172,8 @@ def crispri_pairs(
         ``gene`` (``measuredGeneSymbol``), ``tss_chrom``, ``tss`` (0-based
         position, null where unreported), ``label`` (1 = ``Regulated``,
         0 = tested negative), ``effect_size``, ``p_adjusted``, ``distance``
-        (|TSS − element midpoint| in bases, null when the TSS is), ``cell_type``,
+        (absolute distance between TSS and element midpoint in bases, null when
+        the TSS is unknown), ``cell_type``,
         ``reference``, ``dataset``, ``pair_uid``. Sorted by ``chrom``, ``start``.
     """
     frame = load_crispri_benchmark(

@@ -275,6 +275,7 @@ def fetch_mane_select(release: str, cache_dir: str | Path | None = None) -> pl.D
 __all__ = [
     "download_gencode_gtf",
     "fetch_mane_select",
+    "get_genes",
 ]
 
 

@@ -119,6 +119,15 @@ docs = [
     "sphinx>=7.2",
     "sphinx-rtd-theme>=2.0",
     "myst-parser>=2.0",
+    "myst-nb>=1.1",
+    "nbformat>=5.10",
+    "nbclient>=0.10",
+    "ipykernel>=6.29",
+    # Small parsers/cache helper used by the executable offline tutorials.
+    "biopython>=1.83",
+    "openpyxl>=3.1",
+    "pooch>=1.8",
+    "networkx>=3.0",
     "sphinx-autodoc-typehints>=2.0",
     "sphinx-copybutton>=0.5",
 ]
@@ -155,9 +164,10 @@ test = [
 dev = ["biodb[ontology,viz,tokens,gget,protein,clinvar,mapping,celltype,bigwig,docs,test]"]
 
 [project.urls]
-Homepage = "https://github.com/bschilder/bioDB"
-Repository = "https://github.com/bschilder/bioDB"
-Issues = "https://github.com/bschilder/bioDB/issues"
+Homepage = "https://github.com/standardmodelbio/bioDB"
+Repository = "https://github.com/standardmodelbio/bioDB"
+Issues = "https://github.com/standardmodelbio/bioDB/issues"
+Documentation = "https://standardmodel.bio/bioDB/"
 
 [tool.setuptools.packages.find]
 where = ["src"]
@@ -178,7 +188,7 @@ addopts = [
 testpaths = ["tests"]
 markers = [
     "slow: tests > ~5s",
-    "network: tests that hit a live remote API (skipped in CI)",
+    "network: live remote API checks (CI skips only genuine availability outages)",
 ]
 
 [tool.coverage.run]
@@ -189,8 +199,8 @@ omit = [
     # many branches (Open Targets API shapes, gget fallbacks, OBO
     # readers, mondo loaders, ClinVar VCF parsing, pooch downloads)
     # that are unreachable without live network access or optional
-    # heavy deps. The CPU/no-net CI exercises the import surface +
-    # signature shape only.
+    # heavy deps. Focused regressions cover the public boundaries while
+    # live integration checks exercise bounded source requests in CI.
     "src/biodb/opentargets/_bulk.py",
     "src/biodb/monarch.py",
     "src/biodb/ontology.py",

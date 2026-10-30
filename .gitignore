@@ -29,6 +29,8 @@ htmlcov/
 # Sphinx build artifacts (generated during docs build)
 docs/_build/
 docs/_generated/
+# Includes copies of canonical tutorials/ notebooks used by Sphinx.
+docs/_generated/tutorials/
 
 # uv lockfile (not authoritative — pyproject.toml is)
 uv.lock

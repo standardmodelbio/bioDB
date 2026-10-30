@@ -9,6 +9,33 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+* Raw GWAS Catalog and GWAS Harvest acquisition: exact manifest membership,
+  header-aware TSV/GWAS-SSF parsing, unfiltered genomewide defaults, explicit
+  regional/significance selections, original text tokens and byte provenance.
+  Durable per-file receipts retain successes and successful empty files across
+  restart; strict failures expose `IngestError.result`. Catalog supports
+  indexed regions through the optional `[gwas]` extra. Harvest accepts a
+  caller-supplied URL manifest and local source archives.
+* Open Targets raw Polars readers for diseases/traits, drugs, credible sets,
+  and variant annotations, including lazy projections and optional remote
+  range reads. Separate lead and member credible-set views retain their own
+  statistics and source metadata.
+* Raw enrichment clients for EuropePMC MED records, AlphaFold/RCSB metadata,
+  Open Targets intermediate literature matches, and source-derived canonical
+  constants. Validated per-input/provider receipts support restart without
+  treating request failures as successful absence.
+* GENCODE release-pinned human annotation: `get_genes` retains all gene
+  biotypes; `fetch_mane_select` returns the tagged protein-coding subset.
+* Cell Taxonomy, CellMarker 2.0, CELLxGENE WMG/CellGuide marker readers, served
+  disease-vs-normal differential expression, the provenance-preserving
+  `markers.load_markers` aggregator, and local/Hugging Face dataset builders.
+* OLS v2 textual-annotation acquisition (`ols_text`,
+  `snomed.bulk_text_concepts`) with resumable page caches and final ID/count
+  audits, retaining literal source text without inventing definitions.
+* Refreshed source catalog, Open Targets/GWAS/enrichment/cell guides, complete
+  public-module API navigation, and offline tutorial coverage for the new
+  source families.
+
 * `biodb.orphanet` — Orphanet rare-disease prevalence from Orphadata's
   free `en_product9_prev` product (CC-BY-4.0). `download_prevalence` fetches
   the XML with backoff on transient statuses, `parse_prevalence` streams it
@@ -131,6 +158,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `genoray` + `pooch`.
 
 ### Fixed
+
+* Open Targets cache completeness is established against the authoritative
+  shard manifest, with validated file fingerprints. A limited-file preview
+  cannot mark a full dataset complete; interrupted acquisition resumes missing
+  members, and custom sources have isolated cache identities.
+* Credible-set lead PIP matches the lead `variantId` across all locus members.
+  Missing/conflicting matches yield null `pip` and an explicit `pipStatus`.
+  Member views keep member effects and preserve lead effects under `lead*`
+  names instead of filling absent member statistics from the lead.
+* CellMarker pins the version-specific 2.0 download path and cache. Explicit
+  cache overrides remain caller-owned; another upstream release is not used
+  as a fallback.
 
 * `filter_adaptive` lost the `source_id_col` on pandas 2.2+ where
   `groupby(..., group_keys=False).apply` stops auto-prepending the

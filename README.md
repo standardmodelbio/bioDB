@@ -1,10 +1,10 @@
 # bioDB
 
-Biomedical knowledge graph helpers — Open Targets, Monarch Initiative, OBO ontologies, UniProt, Harmonizome, and ClinVar.
+Biomedical and genomic data access, with versioned bulk acquisition, targeted queries, and reusable source readers.
 
-[![CI](https://github.com/bschilder/bioDB/actions/workflows/ci.yml/badge.svg)](https://github.com/bschilder/bioDB/actions/workflows/ci.yml)
-[![Docs](https://github.com/bschilder/bioDB/actions/workflows/docs.yml/badge.svg)](https://bschilder.github.io/biodb/)
-[![Docker](https://github.com/bschilder/bioDB/actions/workflows/docker.yml/badge.svg)](https://github.com/bschilder/bioDB/pkgs/container/biodb)
+[![CI](https://github.com/standardmodelbio/bioDB/actions/workflows/ci.yml/badge.svg)](https://github.com/standardmodelbio/bioDB/actions/workflows/ci.yml)
+[![Docs](https://github.com/standardmodelbio/bioDB/actions/workflows/docs.yml/badge.svg)](https://standardmodel.bio/bioDB/)
+[![Docker](https://github.com/standardmodelbio/bioDB/actions/workflows/docker.yml/badge.svg)](https://github.com/standardmodelbio/bioDB/pkgs/container/biodb)
 ![coverage](docs/_static/coverage.svg)
 ![docker](docs/_static/docker.svg)
 [![Python 3.10+](https://img.shields.io/badge/python-3.10%20%7C%203.11%20%7C%203.12-blue.svg)](https://www.python.org/downloads/)
@@ -34,9 +34,12 @@ Each source module aims to provide **both** modes, so you can prototype against 
 | **[Harmonizome](https://maayanlab.cloud/Harmonizome/)** — ~114 curated gene-attribute datasets (CCLE, GTEx, ENCODE, HPA, KEGG, Reactome, …) | [`biodb.harmonizome`](src/biodb/harmonizome.py) | ✅ REST | ✅ Bulk TSV/GMT |
 | **[ClinVar](https://www.ncbi.nlm.nih.gov/clinvar/)** — clinical significance + review status for human variants | [`biodb.clinvar`](src/biodb/clinvar.py) | ✅ NCBI E-utilities | ✅ VCF download |
 | **[GTR (Genetic Testing Registry)](https://www.ncbi.nlm.nih.gov/gtr/)** — NCBI catalog of ~64k genetic tests: per-test gene panels (Entrez IDs), conditions (MedGen CUIs), methodology, clinical validity/utility | [`biodb.gtr`](src/biodb/gtr.py) | ✅ NCBI E-utilities | ✅ FTP TSV + full XML, plus gene-set views and embeddable panel text |
+| **GENCODE** — release-pinned human gene annotations, including all biotypes and MANE Select views | [`biodb.gencode`](src/biodb/gencode.py) | Cached gene and transcript views | GTF acquisition; zero-based half-open gene coordinates |
 | **[GWAS Catalog](https://www.ebi.ac.uk/gwas/)** — exact harmonised source files, all files per study, raw statistics and provenance | [`biodb.gwas_catalog`](src/biodb/gwas_catalog.py) | Per-file streaming and explicit region queries | Complete manifest acquisition, resumable per-file ingestion; genome-wide/unfiltered by default |
 | **[Europe PMC](https://europepmc.org/)** — original MED bibliographic records | [`biodb.europepmc`](src/biodb/europepmc.py) | PMID batches with completion receipts | Resumable acquisition of a caller-supplied PMID list |
 | **[AlphaFold](https://alphafold.ebi.ac.uk/) / [RCSB](https://www.rcsb.org/)** — original protein structure metadata | [`biodb.protein_structure`](src/biodb/protein_structure.py) | Per-accession, per-provider responses | Resumable accession-list acquisition |
+| **Harvest manifests** — caller-supplied lists of exact GWAS source files | [`biodb.gwas_harvest`](src/biodb/gwas_harvest.py) | Per-file streaming and local-source resolution | Resumable ingestion with source identity, scope and output receipts |
+| **[Pan-UKBB](https://pan.ukbb.broadinstitute.org/)** — multi-ancestry summary statistics in GRCh37 coordinates | [`biodb.panukbb`](src/biodb/panukbb.py) | Phenotype selection and indexed region queries | Public manifest and remote tabix statistics slices; CLI or optional `pysam` backend |
 | **[GWAS Atlas](https://atlas.ctglab.nl/)** — Watanabe et al. per-study gene-level MAGMA p-values across ~4k GWAS summary stats | [`biodb.gwas_atlas`](src/biodb/gwas_atlas.py) | ✅ Per-trait lookup via cached metadata | ✅ Bulk download |
 | **[All of Us *All-by-All*](https://allbyall.researchallofus.org/)** — PheWAS atlas across ~3,600 phenotypes × ~414k WGS participants (lab / phecode / phecodeX / PFHH / drug / physical) with single-variant + gene-burden tests (pLoF / missenseLC / synonymous), by ancestry + meta | [`biodb.aou_allxall`](src/biodb/aou_allxall.py) | ✅ Public REST | ✅ Per-phenotype gene-burden tables + concurrent bulk pull |
 | **[OmicsPred](https://www.omicspred.org/)** — Xu et al. *Nature 2023*; Bayesian-Ridge PRS atlas for ~17k+ molecular traits (Olink + SomaScan proteins, Metabolon + Nightingale metabolites, Illumina RNA-seq) trained on the INTERVAL cohort. Each score is already mapped to its cis Ensembl gene / UniProt protein. | [`biodb.omicspred`](src/biodb/omicspred.py) | ✅ Public REST | ✅ Box.com archives — PGS Catalog scoring-file format |
@@ -53,9 +56,9 @@ Each source module aims to provide **both** modes, so you can prototype against 
 | **[gProfiler](https://biit.cs.ut.ee/gprofiler/)** — University of Tartu gene-set library + functional enrichment | [`biodb.gprofiler`](src/biodb/gprofiler.py) | ✅ REST | ✅ Bulk GMT |
 | **[MSigDB](https://www.gsea-msigdb.org/gsea/msigdb/)** — Broad Institute Molecular Signatures DB (Hallmark + C1–C8) | [`biodb.msigdb`](src/biodb/msigdb.py) | ✅ Per-set JSON | ✅ Bulk GMT for any collection/version |
 | **[PubMed](https://pubmed.ncbi.nlm.nih.gov/)** — NLM's 40 M+ biomedical citation database (titles, abstracts, authors, MeSH) | [`biodb.pubmed`](src/biodb/pubmed.py) | ✅ NCBI E-utilities | ✅ Annual Baseline + Daily Update XML.gz |
-| **[SNOMED CT](https://www.snomed.org/)** (OHDSI-flavoured) — clinical terminology: diagnoses, procedures, findings, body sites | [`biodb.snomed`](src/biodb/snomed.py) | ✅ Per-concept lookups via OLS4 | ✅ Local CONCEPT.csv parser. SNOMED CT licensing prohibits us from redistributing bytes — obtain a vocabulary bundle from [OHDSI Athena](https://athena.ohdsi.org) after accepting the SNOMED CT license, then point bioDB at the local file. |
+| **[SNOMED CT](https://www.snomed.org/)** (OHDSI-flavoured) — clinical terminology: diagnoses, procedures, findings, body sites | [`biodb.snomed`](src/biodb/snomed.py) | ✅ Per-concept lookups via OLS4 | ✅ OLS concept/text exports and local CONCEPT.csv / ZIP parsers; use licensed local vocabulary bundles where required. |
 | **[Cell Taxonomy](https://ngdc.cncb.ac.cn/celltaxonomy/)** (CNCB-NGDC) — curated cross-species cell-type marker genes with **native Cell Ontology (CL) ids**; ~26k markers / ~3.1k cell types / 34 species | [`biodb.celltaxonomy`](src/biodb/celltaxonomy.py) | ✅ In-memory `query_markers` by CL id / name | ✅ Bulk TSV → normalized ranked gene lists per CL term (score = literature support), GMT export |
-| **[CellMarker 2.0](http://bio-bigdata.hrbmu.edu.cn/CellMarker/)** — manually curated human/mouse cell-type markers (~83k entries) carrying a native `cellontology_id` | [`biodb.cellmarker`](src/biodb/cellmarker.py) | ✅ In-memory `query_markers` by CL id / name | ✅ Bulk XLSX → normalized ranked gene lists per CL term (score = PMID support), GMT export |
+| **[CellMarker 2.0](https://bio-bigdata.hrbmu.edu.cn/CellMarker2.0/)** — manually curated human/mouse cell-type markers (~83k entries) carrying a native `cellontology_id` | [`biodb.cellmarker`](src/biodb/cellmarker.py) | ✅ In-memory `query_markers` by CL id / name | ✅ Bulk XLSX → normalized ranked gene lists per CL term (score = PMID support), GMT export |
 | **[CZ CELLxGENE Discover](https://cellxgene.cziscience.com/)** — single-cell corpus; CZI's precomputed **Marker Score** per (CL cell type × tissue) + served **disease-vs-normal differential expression** — all via REST | [`biodb.cellxgene`](src/biodb/cellxgene.py) | ✅ `query_markers` (Marker Score) + `disease_vs_normal` (DE effect size / logFC) per CL term / tissue | ✅ `get_tissue_markers` / `get_all_markers` (whole corpus per species); GMT export |
 
 ### Cross-cutting helpers
@@ -65,12 +68,17 @@ Each source module aims to provide **both** modes, so you can prototype against 
 * [`biodb.transform`](src/biodb/transform.py) — `create_gene_association_matrix` — pivot a long `(sourceId, targetId, score)` DataFrame into a sparse/dense (samples × genes) matrix with AnnData-shaped metadata
 * [`biodb.utils`](src/biodb/utils.py) — `read_gmt` (GMT format reader used by MSigDB / Harmonizome / gProfiler), `filter_adaptive` (per-sample top-percentile keep), similarity helpers
 
+* [`biodb.markers`](src/biodb/markers.py) — common ranked-marker views across cell sources
+* [`biodb.cellxgene_dataset`](src/biodb/cellxgene_dataset.py) and [`biodb.hf_datasets`](src/biodb/hf_datasets.py) — local dataset builds and cards, with explicit optional Hub publication
+* [`biodb.ols_text`](src/biodb/ols_text.py) — complete OLS text records and audited, resumable page caches
+* [`biodb.opentargets.literature`](src/biodb/opentargets/literature.py) and [`biodb.opentargets.constants`](src/biodb/opentargets/constants.py) — raw literature matches and upstream label/source snapshots
+
 ## Install
 
 Until released to PyPI, install from git:
 
 ```bash
-pip install git+https://github.com/bschilder/bioDB
+pip install git+https://github.com/standardmodelbio/bioDB
 ```
 
 For the optional extras:
@@ -82,8 +90,8 @@ pip install "biodb[ontology,viz,tokens,gget,protein,clinvar]"
 Local development:
 
 ```bash
-git clone https://github.com/bschilder/bioDB
-cd biodb
+git clone https://github.com/standardmodelbio/bioDB
+cd bioDB
 pip install -e ".[dev]"
 ```
 
@@ -231,14 +239,17 @@ remain in the consuming package. No bulk collection is launched by import.
 
 ## Tutorials
 
-Rendered Jupyter notebooks live under [`tutorials/`](tutorials/) — each
-one runs offline against synthetic data and ships with executed
-outputs so you can preview behavior without installing the package.
-See [`tutorials/README.md`](tutorials/README.md) for the index.
+Executed Jupyter notebooks live under [`tutorials/`](tutorials/). They use small
+offline fixtures with the real public readers; separate live recipes show how to
+acquire production data. The published [documentation](https://standardmodel.bio/bioDB/)
+renders the notebooks, and documentation CI re-executes them with network access
+blocked. See [`tutorials/README.md`](tutorials/README.md) for the source-coverage index
+and [the source guides](docs/sources.md) for API, optional-dependency and provenance details.
 
 ## Used by
 
-- [`GeneDocs`](https://github.com/bschilder/GeneDocs) — biomedical gene knowledge base; uses `biodb.opentargets.get_dataset` to pull the OT release into a precomputed, queryable artifact + uses `biodb.opentargets_graphql.query_target` for live per-gene lookups.
+- [`BioDocs`](https://github.com/standardmodelbio/BioDocs) — consumes bioDB raw sources to build gene, variant, trait and drug documents and indexes.
+- [`hg-horizon`](https://github.com/standardmodelbio/hg-horizon) — consumes fine-mapping, GWAS statistics and annotations for scientific transforms and browser exports.
 - [`seqlab`](https://github.com/standardmodelbio/seqlab) — variant analysis pipeline; uses `biodb.opentargets` for gene/variant queries and `biodb.clinvar` for clinical significance annotation.
 
 ## License

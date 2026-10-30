@@ -1,114 +1,59 @@
-# biodb
+# bioDB
 
-`biodb` is a small standalone library of biomedical knowledge graph
-helpers — Open Targets Platform, Monarch Initiative, OBO / OWL
-ontologies, UniProt, Harmonizome, and ClinVar. Ported out of
-`AoU.phenome` (plus helpers adapted from `VEP_protein`) so sibling
-projects can depend on a narrow biomedical-KG library without pulling
-the full All-of-Us pipeline.
+`biodb` provides Python clients and bulk readers for biomedical knowledge
+sources: gene–disease associations, GWAS statistics, ontologies, literature,
+protein annotations, cell-type markers, and genomic tracks. Targeted queries
+and cached bulk acquisition share a library; available modes depend on the
+source.
 
-## Why use it
+Start with the [quickstart](quickstart.md), browse the [source catalog](sources.md),
+or open the [tutorial notebooks](_generated/tutorials/index.md). The
+[API reference](api.rst) documents every public source and helper module.
 
-- **`opentargets`** — pull and parse Open Targets Platform parquet/JSON
-  dumps; render disease, drug, and pharmacogenomics summaries as
-  markdown; build gene-association matrices.
-- **`monarch`** — fetch Monarch Initiative TSVs (causal gene-to-disease
-  associations + friends) into tidy DataFrames.
-- **`ontology`** — N-hop keyword set expansion, Mondo / OWL loaders,
-  hierarchical keyword set generation, attention analysis, gene-
-  phenotype matrices, ontological similarity.
-- **`clinvar`** — ClinVar VCF download / parse, CLNSIG long-tail to
-  6-class simplification, BED + sites format converters.
-- **`gwas_atlas`** — Watanabe et al. GWAS Atlas per-study gene-level
-  MAGMA p-values across ~4k summary stats; per-trait lookup +
-  (gene × study) MAGMA-P matrix.
-- **`aou_allxall`** — All of Us *All-by-All* PheWAS atlas client
-  (~3,600 phenotypes × ~414k WGS participants). Public-API gene-burden
-  ingest across the full variant grid (pLoF / missenseLC / synonymous,
-  three MAF buckets, Burden / SKAT / SKAT-O), no Researcher Workbench
-  enrollment required.
-- **`omicspred`** — OmicsPred molecular-trait PRS atlas client. REST
-  API + Box.com archive downloads for ~17k+ Bayesian-Ridge polygenic
-  scores across proteins (Olink + SomaScan), metabolites (Metabolon +
-  Nightingale), and RNA expression — each pre-mapped to its cis
-  Ensembl gene / UniProt protein.
-- **`ols`** — EBI OLS4 REST client for ~280 ontologies (Mondo, EFO,
-  HPO, GO, SO, ChEBI, SNOMED CT, …). Ranked term search
-  (`find_terms` / `find_term`), hierarchical traversal
-  (`get_descendants` / `get_ancestors` / `get_children` / `get_parents`),
-  versioned local cache for whole-ontology dumps (`list_terms`), and
-  CURIE↔IRI conversion helpers. See [Searching ontologies with OLS](ols.md).
-- **`gtr`** — NCBI Genetic Testing Registry client. Targeted E-utilities
-  queries (`query_gene` / `query_condition` / `query_test`) plus bulk
-  downloads (`download`, `load_test_condition_gene`, streaming
-  `iter_full_records`). Materializes curated per-panel gene sets
-  (`gene_sets` / `aggregate_gene_sets` / `to_gmt`) and embeddable panel
-  text (`panel_text`) with a `support_count` importance prior. See
-  [Querying genetic tests with GTR](gtr.md).
-- **`orphanet`** — rare-disease prevalence per ORPHAcode from Orphadata
-  `en_product9_prev` (`download_prevalence`, `parse_prevalence`,
-  `load_prevalence`, `prevalence_map`). Orphanet publishes a prevalence
-  *band*, not a number, so `PREVALENCE_CLASS_K` carries the band midpoints
-  and anything unmappable is left out rather than imputed. Feeds a
-  liability-threshold model for diseases with no GWAS.
-- **`tads`** — topologically associating domains from ENCODE Hi-C
-  contact-domain calls (`list_domain_files`, `load_domains`, `boundaries`,
-  `same_domain`). Two positions inside one TAD are in physical contact and
-  share a regulatory environment, so domain co-membership is the control any
-  paired-position analysis needs; note that ENCODE's biosample filter matches
-  the *dataset*, so check `biosample_count` before treating a call set as
-  cell-type specific.
-- **`traitgym`** — TraitGym causal-variant benchmarks with matched negatives and
-  precomputed predictor features, at a pinned Hub revision.
-- **`intervals`** — genomic-interval helpers: BED I/O, overlap joins, nearest
-  neighbour, merge; 0-based half-open, GRCh38, no liftover.
-- **`corum`** — CORUM curated protein complexes, current or archived release,
-  and the co-complex gene-pair table they imply.
-- **`encode_re2g`** — ENCODE-rE2G CRISPRi enhancer–gene benchmark (Gschwind
-  et al. 2023): every tested element–gene pair with its effect size and
-  label, as a polars table ready for interval joins.
-- **`rfam`** — Rfam RNA families: models, seeds and clans from the EBI FTP,
-  and Infernal-driven annotation of a FASTA with per-hit consensus structure.
-- **`string`** — STRING protein–protein interaction client. Bulk physical
-  sub-network (direct-binding) edges keyed by gene symbol with continuous
-  combined-score weights (`download_physical_links`, `load_physical_links`,
-  `physical_ppi_edges`).
-- **`coessentiality`** — Wainberg et al. 2021 co-essential network from
-  DepMap CRISPR screens (`coessential_pairs` at a BH FDR, `pair_p_values`).
-- **`ensembl_compara`** — Ensembl Compara homology dumps; the human paralogue
-  catalogue as deduplicated gene pairs (`paralog_pairs`) and connected
-  families (`paralog_families`).
-- **`constraint_tracks`** — per-base constraint. UCSC phyloP / phastCons
-  bigWigs for hg38 (241-, 100-, 447-, 470-way) and GPN-Star entropy bigWigs
-  read in place over HTTPS (`open_track`, `score_intervals`,
-  `score_positions`, `[bigwig]` extra), plus GPN-Star's canonical
-  per-chromosome Parquet shards at a pinned revision (`load_gpn_star`).
+## Guides
 
-## Quickstart
+| Task | Guide |
+|---|---|
+| Download Open Targets tables or inspect credible sets | [Open Targets](opentargets.md) |
+| Acquire raw genomewide or regional GWAS statistics | [GWAS acquisition](gwas.md) |
+| Attach publication, structure, constants, and gene annotations | [Raw annotations and enrichment](enrichment.md) |
+| Query cell markers and disease differential expression | [Cell-type sources](cell-types.md) |
+| Resolve ontology terms and preserve textual annotations | [OLS and SNOMED](ols.md) |
+| Find genetic tests and build panel gene sets | [GTR](gtr.md) |
+
+## A small offline example
 
 ```python
-from biodb.opentargets import list_datasets
-from biodb.ontology import expand_keyword_sets_from_ontology
+import pandas as pd
+from biodb.transform import create_gene_association_matrix
 
-print(list_datasets())  # list available Open Targets parquet datasets
-
-expanded = expand_keyword_sets_from_ontology(
-    seed_keywords={"dementia": ["dementia"]},
-    ontology_dict={"dementia": ["alzheimer's disease"]},
-    n_hops=1,
-)
+associations = pd.DataFrame({
+    "sourceId": ["trait:1", "trait:1", "trait:2"],
+    "HGNC": ["BRCA1", "TP53", "EGFR"],
+    "score": [0.9, 0.8, 0.7],
+})
+matrix, metadata = create_gene_association_matrix(associations, verbose=False)
+assert matrix.shape == (2, 3)
 ```
 
-See the [quickstart guide](quickstart.md) for usage patterns and the
-[API reference](api.rst) for the complete surface.
+Bulk examples in the guides can download large upstream files. File previews,
+region selections, and significance filters are explicit options; they change
+the coverage of the returned data. See each guide for cache and provenance
+details.
 
 ```{toctree}
 :maxdepth: 2
 :hidden:
 
 quickstart
+sources
+opentargets
+gwas
+enrichment
+cell-types
 ols
 gtr
+_generated/tutorials/index
 api
 changelog
 ```

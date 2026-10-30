@@ -6,8 +6,8 @@ Each release contains multiple collections (``H`` hallmark,
 ``C1``–``C8``) and identifier variants (``.symbols.gmt``,
 ``.entrez.gmt``).
 
-This module focuses on the **bulk-download path** because that's how
-real pipelines consume MSigDB. The targeted REST mode is a 🚧 stub.
+Bulk helpers download and parse complete gene-set collections. Targeted
+:func:`query_gene_set` and :func:`query_genes` read per-set JSON records.
 
 Examples
 --------

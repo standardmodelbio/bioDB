@@ -1,39 +1,63 @@
 # bioDB tutorials
 
-Rendered `.ipynb` notebooks (with executed outputs — open on GitHub /
-nbviewer / Colab). Every per-source tutorial demonstrates **both** the
-targeted API mode and the bulk-download mode.
+All 17 notebooks contain executed **offline synthetic examples**. Upstream
+requests, large downloads, optional native tools, and publishing calls appear
+as explicitly labeled **live recipes in Markdown**, so re-execution does not
+contact upstream services. HTTP fixtures replace only the transport boundary;
+readers, public API calls, real Parquet/gzip files, manifests and completion
+receipts execute normally.
 
-To re-execute against the current `biodb` install:
-
-```bash
-pip install "biodb[clinvar,protein,ontology,mapping,test]" nbconvert ipykernel
-jupyter nbconvert --to notebook --execute --inplace tutorials/*.ipynb
-```
+Start with [the source catalog](17_source_catalog.ipynb) to find every public
+source module and Open Targets submodule. A linked recipe is not evidence that
+a live service or a whole-corpus download was validated. Record releases,
+assemblies, manifest membership and provenance for production analyses.
 
 ## Index
 
-| # | Notebook | Source | API mode | Bulk mode |
-|---|----------|--------|----------|-----------|
-| 01 | [Utils quickstart](01_utils_quickstart.ipynb) | (cross-cutting) | — | — |
-| 02 | [Open Targets](02_opentargets.ipynb) | `biodb.opentargets`, `biodb.opentargets_graphql` | GraphQL `query_target` / `query_disease` / `query_drug` | Parquet FTP — `list_datasets`, `get_dataset` |
-| 03 | [Monarch](03_monarch.ipynb) | `biodb.monarch` | BioLink REST + Neo4j Cypher | Per-association TSV readers |
-| 04 | [Ontology Lookup Service](04_ontology.ipynb) | `biodb.ols`, `biodb.ontology` | OLS4 REST + owlready2 entity walk | OBO/OWL download + parse, N-hop expansion |
-| 05 | [UniProt](05_uniprot.ipynb) | `biodb.uniprot` | REST — `query_protein`, `get_features`, `get_dbxrefs` | FTP FASTA — `download_swissprot_fasta`, `iter_fasta_records` |
-| 06 | [Harmonizome](06_harmonizome.ipynb) | `biodb.harmonizome` | REST — `list_datasets`, `get_dataset_metadata` | `download_datasets`, `get_gmt`, `load_gene_attribute_matrix` |
-| 07 | [ClinVar](07_clinvar.ipynb) | `biodb.clinvar` | NCBI E-utils — `query_variant`, `query_gene` | VCF — `download_vcf`, `simplify_annotations` (`CLNSIG` long-tail buckets) |
-| 08 | [GWAS Atlas](08_gwas_atlas.ipynb) | `biodb.gwas_atlas` | Cached per-trait `query_trait`, `list_traits` | MAGMA matrix — `download_magma_p`, `load_magma_p`, `melt_magma_p` |
-| 09 | [gProfiler](09_gprofiler.ipynb) | `biodb.gprofiler` | REST enrichment — `gost` | Combined per-organism GMT — `download_gmt`, `load_gmt` |
-| 10 | [MSigDB](10_msigdb.ipynb) | `biodb.msigdb` | Per-set JSON — `query_gene_set`, `query_genes` | Per-collection GMT — `download_gmt`, `load_gmt` |
-| 11 | [PubMed](11_pubmed.ipynb) | `biodb.pubmed` | NCBI E-utils — `search`, `query_pmid`, `query_summaries`, `query_abstract` | Annual Baseline + Daily Update XML.gz — `list_baseline_files`, `download_baseline_file`, `parse_pubmed_xml` |
-| 12 | [SNOMED CT](12_snomed.ipynb) | `biodb.snomed` | Per-concept via OLS4 — `query_concept`, `search_concepts`, `get_descendants`, `get_ancestors` | Local CONCEPT.csv parser — `load_concept_csv`, `load_concept_csv_from_zip` (bring your own bundle from Athena) |
+| Notebook | Covered APIs and contracts |
+|---|---|
+| [01 · Utils quickstart](01_utils_quickstart.ipynb) | `utils`, `transform`: similarity, adaptive filtering, matrices; optional Torch normalization recipe |
+| [02 · Open Targets](02_opentargets.ipynb) | Bulk/readers/variants/studies: raw rows, lead versus member PIP, study joins, lazy scans, manifest completeness; GraphQL recipe |
+| [03 · Monarch](03_monarch.ipynb) | BioLink REST, pagination; Neo4j Cypher and bulk TSV recipes |
+| [04 · Ontology and OLS](04_ontology.ipynb) | Keyword expansion; OLS hierarchy/search and canonical `ontology` OWL recipes; deprecated `ontology_owl` migration |
+| [05 · UniProt](05_uniprot.ipynb) | Streaming gzip FASTA; targeted REST and Swiss-Prot/TrEMBL recipes |
+| [06 · Harmonizome](06_harmonizome.ipynb) | Gzip gene-attribute matrix, merged Parquet; dataset catalog/GMT recipes |
+| [07 · ClinVar](07_clinvar.ipynb) | Clinical-significance buckets; E-utils and VCF-to-Polars/BED recipes |
+| [08 · GWAS Atlas](08_gwas_atlas.ipynb) | MAGMA gene-score matrix to long table/matrix; metadata trait lookup recipes |
+| [09 · gProfiler](09_gprofiler.ipynb) | Cached organism GMT; live functional enrichment recipe |
+| [10 · MSigDB](10_msigdb.ipynb) | Versioned collection GMT; per-set JSON lookup recipes |
+| [11 · PubMed](11_pubmed.ipynb) | Local XML parser; E-utils, baseline/update listing/download recipes |
+| [12 · SNOMED CT](12_snomed.ipynb) | Local Athena TSV/ZIP parsing; graph versus legacy/v2 OLS text bulk recipes |
+| [13 · Raw GWAS](13_raw_gwas.ipynb) | GWAS Catalog + GWAS Harvest: exact manifests, provenance, missing/zero P, significance, inclusive regions, error handling and resumable verified artifacts |
+| [14 · GENCODE and enrichment](14_gencode_enrichment.ipynb) | All-biotype genes versus MANE, raw OT literature/constants/SO, EuropePMC, structure-provider receipts, audited OLS v2 text |
+| [15 · Cell markers](15_cell_markers.ipynb) | Cell Taxonomy, CellMarker 2.0, CellGuide, `markers`, local `hf_datasets`/`cellxgene_dataset` exports; WMG disease/rollup recipes |
+| [16 · Genomic resources](16_genomic_resources.ipynb) | Intervals/TADs, Compara, coessentiality, STRING, CORUM, GPN-Star, Rfam; TraitGym, ENCODE-rE2G, Orphanet and native-tool recipes |
+| [17 · Source catalog](17_source_catalog.ipynb) | Every public source module; All-by-All burden transforms, Pan-UKBB selection, OmicsPred scoring parser, GTR panel sets/text; gene-ID mapping recipe |
 
-Notebooks 02–10 hit real upstream endpoints for the API-mode demos
-(small payloads — fast) and execute bulk-mode calls whenever the
-artifact is small enough to download in a tutorial (e.g. MSigDB
-Hallmark ~50 KB). For multi-GB / multi-tens-of-GB artifacts (TrEMBL,
-ClinVar VCF, full Open Targets bulk shards) the calls are shown in
-markdown cells but not executed.
+## Re-execute and validate
 
-Notebook 01 stays offline against synthetic data — it covers the
-cross-cutting helpers in `biodb.utils`, not any single source.
+From a source checkout, install the small optional dependencies used by the
+fixtures (no Torch, model weights, Infernal or tabix required):
+
+```bash
+pip install -e '.[docs]'
+python scripts/validate_notebooks.py --execute
+```
+
+The validator checks notebook schema/syntax/saved errors, executes each complete
+notebook in an isolated temporary directory, and blocks unexpected network
+connections. It checks temporary execution copies without overwriting reviewed
+outputs. `metadata.biodb.offline = true` declares the whole-notebook policy;
+individual executable cells also carry the `offline` tag.
+
+To refresh saved outputs deliberately after changing examples:
+
+```bash
+jupyter nbconvert --to notebook --execute --inplace tutorials/*.ipynb
+python scripts/validate_notebooks.py --execute
+```
+
+The docs build renders the saved notebooks. Source-specific extras needed only
+for live recipes are called out in the notebooks and API documentation. Examples
+use synthetic data in private temporary directories and never seed a real user
+cache with synthetic source releases.
