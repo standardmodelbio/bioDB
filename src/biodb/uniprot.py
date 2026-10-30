@@ -1,8 +1,8 @@
 """UniProt REST client — protein sequences, features, cross-references.
 
-The **API mode** for UniProt; mirrors the dual-mode pattern in the
-rest of :mod:`biodb` (one record at a time via REST, with future
-bulk-FTP helpers planned).
+Targeted REST queries return protein records, sequences, features and
+cross-references. Bulk FTP helpers download Swiss-Prot or TrEMBL FASTA;
+:func:`iter_fasta_records` parses the acquired files with Biopython.
 
 Ported from `VEP_protein <https://github.com/bschilder/VEP_protein>`_'s
 ``src/unitprot.py`` with the following hygiene fixes:

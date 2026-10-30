@@ -6,7 +6,7 @@ gene-set / functional-enrichment service. This module surfaces:
 * **Bulk mode** — :func:`download_gmt`, :func:`load_gmt` for the
   published ``gprofiler_full_<organism>.name.gmt`` files (the same
   zip used by the AoU PhenomicLandscape pipeline).
-* **API mode (placeholder)** — :func:`gost` is a thin wrapper around
+* **API mode** — :func:`gost` is a thin wrapper around
   the gProfiler REST endpoint for live g:Profiler functional enrichment
   (``gost``). Re-uses the ``gprofiler-official`` Python package when
   installed, falls back to a plain ``requests.post``.

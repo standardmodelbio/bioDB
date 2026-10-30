@@ -2,7 +2,9 @@
 Monarch Initiative data integration for querying gene-disease associations.
 
 This module provides functions to:
-1. Download and read causal gene-to-disease association data from Monarch Initiative
+1. Download and read Monarch association TSVs.
+2. Query entities and gene associations through BioLink REST.
+3. Query the public graph with Cypher and neighborhood helpers.
 
 References:
 - Monarch Initiative: https://monarchinitiative.org/

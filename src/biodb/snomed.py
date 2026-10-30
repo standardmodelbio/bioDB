@@ -1,25 +1,25 @@
-"""SNOMED CT — per-concept lookups (via OLS4) + local CONCEPT.csv parser.
+"""SNOMED CT — OLS concept/text acquisition and local CONCEPT.csv parsing.
 
 SNOMED CT is the canonical clinical-terminology vocabulary — diagnoses,
-procedures, findings, body sites, etc. ``biodb.snomed`` covers both
-modes, but the bulk path is deliberately **parser-only** because of
-SNOMED CT's licensing posture:
+procedures, findings, body sites, etc. ``biodb.snomed`` supports targeted
+queries, bulk OLS metadata, and caller-supplied vocabulary bundles:
 
 * **API mode** — per-concept lookups via EBI's `OLS4
-  <https://www.ebi.ac.uk/ols4/>`_ (~376 k SNOMED terms indexed).
+  <https://www.ebi.ac.uk/ols4/>`_.
   See :func:`query_concept`, :func:`search_concepts`,
   :func:`get_descendants`, :func:`get_ancestors`,
   :func:`get_children`, :func:`get_parents`. Each accepts an ``int``,
-  a CURIE (``"SNOMED:38341003"``), or a full IRI. EBI handles the
-  SNOMED CT license on their side — no token required.
+  a CURIE (``"SNOMED:38341003"``), or a full IRI.
 
-* **Bulk mode (parser only)** — :func:`load_concept_csv` and
+* **OLS bulk metadata** — :func:`bulk_concepts` obtains cached concept
+  records, and :func:`bulk_text_concepts` acquires v2 labels, synonyms and
+  available textual definitions using resumable page checkpoints. These
+  metadata exports are separate from an Athena vocabulary release.
+
+* **Local bundles** — :func:`load_concept_csv` and
   :func:`load_concept_csv_from_zip` parse a CONCEPT.csv that the user
-  obtained themselves from OHDSI Athena. **bioDB does not host or
-  redistribute SNOMED CT bytes**, because SNOMED CT is a controlled
-  vocabulary (free in Member countries via UMLS/IHTSDO license, paid
-  Affiliate license elsewhere — neither permits onward redistribution
-  to unlicensed parties).
+  obtained themselves from OHDSI Athena. Observe the applicable vocabulary
+  license for use and redistribution of acquired records or local bundles.
 
 How to get a CONCEPT.csv
 ------------------------
