@@ -36,9 +36,17 @@ import importlib
 import re
 from collections.abc import Iterator
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import polars as pl
+
+if TYPE_CHECKING:
+    from biodb.gencode_transcripts import (
+        download_bundle,
+        iter_metadata,
+        iter_transcripts,
+        query_transcript,
+    )
 
 
 def __getattr__(name: str) -> Any:
