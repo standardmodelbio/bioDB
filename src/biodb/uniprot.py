@@ -27,6 +27,7 @@ Examples
 from __future__ import annotations
 
 import logging
+import re
 from io import BytesIO
 from pathlib import Path
 from typing import Any
@@ -40,6 +41,245 @@ UNIPROT_REST_API = "https://rest.uniprot.org/uniprotkb"
 """UniProt REST root. Append ``/<accession>.<format>``."""
 
 _DEFAULT_TIMEOUT_S: float = 30.0
+
+
+def query_protein_json(
+    uniprot_id: str, *, release: str | None = None, timeout_s: float = _DEFAULT_TIMEOUT_S
+) -> dict[str, Any]:
+    """Keep UniProt JSON qualifiers/evidence that a generic SeqRecord can lose."""
+    response = requests.get(f"{UNIPROT_REST_API}/{uniprot_id}.json", timeout=timeout_s)
+    response.raise_for_status()
+    if release is not None and response.headers.get("X-UniProt-Release") != release:
+        raise ValueError("UniProt live release differs from the requested release")
+    return response.json()
+
+
+def download_human_entries(*, release: str, cache_dir: str | Path | None = None) -> Path:
+    """Cache reviewed human JSON entries, requiring the requested live release.
+
+    The API is a live service. A release mismatch fails rather than attributing
+    today's annotations to a different release; previously cached snapshots work.
+    """
+    from urllib.parse import urlencode
+
+    from biodb.transcript_io import download_source
+
+    query = urlencode(
+        {"query": "(organism_id:9606) AND (reviewed:true)", "format": "json", "compressed": "true"}
+    )
+    root = Path(cache_dir or "~/.cache/biodb/uniprot").expanduser() / release
+    return download_source(
+        f"{UNIPROT_REST_API}/stream?{query}",
+        root / "human_reviewed.json.gz",
+        source="uniprot",
+        release=release,
+        expected_headers={"X-UniProt-Release": release},
+        terms_url="https://www.uniprot.org/help/license",
+    )
+
+
+def iter_json_entries(path: str | Path):
+    """Stream the API's results array without loading the human dump in RAM."""
+    import gzip
+
+    import ijson
+
+    path = Path(path)
+    with gzip.open(path, "rb") if path.suffix == ".gz" else path.open("rb") as fh:
+        yield from ijson.items(fh, "results.item", use_float=True)
+
+
+def _isoform_sequence(entry: dict[str, Any], isoform: dict[str, Any]) -> str | None:
+    sequence = entry.get("sequence", {}).get("value")
+    if isoform.get("isoformSequenceStatus", isoform.get("sequenceStatus")) == "Displayed":
+        return sequence
+    ids = set(isoform.get("sequenceIds", []))
+    edits = [f for f in entry.get("features", []) if f.get("featureId") in ids]
+    if not sequence or not ids or len(edits) != len(ids):
+        return None
+    for feature in sorted(edits, key=lambda f: f["location"]["start"]["value"], reverse=True):
+        start, end = feature["location"]["start"]["value"] - 1, feature["location"]["end"]["value"]
+        alternatives = feature.get("alternativeSequence", {}).get("alternativeSequences", [])
+        # UniProt represents deleted segments by an empty alternatives list.
+        if len(alternatives) > 1:
+            return None
+        replacement = alternatives[0] if alternatives else ""
+        sequence = sequence[:start] + replacement + sequence[end:]
+    return sequence
+
+
+def iter_isoform_annotations(entry: dict[str, Any], *, release: str):
+    """Yield isoform-aware annotations for each explicit Ensembl transcript xref.
+
+    Broader comments are kept as gene_context, never copied into isoform
+    function claims. Sequence features without a molecule qualifier refer to the
+    displayed protein sequence, not automatically to all alternative products.
+    """
+    products = [
+        c for c in entry.get("comments", []) if c.get("commentType") == "ALTERNATIVE PRODUCTS"
+    ]
+    isoforms = [i for product in products for i in product.get("isoforms", [])]
+    by_id = {identifier: iso for iso in isoforms for identifier in iso.get("isoformIds", [])}
+    text_labels = {}
+    for iso in isoforms:
+        names = [iso.get("name", {}).get("value", "")] + [
+            s.get("value", "") for s in iso.get("synonyms", [])
+        ]
+        for name in names:
+            if name:
+                label = name.casefold()
+                identifiers = tuple(iso.get("isoformIds", []))
+                if label in text_labels and text_labels[label] != identifiers:
+                    text_labels[label] = None
+                else:
+                    text_labels[label] = identifiers
+
+    def comment_scope(comment):
+        if comment.get("molecule"):
+            return comment["molecule"]
+        if comment.get("commentType") == "TISSUE SPECIFICITY":
+            return None  # resolve comparative tissue prose clause by clause
+        texts = [t["value"].casefold() for t in comment.get("texts", []) if t.get("value")]
+        # Older comments encode a qualifier in prose instead of `molecule`.
+        # Accept only an explicit, unambiguous prefix in EVERY text, never a
+        # guessed function assignment from a general entry-level comment.
+        candidates = [
+            label
+            for label in text_labels
+            if texts and all(t.startswith(f"isoform {label} ") for t in texts)
+        ]
+        if len(candidates) != 1:
+            return None
+        label = candidates[0]
+        if text_labels[label] is None:
+            return None
+        if any(
+            text_labels[other] != text_labels[label]
+            and any(f"isoform {other} " in text for text in texts)
+            for other in text_labels
+        ):
+            return None
+        return label
+
+    scoped_comments = []
+    for comment in entry.get("comments", []):
+        scope = comment_scope(comment)
+        scoped_comments.append((comment, scope))
+        if scope or comment.get("commentType") != "TISSUE SPECIFICITY":
+            continue
+        # Some curated tissue paragraphs explicitly compare named forms in
+        # separate sentences. Preserve the whole original as context and only
+        # promote sentences naming exactly one unambiguous protein form.
+        for text in comment.get("texts", []):
+            fragments = [
+                clause.strip()
+                for sentence in re.split(r"(?<=[.!?])\s+(?=[A-Z])", text.get("value", ""))
+                for clause in re.split(r"\b(?:while|whereas)\b", sentence, flags=re.I)
+            ]
+            for sentence in fragments:
+                groups = {}
+                ambiguous = False
+                for label, identifiers in text_labels.items():
+                    distinctive = bool(
+                        re.search(r"[-_()]", label)
+                        or (
+                            len(label) >= 3
+                            and re.search(r"[a-z]", label)
+                            and re.search(r"\d", label)
+                        )
+                    )
+                    pattern = (
+                        (r"(?<!\w)" + re.escape(label) + r"(?!\w)")
+                        if distinctive
+                        else (r"\bisoform\s+" + re.escape(label) + r"(?!\w)")
+                    )
+                    if re.search(pattern, sentence, re.I):
+                        if identifiers is None:
+                            ambiguous = True
+                        groups.setdefault(identifiers, label)
+                if ambiguous or len(groups) != 1:
+                    continue
+                label = next(iter(groups.values()))
+                scoped_comments.append(
+                    (
+                        {
+                            **comment,
+                            "texts": [{**text, "value": sentence}],
+                            "molecule": "Isoform " + label,
+                            "scope_basis": "explicit_named_isoform_clause"
+                            if len(fragments) > 1
+                            and re.search(r"\b(?:while|whereas)\b", text.get("value", ""), re.I)
+                            else "explicit_named_isoform_sentence",
+                            "original_text": text.get("value"),
+                        },
+                        label,
+                    )
+                )
+    broader = [
+        c
+        for c, scope in scoped_comments
+        if not scope and c.get("commentType") != "ALTERNATIVE PRODUCTS"
+    ]
+    for xref in entry.get("uniProtKBCrossReferences", []):
+        if xref.get("database") != "Ensembl":
+            continue
+        isoform_id = xref.get("isoformId")
+        iso = by_id.get(isoform_id, {})
+        names = {str(iso.get("name", {}).get("value", "")), isoform_id or ""}
+        names.update(s.get("value", "") for s in iso.get("synonyms", []))
+        labels = {name.lower().removeprefix("isoform ") for name in names if name}
+
+        def matches(molecule: str, labels: set[str] = labels) -> bool:
+            return molecule.lower().removeprefix("isoform ") in labels
+
+        comments = [
+            {
+                **c,
+                **(
+                    {"scope_basis": "explicit_isoform_text_prefix"} if not c.get("molecule") else {}
+                ),
+            }
+            for c, scope in scoped_comments
+            if scope and matches(scope)
+        ]
+        features = [
+            f for f in entry.get("features", []) if f.get("molecule") and matches(f["molecule"])
+        ]
+        displayed = (
+            not isoforms
+            or iso.get("isoformSequenceStatus", iso.get("sequenceStatus")) == "Displayed"
+        )
+        if displayed:
+            features += [
+                {**f, "annotation_scope": "canonical_protein_sequence"}
+                for f in entry.get("features", [])
+                if not f.get("molecule")
+            ]
+        # Entries with no alternative products still have a displayed sequence.
+        sequence = (
+            _isoform_sequence(entry, iso)
+            if iso
+            else entry.get("sequence", {}).get("value")
+            if not isoforms
+            else None
+        )
+        yield {
+            "transcript_id": xref["id"],
+            "isoform_id": isoform_id,
+            "accession": entry["primaryAccession"],
+            "name": iso.get("name", {}).get("value"),
+            "synonyms": [s["value"] for s in iso.get("synonyms", []) if s.get("value")],
+            "comments": comments,
+            "features": features,
+            "gene_context": broader,
+            "protein_sequence": sequence,
+            "source": "uniprot",
+            "release": release,
+            "scope": "protein",
+            "evidence_type": "curated",
+            "xref": xref,
+            "entry_audit": entry.get("entryAudit", {}),
+        }
 
 
 def _fetch_records(

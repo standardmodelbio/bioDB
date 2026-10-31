@@ -1,0 +1,5 @@
+1	GENCODE	gene	204528845	204529692	.	-	.	gene_id "ENSG00000236779"; gene_name "ENSG00000236779"; gene_type "processed_pseudogene"
+1	GENCODE	transcript	204528845	204529692	.	-	.	gene_id "ENSG00000236779"; transcript_id "ENST00000432698"; transcript_name "ENST00000432698"; transcript_type "processed_pseudogene"; tag "pseudo_consens,basic,Ensembl_canonical,GENCODE_Primary"
+1	GENCODE	exon	204528845	204529692	.	-	.	gene_id "ENSG00000236779"; transcript_id "ENST00000432698"; exon_id "ENSE00001765611";
+1	GENCODE	gene	16018146	16034109	.	+	.	gene_id "ENSG00000186510"; gene_name "CLCNKA"; gene_type "protein_coding"
+1	GENCODE	transcript	16021862	16034109	.	+	.	gene_id "ENSG00000186510"; transcript_id "ENST00000861481"; transcript_name "CLCNKA-212"; protein_id "ENSP00000531540"; transcript_type "protein_coding"; tag "basic,TAGENE"

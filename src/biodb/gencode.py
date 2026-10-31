@@ -32,12 +32,21 @@ queries one place for canonical bulk-annotation data.
 from __future__ import annotations
 
 import gzip
+import importlib
 import re
 from collections.abc import Iterator
 from pathlib import Path
 from typing import Any
 
 import polars as pl
+
+
+def __getattr__(name: str) -> Any:
+    """Load transcript acquisition only when its public exports are requested."""
+    if name in {"download_bundle", "iter_metadata", "iter_transcripts", "query_transcript"}:
+        return getattr(importlib.import_module("biodb.gencode_transcripts"), name)
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+
 
 _URL_FMT: str = (
     "https://ftp.ebi.ac.uk/pub/databases/gencode/Gencode_human/"
@@ -273,9 +282,13 @@ def fetch_mane_select(release: str, cache_dir: str | Path | None = None) -> pl.D
 
 
 __all__ = [
+    "download_bundle",
     "download_gencode_gtf",
     "fetch_mane_select",
     "get_genes",
+    "iter_metadata",
+    "iter_transcripts",
+    "query_transcript",
 ]
 
 

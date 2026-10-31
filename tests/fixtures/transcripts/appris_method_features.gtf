@@ -1,0 +1,5 @@
+1	SPADE	domain_wrong	26191344	26200016	112.7	+	.	gene_id "ENSG00000188782"; transcript_id "ENST00000338855"; note "hmm_acc:PF00520.30,hmm_name:Ion_trans,evalue:5.7e-33,pep_start:91,pep_end:315"
+1	SPADE	domain_wrong	26191344	26198339	48.3	+	.	gene_id "ENSG00000188782"; transcript_id "ENST00000518899"; note "hmm_acc:PF00520.30,hmm_name:Ion_trans,evalue:2.6e-13,pep_start:91,pep_end:228"
+1	SPADE	domain_wrong	26191344	26200016	112.7	+	.	note "hmm_acc:PF00520.30,hmm_name:Ion_trans,evalue:5.7e-33,pep_start:91,pep_end:315"; transcript_id "ENST00000456354"; gene_id "ENSG00000188782"
+1	SPADE	domain_wrong	116121055	116133329	280.8	+	.	note "hmm_acc:PF03281.13,hmm_name:Mab-21,evalue:4.4e-84,pep_start:58,pep_end:351"; gene_id "ENSG00000173212"; transcript_id "ENST00000683341"
+1	SPADE	domain_wrong	116121055	116133329	280.8	+	.	note "hmm_acc:PF03281.13,hmm_name:Mab-21,evalue:4.4e-84,pep_start:58,pep_end:351"; gene_id "ENSG00000173212"; transcript_id "ENST00000864985"

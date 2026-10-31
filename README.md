@@ -27,6 +27,11 @@ Each source module aims to provide **both** modes, so you can prototype against 
 
 | Source | Module | API queries | Bulk downloads |
 |---|---|---|---|
+| **GENCODE transcripts** — every annotated biotype, exon/CDS/UTR structure, native versions and RNA/protein sequences | [`biodb.gencode`](src/biodb/gencode.py) | `query_transcript` in a pinned cached release | `download_bundle`, `iter_transcripts`; disk-backed `SequenceStore` |
+| **APPRIS / TRIFID** — protein-isoform features, principal status and scores | [`biodb.appris`](src/biodb/appris.py) | `query_transcript` in a pinned cached release | `get_dataset`, streaming score/feature readers |
+| **MANE** — exact ENST–RefSeq transcript pairs and clinical reference flags | [`biodb.mane`](src/biodb/mane.py) | `query_transcript` in a pinned cached release | MANE 1.5 summary and RNA GenBank files |
+| **RefSeq RNA** — curated transcript-variant descriptions with gene context separate | [`biodb.refseq`](src/biodb/refseq.py) | Versioned-accession `query_transcript` through EFetch | Pinned GRCh38 RNA GenBank dump and streaming parser |
+| **GTEx transcript expression** — tissue TPM, detection and within-gene usage | [`biodb.gtex`](src/biodb/gtex.py) | Sequential V2 `query_expression` | Public file manifest, original matrices and two-pass disk-backed tissue summaries |
 | **[Open Targets Platform](https://platform-docs.opentargets.org/)** — gene-disease-drug associations, evidence, expression, essentiality, pharmacogenomics, pathways, plus bulk variant fine-mapping (credible sets) and per-variant VEP scores | [`biodb.opentargets`](src/biodb/opentargets/) | ✅ GraphQL | ✅ FTP Parquet, versioned cache — incl. [`opentargets.variants.get_credible_set`](src/biodb/opentargets/variants.py), [`opentargets.variants.get_variant_effects`](src/biodb/opentargets/variants.py), [`opentargets.studies.get_study`](src/biodb/opentargets/studies.py) |
 | **[Monarch Initiative](https://monarchinitiative.org/)** — causal gene-to-disease, phenotype-to-disease, full KG | [`biodb.monarch`](src/biodb/monarch.py) | ✅ BioLink v3 REST + Neo4j Cypher against the public KG | ✅ Per-association TSVs |
 | **[Ontology Lookup Service (OLS)](https://www.ebi.ac.uk/ols4/)** — EBI-hosted gateway to ~280 OBO Foundry ontologies (Mondo, HPO, EFO, SO, GO, ChEBI, SNOMED, …) | [`biodb.ols`](src/biodb/ols.py), [`biodb.ontology`](src/biodb/ontology.py) | ✅ OLS4 REST — no local file needed, plus a generic owlready2 entity walk for callers with a local OWL file | ✅ OBO / OWL download + parse, N-hop expansion, hierarchical keyword sets, attention-weight analysis, gene-phenotype matrix, ontological similarity |
@@ -134,6 +139,50 @@ records = query_protein("P12345")           # list[Bio.SeqRecord]
 features = get_features("P12345")           # DataFrame of protein features
 xrefs = get_dbxrefs("P12345")               # DataFrame of cross-references
 ```
+
+### Transcript / isoform inputs for IsoDocs
+
+Install `biodb[transcripts]` for GenBank, streaming UniProt JSON and sequence
+caches. `gencode.download_bundle("50")` fetches comprehensive CHR GTF,
+transcript/protein FASTA and annotation metadata. `gencode.iter_transcripts`
+streams one gene at a time and keeps all biotypes; the older
+`fetch_mane_select` API is unchanged. Native versions and `_PAR_Y` suffixes
+are preserved, and coordinates are 0-based half-open internally.
+
+`uniprot.query_protein_json`, `download_human_entries` and
+`iter_isoform_annotations` preserve isoform-qualified comments and mappings.
+The bulk client checks `X-UniProt-Release` against the requested release;
+it fails rather than silently mixing a newer live snapshot into an old build.
+Source downloads retain original bytes plus `.source.json` manifests containing
+the source, release, URL, assembly, acquisition time and SHA-256 checksum.
+
+`appris.download_features` fetches all method GTFs (domains, residues,
+conservation, structure, topology, signal sequences and peptide evidence).
+`appris_data.annot.gtf.gz` is the input annotation, not those method results.
+Recorded bounded source contracts are in `tests/fixtures/transcripts`, with
+URLs, acquisition dates, release labels and excerpt hashes. Opt-in live checks
+use `ISODOCS_NETWORK_TESTS=1 pytest -m network tests/test_transcript_contracts.py`.
+
+For GTEx V11 summaries, provide the **complete GENCODE47** transcript→gene map
+to `iter_expression_summaries`, not the target GENCODE50 subset. Usage is computed
+per sample before tissue aggregation. The disk-backed denominator matrix is
+intended for a compute worker; do not run the whole human matrix on a laptop.
+
+Transcript summaries also retain TPM/usage quartiles, detection counts,
+gene-detection support and the number of quantified siblings. RefSeq parsing
+separates adjacent summary/variant/publication labels and exposes informative
+RNA/regulatory features with native locations, fuzzy/compound boundaries,
+evidence qualifiers and structured attributes. Propagated protein annotations
+are not promoted to measured RNA mechanisms. Full original fields remain raw.
+
+`biodb.transcript_annotations.iter_annotations(path, release=...)` accepts
+additional provenance-bearing JSONL study annotations. Assertions declare their
+biological kind, molecular scope, evidence type, source URL and optional
+conditions/metrics/publications. It validates this interchange; the consumer
+still must establish transcript/RNA/protein identity before attaching evidence.
+Keep transcript and protein assertions in separate rows; protein assertions
+require a peptide sequence for explicit correspondence. Normalizer capability
+versions allow consumers to reject stale cached derivations after an upgrade.
 
 ### Generic OWL ontology walks
 

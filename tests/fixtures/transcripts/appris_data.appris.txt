@@ -1,0 +1,5 @@
+Ensembl Gene ID	Gene name (HGNC)	Transcript ID	Translation ID	Is translated?	Transcript type	Not found tag	CCDS ID	Transcript support level	Protein length	Functional residues (firestar)	Structure score (Matador)	Conservation (CORSAIR)	Domain Score (SPADE)	Trans-membrane helices (THUMP)	Signal sequence (CRASH)	Trifid Score	Peptides	APPRIS score	APPRIS Annotation	MANE
+ENSG00000186510	CLCNKA	ENST00000464764	-	NO_TRANSLATION	protein_coding_CDS_not_defined															
+ENSG00000186510	CLCNKA	ENST00000861495	ENSP00000531554	TRANSLATION	protein_coding	-	-	-	638.0	0	15.46	0.0	234.7	39.0	-,-	0.0146	-	6.198	MINOR	
+ENSG00000186510	CLCNKA	ENST00000861484	ENSP00000531543	TRANSLATION	protein_coding	-	-	-	655.0	0	15.71	0.0	273.2	38.0	-,-	0.1004	-	6.702	MINOR	
+ENSG00000186510	CLCNKA	ENST00000861477	ENSP00000531536	TRANSLATION	protein_coding	-	CCDS41269.1	-	686.0	0	16.71	7.2	274.1	39.0	-,-	0.9847	-	10.7	ALTERNATIVE:1	
