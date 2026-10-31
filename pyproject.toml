@@ -101,6 +101,11 @@ gget = [
 protein = [
     "biopython>=1.83",
 ]
+transcripts = [
+    "biopython>=1.83",
+    "ijson>=3.3",
+    "pooch>=1.8",
+]
 # constraint_tracks.py: random-access reads of UCSC / Hugging Face bigWigs.
 bigwig = [
     "pyBigWig>=0.3.18",

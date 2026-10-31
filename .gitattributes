@@ -1,0 +1,3 @@
+# Recorded source bytes retain TSV empty columns and GenBank spacing.
+tests/fixtures/transcripts/appris_data.appris.txt -whitespace
+tests/fixtures/transcripts/refseq_neat1.gb -whitespace

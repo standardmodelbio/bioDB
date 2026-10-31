@@ -1,0 +1,104 @@
+[
+  {
+    "filename": "uniprot_Q07817.json",
+    "url": "https://rest.uniprot.org/uniprotkb/Q07817.json",
+    "retrieved_at": "2026-10-30T23:56:10.881027+00:00",
+    "sha256": "98b4404dc036cadf47da6389a076a11ec46a1aebad794bee5247c12053e02b35",
+    "release": "2026_03",
+    "terms_url": "https://www.uniprot.org/help/license",
+    "selection": "complete single public record"
+  },
+  {
+    "filename": "uniprot_P21802.json",
+    "url": "https://rest.uniprot.org/uniprotkb/P21802.json",
+    "retrieved_at": "2026-10-30T23:56:11.450264+00:00",
+    "sha256": "a5f6708f6cbc3a408201bfbe74884b0d53f70418eefb4917227eb15d07896a27",
+    "release": "2026_03",
+    "terms_url": "https://www.uniprot.org/help/license",
+    "selection": "complete single public record"
+  },
+  {
+    "filename": "uniprot_P14618.json",
+    "url": "https://rest.uniprot.org/uniprotkb/P14618.json",
+    "retrieved_at": "2026-10-30T23:56:12.992121+00:00",
+    "sha256": "d9326a2c1d3aa0f664af40f8f790873e1adddbe5653fbd822cf9a852796dc95c",
+    "release": "2026_03",
+    "terms_url": "https://www.uniprot.org/help/license",
+    "selection": "complete single public record"
+  },
+  {
+    "filename": "uniprot_P10636.json",
+    "url": "https://rest.uniprot.org/uniprotkb/P10636.json",
+    "retrieved_at": "2026-10-30T23:56:13.556225+00:00",
+    "sha256": "3199bfd88e99441f55c62c32be62a4a764091609f23eb3c8a01caa2d2f339b8f",
+    "release": "2026_03",
+    "terms_url": "https://www.uniprot.org/help/license",
+    "selection": "complete single public record"
+  },
+  {
+    "filename": "uniprot_P01116.json",
+    "url": "https://rest.uniprot.org/uniprotkb/P01116.json",
+    "retrieved_at": "2026-10-30T23:56:14.297887+00:00",
+    "sha256": "54e2d937a79f84a4b9e6039fe4de4632290b1456cfc069b71b98dcd1880140fa",
+    "release": "2026_03",
+    "terms_url": "https://www.uniprot.org/help/license",
+    "selection": "complete single public record"
+  },
+  {
+    "filename": "uniprot_P04637.json",
+    "url": "https://rest.uniprot.org/uniprotkb/P04637.json",
+    "retrieved_at": "2026-10-30T23:56:15.927664+00:00",
+    "sha256": "6bdb471fae5b0d4c92a1e2fd63f35b49e3826188e82ff54fcddec70c4e63e114",
+    "release": "2026_03",
+    "terms_url": "https://www.uniprot.org/help/license",
+    "selection": "complete single public record"
+  },
+  {
+    "filename": "appris_data.appris.txt",
+    "url": "https://apprisws.bioinfo.cnio.es/pub/current_release/datafiles/homo_sapiens/e116v50/appris_data.appris.txt",
+    "retrieved_at": "2026-10-30T23:56:16.844076+00:00",
+    "sha256": "a9f67a6cc698ff2fd88e42dc13250d41e84000a5dc4f401437531eb0852556a7",
+    "release": "e116v50",
+    "selection": "first five decompressed lines"
+  },
+  {
+    "filename": "appris_method.trifid.txt",
+    "url": "https://apprisws.bioinfo.cnio.es/pub/current_release/datafiles/homo_sapiens/e116v50/appris_method.trifid.txt",
+    "retrieved_at": "2026-10-30T23:56:17.393317+00:00",
+    "sha256": "b138664091e8055ff32388690b7cb068761999b266075d451581f3a5e45424dc",
+    "release": "e116v50",
+    "selection": "first five decompressed lines"
+  },
+  {
+    "filename": "appris_data.annot.gtf",
+    "url": "https://apprisws.bioinfo.cnio.es/pub/current_release/datafiles/homo_sapiens/e116v50/appris_data.annot.gtf.gz",
+    "retrieved_at": "2026-10-30T23:56:19.062479+00:00",
+    "sha256": "6ba88f8242c15528451479bbf960aeab05a0fc68abf94e6328d54c6bed156844",
+    "release": "e116v50",
+    "selection": "first five decompressed lines"
+  },
+  {
+    "filename": "gtex_tp53.json",
+    "url": "https://gtexportal.org/api/v2/expression/medianTranscriptExpression?datasetId=gtex_v11&gencodeId=ENSG00000141510.19&tissueSiteDetailId=Whole_Blood&itemsPerPage=2",
+    "retrieved_at": "2026-10-30T23:56:19.281524+00:00",
+    "sha256": "3dd3e3401d2e8700d4c29eb86e754e4f1a5d67d804ca36fb0af06137adf8f6a0",
+    "release": "gtex_v11",
+    "selection": "two API rows"
+  },
+  {
+    "filename": "refseq_neat1.gb",
+    "url": "https://eutils.ncbi.nlm.nih.gov/entrez/eutils/efetch.fcgi?db=nuccore&id=NR_028272.1,NR_131012.1&rettype=gb&retmode=text",
+    "retrieved_at": "2026-10-30T23:56:19.551439+00:00",
+    "sha256": "09c9d06b599437c6e44c2dfeb49c297b76f8e7266ee7df9aebe0c12328176f50",
+    "release": "exact accessions",
+    "selection": "two exact-version records"
+  },
+  {
+    "filename": "appris_method_features.gtf",
+    "url": "https://apprisws.bioinfo.cnio.es/pub/current_release/datafiles/homo_sapiens/e116v50/appris_method.spade.gtf.gz",
+    "retrieved_at": "2026-10-30T23:57:13.716030+00:00",
+    "release": "e116v50",
+    "selection": "first five method annotation lines",
+    "sha256": "cecc65f9e40d46c124fed5e25af9d2c0ce646e120fd1de9216171927a9e23944"
+  }
+]
